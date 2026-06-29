@@ -52,7 +52,10 @@ export-and-delete. It is free, offered as-is with no warranty.
 
 ### Non-Goals (for v1)
 - Public open signup at internet scale (see §5, OAuth verification cost).
-- Payments, premium tiers, ads, or any monetization.
+- Payments, premium tiers, ads, or profit-seeking monetization. *(One subtle,
+  optional "tip jar" to offset hosting — e.g. Buy Me a Coffee / Ko-fi — is the
+  lone exception, tracked as a later work item in §17. It links out to an
+  external service, so no payment data ever touches Kith.)*
 - Rich drag-and-drop card *designer* (we accept a finished image; we are not
   Canva). A future "templates" feature is out of scope for MVP.
 - SMS / WhatsApp / push delivery. Email only.
@@ -525,7 +528,9 @@ Each gate is a working, committed, tested increment.
   cases, downtime-safe `pending` rows, target/cancel logic, reply-threaded sends
   reusing G3's queue, per-event config. Dashboard shows reminder status.
 - **G6 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
-  export/delete fully wired, deploy behind Tailscale Funnel (`live` mode), backups.
+  export/delete fully wired, **a subtle "buy me a coffee" donation link** (quiet
+  placement in footer + settings; links to an external service, no payment data
+  stored), deploy behind Tailscale Funnel (`live` mode), backups.
 
 ---
 
