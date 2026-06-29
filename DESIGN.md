@@ -38,8 +38,9 @@ export-and-delete. It is free, offered as-is with no warranty.
   their Sent folder, and inherits Google's SPF/DKIM/DMARC reputation.
 - **Dead-simple authoring.** Upload an image, add recipients (paste, type, or
   pick from saved contacts), write a short message, send.
-- **Trustworthy tracking.** Reliable accept/decline + sent/delivered status;
-  best-effort open tracking with honest caveats.
+- **Trustworthy, honest tracking.** Reliable sent + accept/decline status, plus
+  "opened" = the recipient visited the invitation page. **No tracking pixel** —
+  no hidden beacons, ever.
 - **Privacy by default.** Minimal data, encrypted PII at rest, user-owned
   export/delete, heavy assets auto-purged.
 - **Cheap & self-hostable.** One container, one volume, no paid dependencies.
@@ -68,6 +69,8 @@ These were decided up front and constrain everything downstream.
 | 2 | **User scope** | Trusted circle / whitelist | Stays under Google's 100 test-user cap → **no OAuth verification required.** Smallest abuse & privacy surface. |
 | 3 | **Data retention** | Persistent until the user deletes | Users get a dashboard, history, and a reusable address book. Reconciled with privacy in §11. |
 | 4 | **Image storage** | Local container, auto-purged after the event **+** a resized "sane resolution" copy inlined into each email (CID) | Landing page shows full-res while it exists; email renders offline and survives the purge. |
+| 5 | **Tracking** | **No open pixel.** Signals = Sent · Opened (= visited invitation page) · Accepted · Declined | Zero hidden beacons → cleaner privacy story. "Opened" undercounts (inlined card is viewable in-email without clicking), stated honestly. |
+| 6 | **Run target** | Same container runs **locally on the laptop first**, then unchanged on the home server | One image, env-driven config, a `dry-run` send mode → full local test loop before exposing anything publicly. |
 
 ---
 
@@ -135,9 +138,9 @@ create event ─► build recipient rows ─► [Send]
             - mint opaque token (≥128-bit)                   (respect quota,
             - render MIME (multipart/related):               batch + backoff)
               · HTML body w/ inlined CID image                     │
-              · 1×1 open-pixel  → /t/o/{token}.gif                 ▼
+              · "View invitation" → /i/{token}                     ▼
               · RSVP buttons    → /t/rsvp/{token}?a=yes|no   Gmail API users.
-              · plaintext fallback                           messages.send
+              · plaintext fallback (NO tracking pixel)       messages.send
             - personalize greeting (recipient name)          (user's creds)
                     │                                              │
                     └──────────────► message row: status=Sent ◄───┘
@@ -165,22 +168,23 @@ create event ─► build recipient rows ─► [Send]
 
 ## 7. Tracking Design
 
-Two signals, with honest reliability tiers:
+**No tracking pixel.** All signals come from explicit, first-party HTTP requests
+the recipient's browser makes to *our* server — nothing hidden in the email body.
 
 | Signal | Mechanism | Reliability |
 |--------|-----------|-------------|
 | **Sent** | Gmail API returns a message id | High |
-| **Opened** | 1×1 transparent GIF at `/t/o/{token}.gif` | **Best-effort only** |
-| **Clicked** | "View invitation" link → `/i/{token}` | High |
-| **Accepted / Declined** | RSVP buttons → `/t/rsvp/{token}?a=yes\|no` then confirm | High (explicit user action) |
+| **Opened** | Recipient clicks **"View invitation"** → landing page rendered at `/i/{token}` (logged as `landing_view`) | High *for those who click through* |
+| **Accepted / Declined** | RSVP buttons → `/t/rsvp/{token}?a=yes\|no` → confirm step | High (explicit user action) |
 
-**Why opens are unreliable (stated plainly in the UI):** Gmail routes all images
-through `googleusercontent.com`, *caching and sometimes pre-fetching* them. This
-means an "open" can register before the human looks, can be deduped/hidden, or can
-fail to register if images are blocked. We therefore treat the pixel as a soft
-hint and lead the dashboard with the **reliable** signals: Sent, Clicked, and
-RSVP. (We also log a "viewed landing page" event, which is a stronger open proxy
-than the pixel.)
+**Honest caveat (stated plainly in the UI):** because the card image is **inlined
+in the email**, a recipient can read the whole invitation without ever clicking
+through — so "Opened" *undercounts* actual views. We deliberately accept this:
+it's the price of having zero hidden beacons. "Opened" means "we know for certain
+they visited the page," never an inferred or pre-fetched open. (We dropped the
+1×1 pixel entirely — Gmail proxies/caches images via `googleusercontent.com`,
+which made pixel "opens" both unreliable *and* a hidden tracker we'd rather not
+ship.)
 
 - **Tokens** are opaque, single-purpose, high-entropy (`secrets.token_urlsafe`),
   and map to exactly one `(event, recipient)` pair. They reveal nothing about the
@@ -218,7 +222,7 @@ Recipient                # one row per (event, person)
   plus_one_count?        note? 🔒    sent_at?  first_open_at?  rsvp_at?
 
 TrackingEvent            # append-only audit of signals
-  id  recipient_id→Recipient   kind[sent|open_pixel|landing_view|accept|decline|bounce]
+  id  recipient_id→Recipient   kind[sent|landing_view|accept|decline|bounce]
   at   user_agent?   ip_hash?   (raw IP never stored; hashed + truncated)
 ```
 
@@ -304,28 +308,76 @@ with the "store little to no data" goal. We resolve it deliberately:
 
 ---
 
-## 13. Deployment
+## 13. Running It — Local-First, Then Home Server
+
+**Design rule: it's the *same image* everywhere.** The only differences between
+your laptop and the home server are environment variables and how ingress is
+provided. There are no laptop-only code paths, and nothing external (no Postgres,
+Redis, S3) — just the app, a SQLite file, and a data folder — so "works on my
+laptop" genuinely predicts "works on the server."
+
+### 13.1 Local dev loop (laptop, before any public exposure)
+
+```
+laptop
+├── (fast inner loop)   uvicorn kith.web.app:app --reload   ← no Docker, hot reload
+└── (parity check)      docker compose up                   ← the real image, ./data volume
+        env: BASE_URL=http://localhost:8000
+             KITH_SEND_MODE=dry-run            ← writes .eml to data/outbox/, no Gmail call
+             FERNET_KEY / SESSION_SECRET = dev values from .env
+```
+
+- **`KITH_SEND_MODE`** (config + env) has three modes so you can test the full
+  pipeline safely:
+  - `dry-run` *(default for local)* — composes the real MIME and writes each
+    message to `data/outbox/<token>.eml`. Open it in any mail client to verify the
+    inlined image, links, and personalization. **No Gmail call, no quota burned,
+    nobody emailed.**
+  - `self-only` — actually sends, but only to the logged-in user's own address
+    (great for a true end-to-end test against your own inbox).
+  - `live` — normal sending. Used on the server (and only deliberately locally).
+- **OAuth locally:** Google permits `http://localhost` redirect URIs **without
+  HTTPS**, so SSO works on the laptop. Register *both* redirect URIs on the one
+  OAuth client up front:
+  `http://localhost:8000/auth/callback` **and**
+  `https://<machine>.<tailnet>.ts.net/auth/callback`.
+  `BASE_URL` selects which one the app uses — no code change between environments.
+- **End-to-end recipient test locally (optional):** recipients can't reach
+  `localhost`. Two easy options without touching the home server:
+  1. Run `tailscale serve` / `tailscale funnel` **on the laptop** (it's a tailnet
+     node too) to get a temporary public HTTPS URL; set `BASE_URL` to it.
+  2. Stay in `self-only` and click your own links from the same machine.
+- **Data lives in `./data`** (git-ignored): SQLite db + uploaded/derived images +
+  the dry-run `outbox/`. Delete the folder to reset; copy it to inspect state.
+
+### 13.2 Home-server deployment (unchanged image)
 
 ```
 home server
-└── docker-compose
-    ├── kith        (FastAPI app + async send-worker, one image)
+└── docker compose
+    ├── kith        (FastAPI app + async send-worker, one image — same as laptop)
     │     volume: ./data  → sqlite db + uploaded/derived images
-    │     env:    OAuth creds, FERNET_KEY, SESSION_SECRET, BASE_URL
+    │     env:    OAuth creds, FERNET_KEY, SESSION_SECRET,
+    │             BASE_URL=https://<machine>.<tailnet>.ts.net,
+    │             KITH_SEND_MODE=live
     └── (tailscale) — Funnel enabled, forwarding 443 → kith:8000
 ```
 
+- **Promotion = change env, not code.** Flip `BASE_URL` to the `ts.net` host and
+  `KITH_SEND_MODE` to `live`; everything else is identical to what you tested.
 - **TLS / domain:** Tailscale Funnel publishes
-  `https://<machine>.<tailnet>.ts.net` with an auto-managed cert. `BASE_URL` is
-  set to this so tracking/RSVP links are correct.
+  `https://<machine>.<tailnet>.ts.net` with an auto-managed Let's Encrypt cert —
+  this is the "free SSL." Recipient links and OAuth callback use `BASE_URL`.
   - *Consideration:* recipient-facing links live on a `*.ts.net` domain, which is
     unfamiliar and *might* dent click trust slightly. v1 ships on `ts.net`; a
     later option is fronting with a Cloudflare Tunnel for a custom domain if link
     trust/deliverability warrants it. Logged as a risk, not a blocker.
 - **Backups:** the SQLite file + `data/` volume; a nightly copy is sufficient for
   a hobby service.
-- **Config:** `config.toml` for non-secret tunables (purge windows, daily send
-  caps, inline image dimensions); env for secrets.
+- **Config:** `config.toml` for non-secret tunables (send mode, purge windows,
+  daily send caps, inline image dimensions); env for secrets and per-environment
+  values (`BASE_URL`, keys). A `config.example.toml` + `.env.example` are checked
+  in; the real ones are git-ignored.
 
 ---
 
@@ -382,18 +434,19 @@ kith/
 
 Each gate is a working, committed, tested increment.
 
-- **G0 — Scaffold.** Repo, pyproject, config, Docker, FastAPI "hello", dark-theme
-  base template, pytest harness. *(this commit + next)*
+- **G0 — Scaffold.** Repo, pyproject, config, Docker + `docker compose`, FastAPI
+  "hello", dark-theme base template, pytest harness, and the **local dev loop**
+  (uvicorn `--reload`, `KITH_SEND_MODE=dry-run`, `.env.example`). *(this commit + next)*
 - **G1 — Google SSO.** OAuth login/logout, encrypted refresh-token storage,
   test-user onboarding, account export/delete stubs.
 - **G2 — Compose a card.** Image upload → sanitize → derive inline + full-res;
   event create/edit; recipient list entry; live email preview.
 - **G3 — Send (the hard part).** MIME build w/ CID + tokens, Gmail API send,
   async throttled queue, quota handling, Sent status.
-- **G4 — Track & RSVP.** Open pixel, landing page, accept/decline w/ confirm,
-  dashboard with reliable-first status. Auto-purge sweep.
+- **G4 — Track & RSVP.** Invitation landing page (logs the "Opened"/`landing_view`
+  signal), accept/decline w/ confirm, dashboard. Auto-purge sweep. *(No pixel.)*
 - **G5 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
-  export/delete fully wired, deploy behind Tailscale Funnel, backups.
+  export/delete fully wired, deploy behind Tailscale Funnel (`live` mode), backups.
 
 ---
 
@@ -406,14 +459,17 @@ Each gate is a working, committed, tested increment.
    expectations for big sends. Workspace users get 2,000.
 3. **`*.ts.net` link trust** (§13) — monitor whether recipients hesitate to click;
    custom-domain path is ready if needed.
-4. **Open-tracking accuracy** — accept it's a soft signal; lead with clicks/RSVP.
-5. **Spam heuristics** — a tracking pixel + identical-ish bodies *could* nudge
-   spam scoring even via Gmail. Mitigations: per-recipient personalization,
-   plaintext alternative, modest image weight, and making the pixel optional.
+4. **"Opened" undercounts** — since there's no pixel and the card is inlined,
+   recipients who don't click through aren't counted as opened. Accepted by
+   design; the UI states it. RSVP and Sent remain the load-bearing signals.
+5. **Spam heuristics** — identical-ish bodies *could* nudge spam scoring even via
+   Gmail. Mitigations: per-recipient personalization, plaintext alternative, and
+   modest inline-image weight. (Dropping the pixel also removes one classic
+   spam-filter trigger.)
 6. **Abuse** (whitelisted users only, but still) — rate limits + the
    "non-commercial, you must have consent" ToS.
 
 ---
 
-*End of v0.1. Next step on approval: lock the project name, then build G0
-(scaffold) and commit.*
+*End of v0.1. Name locked: **Kith**. Next step on approval: build G0 (scaffold +
+local dev loop) and commit.*

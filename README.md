@@ -15,8 +15,8 @@ Paperless Post.
 - Build a list of family and friends.
 - Send a personal email **from your own Gmail account** (via the Gmail API), so
   it looks like it came directly from you.
-- Track who was sent an invite, who opened it (best-effort), and who accepted or
-  declined — on a simple dashboard.
+- Track who was sent an invite, who opened it (visited the invitation page), and
+  who accepted or declined — on a simple dashboard.
 
 ## Principles
 
@@ -25,8 +25,9 @@ Paperless Post.
   never read your mailbox.
 - **Self-hosted & free** — one container on your own hardware, exposed via
   Tailscale Funnel with automatic HTTPS. No paid dependencies, no monetization.
-- **Honest tracking** — reliable accept/decline & click signals; open tracking
-  is best-effort (Gmail proxies images) and labeled as such.
+- **Honest tracking, no pixel** — signals are Sent, Opened (= the recipient
+  visited the invitation page), Accepted, and Declined. No hidden tracking pixel
+  or beacons; "Opened" is an explicit page visit, never an inferred open.
 
 ## Stack
 
