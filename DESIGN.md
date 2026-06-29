@@ -41,6 +41,8 @@ export-and-delete. It is free, offered as-is with no warranty.
 - **Trustworthy, honest tracking.** Reliable sent + accept/decline status, plus
   "opened" = the recipient visited the invitation page. **No tracking pixel** —
   no hidden beacons, ever.
+- **Gentle automatic follow-ups.** Nudge non-responders on a sane, configurable
+  schedule (halfway / 1 wk / 3 days out) — and stop the instant they engage.
 - **Privacy by default.** Minimal data, encrypted PII at rest, user-owned
   export/delete, heavy assets auto-purged.
 - **Cheap & self-hostable.** One container, one volume, no paid dependencies.
@@ -67,10 +69,11 @@ These were decided up front and constrain everything downstream.
 |---|----------|--------|-------------|
 | 1 | **Send mechanism** | Gmail API on the user's behalf (OAuth `gmail.send`) | Needs a Google Cloud OAuth app; "unverified app" warning is acceptable for a whitelisted circle. |
 | 2 | **User scope** | Trusted circle / whitelist | Stays under Google's 100 test-user cap → **no OAuth verification required.** Smallest abuse & privacy surface. |
-| 3 | **Data retention** | Persistent until the user deletes | Users get a dashboard, history, and a reusable address book. Reconciled with privacy in §11. |
+| 3 | **Data retention** | Persistent until the user deletes | Users get a dashboard, history, and a reusable address book. Reconciled with privacy in §12. |
 | 4 | **Image storage** | Local container, auto-purged after the event **+** a resized "sane resolution" copy inlined into each email (CID) | Landing page shows full-res while it exists; email renders offline and survives the purge. |
 | 5 | **Tracking** | **No open pixel.** Signals = Sent · Opened (= visited invitation page) · Accepted · Declined | Zero hidden beacons → cleaner privacy story. "Opened" undercounts (inlined card is viewable in-email without clicking), stated honestly. |
 | 6 | **Run target** | Same container runs **locally on the laptop first**, then unchanged on the home server | One image, env-driven config, a `dry-run` send mode → full local test loop before exposing anything publicly. |
+| 7 | **Automated reminders** | **On by default** for dated events: nudge non-clickers at halfway · 1 wk · 3 days out; fully configurable | Drives RSVPs without nagging — stops the moment they engage, hard cap of 3, threaded as replies, Decline = opt-out, none for dateless events. See §8. |
 
 ---
 
@@ -121,7 +124,7 @@ These were decided up front and constrain everything downstream.
     is "Publishing status: In production" without verification — still allowed
     for sensitive scopes with a warning — which we'll evaluate during the auth
     milestone.)
-- **Token handling:** Store the **refresh token encrypted at rest** (see §12).
+- **Token handling:** Store the **refresh token encrypted at rest** (see §13).
   Access tokens are short-lived and kept in memory / refreshed on demand. Tokens
   are revocable by the user and deleted on account deletion.
 
@@ -195,7 +198,71 @@ ship.)
 
 ---
 
-## 8. Data Model (initial sketch)
+## 8. Automated Reminders
+
+**Sane default: ON.** When an event has a date, Kith automatically nudges
+recipients who were sent an invite but **haven't clicked through yet**. A reminder
+reuses the recipient's existing token (so tracking stays continuous), is sent from
+the user's Gmail like the original, and is **threaded as a reply to the first
+message** so it reads as a natural follow-up — not a fresh blast.
+
+### Default schedule (configurable; per-event override)
+Computed relative to `event_date`:
+
+1. **Halfway** — the midpoint between when the invite was sent and the event date.
+2. **1 week out** — `event_date − 7d`.
+3. **3 days out** — `event_date − 3d`.
+
+### Who gets reminded, and when it stops
+- **Target (default `not-clicked`):** recipients still in `sent` with no
+  `landing_view` — i.e. they haven't clicked. *(Configurable to `no-rsvp` = nudge
+  anyone who hasn't Accepted/Declined, even if they viewed the page.)*
+- **Stops immediately** once the recipient meets the responded condition; any
+  pending reminders for them are canceled. The whole point is to stop nagging the
+  moment they engage.
+- **Decline is the built-in opt-out:** every reminder carries the same
+  Decline link, so a recipient can stop the nudges with one click and no account.
+- Never sends after the event date; hard cap `max_per_recipient` (default 3).
+
+### Edge cases (decided, sane defaults)
+- **No event date → no reminders.** Reminders are date-relative; dateless events
+  show the feature as unavailable (a manual "send a nudge now" action still works).
+- **Event too close / slot already past:** each computed time is kept only if it's
+  in the future *and* after the send time; past slots are skipped (logged
+  `skipped:past`). A 2-days-out invite simply gets fewer or no reminders.
+- **Collapsing slots:** times closer together than `min_gap_hours` (default 24) are
+  merged, so two reminders never land the same day.
+- **Time of day:** reminders fire at `send_hour_local` (default 09:00 in the
+  sender's timezone), not at the exact offset instant — no 3 a.m. emails.
+- **Downtime-safe:** each reminder is a persisted row with a `scheduled_for`
+  timestamp; the worker fires any `pending` row whose time has passed. If the
+  container is off (laptop closed, server reboot), overdue reminders go out on the
+  next start — delayed, never dropped or double-sent (state flips atomically).
+
+### Mechanics
+Reuses the existing async send-worker and Gmail quota throttle (§6) — **no new
+infrastructure.** At send time Kith computes each recipient's reminder slots and
+writes `Reminder` rows; a periodic sweep (every few minutes) enqueues those that
+are due *and* still match the target, then they flow through the same throttled
+`messages.send` path and count against the same daily cap. In `dry-run` /
+`self-only` modes (§14) reminders are exercised exactly like first sends, so the
+whole schedule is testable locally (with an optional clock-override to fast-forward
+in tests).
+
+### Config (`config.toml`; per-event overridable)
+```toml
+[reminders]
+enabled           = true            # sane default: on
+target            = "not-clicked"   # or "no-rsvp"
+offsets           = ["halfway", "7d", "3d"]
+send_hour_local   = 9               # ~9am sender-local, not the exact instant
+min_gap_hours     = 24              # merge reminders closer than this
+max_per_recipient = 3
+```
+
+---
+
+## 9. Data Model (initial sketch)
 
 SQLite (see §10 for rationale). PII columns marked 🔒 are encrypted at rest.
 
@@ -211,6 +278,7 @@ Contact                  # the reusable address book (Decision #3)
 Event                    # one card / occasion
   id  user_id→User       title     message_md    event_date?  location? 🔒
   rsvp_enabled (bool)    asset_id→Asset  purge_after  status   created_at
+  reminder_cfg (json)?   # per-event override of [reminders]; null = inherit global
 
 Asset                    # the uploaded image
   id  user_id→User       sha256    mime    full_path (local, purgeable)
@@ -220,15 +288,21 @@ Recipient                # one row per (event, person)
   id  event_id→Event     contact_id→Contact?   name 🔒   email 🔒
   token (unique, opaque) status[queued|sent|opened|accepted|declined|bounced]
   plus_one_count?        note? 🔒    sent_at?  first_open_at?  rsvp_at?
+  msg_id_hdr?  thread_id?   # RFC822 Message-ID + Gmail thread of the first send,
+                            # so reminders thread as replies (In-Reply-To/References)
 
 TrackingEvent            # append-only audit of signals
   id  recipient_id→Recipient   kind[sent|landing_view|accept|decline|bounce]
   at   user_agent?   ip_hash?   (raw IP never stored; hashed + truncated)
+
+Reminder                 # one scheduled nudge for a non-responder (§8)
+  id  recipient_id→Recipient   slot[halfway|7d|3d|manual]   scheduled_for (UTC)
+  state[pending|sent|skipped|canceled]   skip_reason?   sent_at?   gmail_msg_id?
 ```
 
 ---
 
-## 9. Tech Stack & Rationale
+## 10. Tech Stack & Rationale
 
 | Concern | Choice | Why |
 |---------|--------|-----|
@@ -248,7 +322,7 @@ TrackingEvent            # append-only audit of signals
 
 ---
 
-## 10. Image Handling
+## 11. Image Handling
 
 1. **Upload** (authenticated, size + mime validated; only common raster types).
 2. **Sanitize:** Pillow re-encodes and **strips EXIF/GPS metadata** (privacy).
@@ -265,7 +339,7 @@ TrackingEvent            # append-only audit of signals
 
 ---
 
-## 11. Privacy & Data Handling
+## 12. Privacy & Data Handling
 
 We chose **persistent** storage (Decision #3) for usability, which is in tension
 with the "store little to no data" goal. We resolve it deliberately:
@@ -289,7 +363,7 @@ with the "store little to no data" goal. We resolve it deliberately:
 
 ---
 
-## 12. Security
+## 13. Security
 
 - **Secrets** (OAuth client secret, Fernet key, session secret) via env only;
   `.env` git-ignored; documented in `.env.example`.
@@ -308,7 +382,7 @@ with the "store little to no data" goal. We resolve it deliberately:
 
 ---
 
-## 13. Running It — Local-First, Then Home Server
+## 14. Running It — Local-First, Then Home Server
 
 **Design rule: it's the *same image* everywhere.** The only differences between
 your laptop and the home server are environment variables and how ingress is
@@ -381,7 +455,7 @@ home server
 
 ---
 
-## 14. Legal / Trust
+## 15. Legal / Trust
 
 Static pages, linked in the footer and shown at signup:
 
@@ -395,7 +469,7 @@ Static pages, linked in the footer and shown at signup:
 
 ---
 
-## 15. Proposed Project Layout
+## 16. Proposed Project Layout
 
 ```
 kith/
@@ -413,11 +487,13 @@ kith/
 │   │   ├── tracking.py      tokens, status transitions
 │   │   ├── mailbuild.py     MIME assembly, CID inlining, personalization
 │   │   ├── images.py        resize/strip-exif/derive
+│   │   ├── reminders.py     pure slot computation (offsets→times, skip/merge) ← unit-tested
 │   │   └── crypto.py        Fernet helpers for PII
 │   ├── services/            ← side-effecting glue
 │   │   ├── google_auth.py   OAuth flow + token refresh
 │   │   ├── gmail.py         messages.send wrapper + quota/backoff
-│   │   └── sendqueue.py     async worker draining Queued rows
+│   │   ├── sendqueue.py     async worker draining Queued rows
+│   │   └── scheduler.py     periodic sweep: fire due Reminder rows via sendqueue
 │   ├── web/                 ← FastAPI app: routes, deps, templates
 │   │   ├── app.py
 │   │   ├── routes_auth.py / routes_app.py / routes_track.py
@@ -430,7 +506,7 @@ kith/
 
 ---
 
-## 16. Roadmap / Milestones
+## 17. Roadmap / Milestones
 
 Each gate is a working, committed, tested increment.
 
@@ -445,19 +521,22 @@ Each gate is a working, committed, tested increment.
   async throttled queue, quota handling, Sent status.
 - **G4 — Track & RSVP.** Invitation landing page (logs the "Opened"/`landing_view`
   signal), accept/decline w/ confirm, dashboard. Auto-purge sweep. *(No pixel.)*
-- **G5 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
+- **G5 — Automated reminders.** Reminder scheduler (§8): slot computation w/ edge
+  cases, downtime-safe `pending` rows, target/cancel logic, reply-threaded sends
+  reusing G3's queue, per-event config. Dashboard shows reminder status.
+- **G6 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
   export/delete fully wired, deploy behind Tailscale Funnel (`live` mode), backups.
 
 ---
 
-## 17. Open Questions & Risks
+## 18. Open Questions & Risks
 
 1. **Refresh-token longevity in Testing mode** (§5) — may force periodic
    re-consent. Validate early in G1; fall back to "In production (unverified)" if
    it bites.
 2. **Free-Gmail 500/day cap** — fine for family-scale lists; the UI must set
    expectations for big sends. Workspace users get 2,000.
-3. **`*.ts.net` link trust** (§13) — monitor whether recipients hesitate to click;
+3. **`*.ts.net` link trust** (§14) — monitor whether recipients hesitate to click;
    custom-domain path is ready if needed.
 4. **"Opened" undercounts** — since there's no pixel and the card is inlined,
    recipients who don't click through aren't counted as opened. Accepted by
@@ -468,6 +547,11 @@ Each gate is a working, committed, tested increment.
    spam-filter trigger.)
 6. **Abuse** (whitelisted users only, but still) — rate limits + the
    "non-commercial, you must have consent" ToS.
+7. **Reminders vs. quota & annoyance** (§8) — reminders share the daily Gmail cap,
+   so a big list mid-send could push reminders to the next day's quota; the
+   scheduler must interleave fairly. Annoyance is bounded by the hard cap, the
+   stop-on-engage rule, and Decline-as-opt-out. Timezone correctness for
+   `send_hour_local` needs care (store the sender's tz at send time).
 
 ---
 

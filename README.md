@@ -17,6 +17,9 @@ Paperless Post.
   it looks like it came directly from you.
 - Track who was sent an invite, who opened it (visited the invitation page), and
   who accepted or declined — on a simple dashboard.
+- Automatically follow up with non-responders on a sane, configurable schedule
+  (halfway to the date, 1 week out, 3 days out) — reminders stop the moment
+  someone engages.
 
 ## Principles
 
