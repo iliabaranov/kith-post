@@ -1,0 +1,143 @@
+# Kith — Design Language
+
+> Direction: **"Kitchen Table"** · Theme: **light & warm** · Locked 2026-06-29.
+> This is the single source of truth for Kith's look. Every screen derives its
+> colors, type, spacing, and motion from here. See `design/invite-preview.html`
+> for the reference implementation of the hero screen.
+
+---
+
+## 1. The idea
+
+Kith should feel like **a warm note from a friend left on the kitchen table** —
+not a SaaS product. The emotional beat we're designing for is the small, happy
+ritual of *getting real mail you actually want*: a handmade card, a personal line,
+a stamp pressed onto it. Friendly, unhurried, a little hand-made. Never "techy."
+
+We draw from the **physical world of invitations and the post** — paper stock,
+washi tape, rubber stamps, RSVP cards, a handwritten sign-off — because that's
+where the warmth and the distinctive details live. We use those materials with
+restraint, not as full skeuomorphism.
+
+## 2. Self-critique (why this isn't the generic "AI warm" look)
+
+The obvious trap for a "friendly, warm, paper" brief is the current AI-design
+default: **cream `#F4F1EA` background + a high-contrast editorial serif (Playfair)
++ a terracotta accent.** We deliberately broke that pattern on every axis:
+
+- **Background** is a warm *ecru* with a real, subtle **paper grain** (SVG
+  turbulence overlay), not a flat cream fill — it reads as stock, not a swatch.
+- **Display face** is **Fraunces set *soft & low-contrast*** (high optical-size,
+  raised `SOFT`, gentle `WONK`) — warm and slightly hand-made, the opposite of
+  the crisp high-contrast editorial serif the default reaches for.
+- **Accent is honey + plum, not terracotta**, with a single **berry** reserved
+  for one celebratory moment. Text ink is a deep **aubergine-brown**, never pure
+  black.
+- **The memorable element is a rubber-stamp RSVP mark** drawn from Kith's actual
+  subject (the post), not a generic gradient/number hero.
+
+If a future change drifts toward flat-cream + Playfair + terracotta, it has
+regressed to the default — pull it back.
+
+## 3. Color
+
+Named tokens (use these names in code as CSS variables, e.g. `--paper`):
+
+| Token | Hex | Role |
+|-------|-----|------|
+| `paper` | `#F4ECDD` | App background (warm ecru, + grain overlay) |
+| `card` | `#FCF8EF` | Raised surfaces — the invitation card, panels |
+| `ink` | `#3B2A33` | Primary text (deep aubergine-brown, the "near-black") |
+| `ink-soft` | `#6E5C63` | Secondary text, captions, metadata |
+| `honey` | `#E2972B` | Primary accent & main CTA ("I'll be there") |
+| `plum` | `#6B3A57` | Deep secondary accent, headings flourish, links |
+| `sage` | `#A9B7A0` | Calm surfaces, dividers, "neutral" status |
+| `berry` | `#C44569` | **Reserved** for the one celebratory moment (the "Coming!" stamp). Used nowhere else. |
+| `line` | `#E4D8C4` | Hairlines, card edges, input borders |
+
+Rules: one warm family; `ink` (not black) for all text; `berry` is precious —
+spend it only on the accepted-RSVP stamp. WCAG AA for all text on `paper`/`card`.
+
+## 4. Typography
+
+Three roles, a deliberate non-default pairing (all on Google Fonts):
+
+- **Display — `Fraunces`** (variable). Set *warm*: `opsz` high (~72–144),
+  `SOFT` ~50, `WONK` ~1, weights 400–600. Used with restraint for the invite
+  title, page H1s, and section heads. This is the personality of the page.
+- **Body / UI — `Hanken Grotesk`**. Friendly humanist sans, very legible at small
+  sizes. All paragraphs, labels, buttons, dashboard text. Weights 400/500/600.
+- **Hand accent — `Caveat`**. A genuine handwriting face used in **exactly one
+  place**: the host's sign-off ("— love, Mara") and the small "you're invited"
+  eyebrow. Never for anything functional. (Chanel's rule: this is the one
+  accessory; don't add a second.)
+
+Type scale (rem, 1rem = 16px): `0.78 · 0.875 · 1 · 1.125 · 1.33 · 1.78 · 2.37 ·
+3.16`. Generous line-height on body (1.6); tighter on display (1.05). Headings in
+sentence case, warm and plain.
+
+## 5. Layout
+
+- **The card is an object, not a div.** The invitation sits on the page as a
+  tactile card: `card` surface, soft realistic shadow, a *slight* rotation
+  (≈ −1.2°), washi-tape tabs at two corners. It feels placed, not rendered.
+- **Generous, asymmetric whitespace.** Roomy margins; content left-aligned and
+  comfortable, never edge-to-edge dense.
+- **One column on mobile, gentle two-column on wide** (card + details). Mobile is
+  the primary target — many recipients open on a phone.
+- **Dashboard = a tidy mail tray**, not a data grid: each event is a small card;
+  recipients are a friendly list with stamp-style status chips. No zebra tables.
+
+## 6. Signature element — the rubber stamp
+
+The thing people remember. RSVP and key states render as an **ink rubber-stamp
+mark** pressed onto the card: a rotated, slightly translucent outlined badge with
+condensed uppercase text, `mix-blend-mode: multiply` so it sinks into the paper.
+
+- `Opened` / sent states → faint `ink-soft` or `sage` stamp.
+- **`Coming!`** → `berry` stamp (the one bright moment).
+- `Can't make it` → muted `ink-soft` stamp.
+
+It doubles as the dashboard status chip language, so the metaphor is consistent
+end-to-end (the §7 tracking states *are* stamps).
+
+## 7. Motion (restrained — one orchestrated moment)
+
+- **The stamp press.** On Accept, the `Coming!` stamp scales from ~1.25 with a
+  small rotation and a single overshoot, settling in ~260ms — like a stamp
+  thunking down. This is the page's signature motion; everything else is calm.
+- Buttons: a 1–2px lift + shadow on hover, 120ms. Cards: no entrance animation
+  storms.
+- **`prefers-reduced-motion`: honored** — the stamp simply appears, no transform.
+
+## 8. Components
+
+- **Primary button** (`honey`): solid, soft-rounded (radius ~12px, *not* pill),
+  `ink` text for contrast, gentle hover lift. Label says the action: "Send
+  invites", "I'll be there".
+- **Quiet button**: text/outline in `ink-soft` on `card` (e.g. "Can't make it",
+  "Maybe later").
+- **Status chip = mini stamp** (see §6).
+- **Inputs**: `card` fill, `line` border, `honey` focus ring (visible, 2px). Warm,
+  rounded ~10px. Labels above, in `ink-soft`.
+- **Donation link** (later, G6): a single quiet "☕ Buy me a coffee" in the footer
+  — `ink-soft`, no button chrome, never a modal or nag.
+
+## 9. Copy voice
+
+Plain, warm, active, sentence case. Copy is design material (per the design
+process), not decoration.
+
+- Actions name what happens: **"Send invites"** → toast **"Invites sent"**;
+  **"I'll be there"** not "Submit RSVP".
+- Empty states invite action: *"No invites yet. Upload a card to get started."*
+- Errors are calm and specific, in the interface's voice, no apology theater:
+  *"That image is a bit big — under 10 MB works best."*
+- Reminders read like a nudge from a friend, not a system: *"Just making sure you
+  saw Mara's invite 🙂"*
+
+## 10. Quality floor (non-negotiable, never announced)
+
+Responsive to 360px · visible keyboard focus everywhere · `prefers-reduced-motion`
+respected · WCAG AA contrast · semantic HTML · works without JS for the core RSVP
+(the stamp animation is an enhancement, the Accept/Decline POST is not).

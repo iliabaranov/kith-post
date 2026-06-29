@@ -311,7 +311,7 @@ Reminder                 # one scheduled nudge for a non-responder (§8)
 |---------|--------|-----|
 | Language | **Python 3.12** | Your wheelhouse; great Google client libs; fast to ship. |
 | Web framework | **FastAPI** + Uvicorn | Async (good for the send-queue + I/O to Gmail), typed, clean DI, easy testing. |
-| Templating / UI | **Jinja2 + HTMX + a little Alpine.js**, **Tailwind CSS (dark theme)** | Server-rendered = simple, SEO-irrelevant, no SPA build complexity. HTMX gives snappy dashboard updates. Dark theme per house style. |
+| Templating / UI | **Jinja2 + HTMX + a little Alpine.js**, **Tailwind CSS** | Server-rendered = simple, SEO-irrelevant, no SPA build complexity. HTMX gives snappy dashboard updates. Visual direction is **"Kitchen Table" — light & warm** (see `DESIGN-LANGUAGE.md`); this product deliberately overrides the usual dark-theme default to feel friendly and approachable for a non-technical audience. |
 | Persistence | **SQLite** (WAL mode) via SQLAlchemy | Relational tracking data with queries/joins; single-file, zero-ops, trivially backed up. *(Deviates from the usual "JSON for state" preference — flat JSON can't express the recipient/event/tracking relations or query them; SQLite is the right tool here. Config still TOML.)* |
 | Config | **TOML** (`config.toml`) + env for secrets | House style; secrets via env so they never hit git. |
 | Email build | `email.message.EmailMessage` (stdlib) | Full control over MIME/CID/multipart; no heavy deps. |
@@ -500,7 +500,7 @@ kith/
 │   ├── web/                 ← FastAPI app: routes, deps, templates
 │   │   ├── app.py
 │   │   ├── routes_auth.py / routes_app.py / routes_track.py
-│   │   ├── templates/       (Jinja2, dark theme)
+│   │   ├── templates/       (Jinja2, "Kitchen Table" light/warm)
 │   │   └── static/
 │   ├── db/                  models.py (SQLAlchemy), migrations
 │   └── config.py
@@ -514,7 +514,7 @@ kith/
 Each gate is a working, committed, tested increment.
 
 - **G0 — Scaffold.** Repo, pyproject, config, Docker + `docker compose`, FastAPI
-  "hello", dark-theme base template, pytest harness, and the **local dev loop**
+  "hello", light/warm base template (per `DESIGN-LANGUAGE.md`), pytest harness, and the **local dev loop**
   (uvicorn `--reload`, `KITH_SEND_MODE=dry-run`, `.env.example`). *(this commit + next)*
 - **G1 — Google SSO.** OAuth login/logout, encrypted refresh-token storage,
   test-user onboarding, account export/delete stubs.
