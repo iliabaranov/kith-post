@@ -1,0 +1,32 @@
+# Secrets & local config
+.env
+*.env
+config.toml
+client_secret*.json
+*.key
+
+# Data volume (db, uploaded/derived images)
+data/
+*.sqlite
+*.sqlite3
+*.db
+*-wal
+*-shm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
