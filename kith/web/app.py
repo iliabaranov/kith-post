@@ -23,6 +23,7 @@ from kith.services import google_auth, storage
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
 from kith.web.routes_events import router as events_router
+from kith.web.routes_invite import router as invite_router
 
 log = logging.getLogger("kith")
 
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     )
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
     app.include_router(events_router)
+    app.include_router(invite_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
     def healthz() -> str:

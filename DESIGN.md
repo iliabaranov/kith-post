@@ -576,7 +576,15 @@ Each gate is a working, committed, tested increment.
   card. 52 tests + a live image-upload E2E (0 errors). *(Live as-you-type preview
   deferred; preview renders on the event page.)*
 - **G3 — Send (the hard part).** MIME build w/ CID + tokens, Gmail API send,
-  async throttled queue, quota handling, Sent status.
+  async throttled queue, quota handling, Sent status. **✅ Done** — pure
+  `core/mailbuild` (multipart/alternative + inlined card via `cid:`, no pixel),
+  `services/gmail` (refresh-token → `messages.send`), `services/send` with three
+  modes (`dry-run` writes `.eml` to `data/outbox`, `self-only`, `live`), real Send
+  button on the event page, public recipient pages at `/i/{token}` (invite, image,
+  `.ics`). 78 tests + a live E2E (dry-run → outbox `.eml`, recipient landing,
+  token image, all-day **and** TZ→UTC timed `.ics`, bad-token 404; 0 errors).
+  *(Throttled async queue deferred — direct per-recipient send is fine for a
+  friends-and-family circle; revisit if volume needs it.)*
 - **G4 — Track & RSVP.** Invitation landing page (logs the "Opened"/`landing_view`
   signal), accept/decline w/ confirm, dashboard. Auto-purge sweep. *(No pixel.)*
 - **G5 — Automated reminders.** Reminder scheduler (§8): slot computation w/ edge

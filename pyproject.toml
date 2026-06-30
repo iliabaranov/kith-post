@@ -15,6 +15,7 @@ dependencies = [
     "cryptography>=43",
     "google-auth>=2.35",
     "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.140",
     "pillow>=11",
     "python-multipart>=0.0.12",
 ]

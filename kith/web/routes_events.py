@@ -9,13 +9,13 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from kith.config import get_settings
+from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
 from kith.core import images
 from kith.core import recipients as rcpt
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient
-from kith.services import storage
+from kith.services import send, storage
 from kith.web.deps import get_db, load_user, templates
 
 router = APIRouter()
@@ -68,6 +68,23 @@ def _recipient_count(db: Session, event_id: str) -> int:
     return db.execute(
         select(func.count()).select_from(Recipient).where(Recipient.event_id == event_id)
     ).scalar_one()
+
+
+def _queued_count(db: Session, event_id: str) -> int:
+    return db.execute(
+        select(func.count()).select_from(Recipient)
+        .where(Recipient.event_id == event_id, Recipient.status == "queued")
+    ).scalar_one()
+
+
+_SEND_UI = {
+    "dry-run": ("Send (dry run)", "Writes .eml files to data/outbox — no real email is sent.",
+                "Write {n} dry-run email(s) to the outbox?"),
+    "self-only": ("Send a test to yourself", "Sends only to your own inbox, for testing.",
+                  "Send {n} test email(s) to your own inbox?"),
+    "live": ("Send to {n} now", "Sends from your Gmail to everyone still queued.",
+             "Send {n} real invitation(s) from your Gmail now?"),
+}
 
 
 def _replace_recipients(db: Session, event_id: str, text: str) -> tuple[int, list[str]]:
@@ -158,19 +175,45 @@ async def create_event(
 
 
 @router.get("/events/{event_id}", response_class=HTMLResponse)
-def event_detail(event_id: str, request: Request, db: Session = Depends(get_db)):
+def event_detail(
+    event_id: str, request: Request, db: Session = Depends(get_db),
+    sent: int = 0, failed: int = 0,
+):
     user = load_user(request, db)
     if user is None:
         return RedirectResponse("/", status_code=303)
     ev = _owned_event(db, user.id, event_id)
     if ev is None:
         return RedirectResponse("/", status_code=303)
-    asset = db.get(Asset, ev.asset_id) if ev.asset_id else None
+    settings = get_settings()
+    queued = _queued_count(db, ev.id)
+    label, hint, confirm = _SEND_UI.get(settings.send_mode.value, _SEND_UI["dry-run"])
     ctx = {
-        "settings": get_settings(), "user": user, "event": ev, "asset": asset,
-        "recipient_count": _recipient_count(db, ev.id), "preview": True,
+        "settings": settings, "user": user, "event": ev,
+        "recipient_count": _recipient_count(db, ev.id), "queued_count": queued,
+        "send_mode": settings.send_mode.value,
+        "send_label": label.format(n=queued), "send_hint": hint,
+        "send_confirm": confirm.format(n=queued),
+        "sent": sent, "failed": failed,
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
+
+
+@router.post("/events/{event_id}/send")
+def send_invitations(event_id: str, request: Request, db: Session = Depends(get_db)):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    settings = get_settings()
+    if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+        return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
+    result = send.send_event(db, ev, user, settings)
+    return RedirectResponse(
+        f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
+    )
 
 
 @router.get("/events/{event_id}/edit", response_class=HTMLResponse)
