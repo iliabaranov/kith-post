@@ -6,6 +6,7 @@ isn't configured), encrypted refresh-token storage, account export/delete.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from kith.services.google_auth import GoogleIdentity
 
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+log = logging.getLogger("kith")
 
 
 @asynccontextmanager
@@ -100,8 +102,9 @@ def create_app() -> FastAPI:
     @app.get("/auth/login")
     def login(request: Request):
         if settings.google_configured:
-            url, state = google_auth.authorization_url(settings)
+            url, state, code_verifier = google_auth.authorization_url(settings)
             request.session["oauth_state"] = state
+            request.session["oauth_verifier"] = code_verifier
             return RedirectResponse(url)
         # No Google creds → local dev sign-in so the signed-in app is testable.
         return templates.TemplateResponse(request, "login_dev.html", {"settings": settings})
@@ -109,9 +112,14 @@ def create_app() -> FastAPI:
     @app.get("/auth/callback")
     def callback(request: Request, db: Session = Depends(get_db), code: str = "", state: str = ""):
         expected = request.session.pop("oauth_state", None)
+        verifier = request.session.pop("oauth_verifier", None)
         if not code or (expected and state != expected):
             return RedirectResponse("/?error=auth", status_code=303)
-        identity = google_auth.exchange_code(settings, code, state)
+        try:
+            identity = google_auth.exchange_code(settings, code, state, verifier)
+        except Exception:
+            log.exception("OAuth token exchange failed")
+            return RedirectResponse("/?error=auth", status_code=303)
         user = upsert_user(db, identity)
         request.session["user_id"] = user.id
         return RedirectResponse("/", status_code=303)

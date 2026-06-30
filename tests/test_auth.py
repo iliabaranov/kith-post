@@ -100,7 +100,7 @@ def test_callback_creates_user_and_stores_refresh_token(client, monkeypatch):
     monkeypatch.setattr(
         google_auth,
         "exchange_code",
-        lambda s, code, state: GoogleIdentity(
+        lambda s, code, state, code_verifier=None: GoogleIdentity(
             sub="g-123", email="alice@example.com", name="Alice", refresh_token="rt-xyz"
         ),
     )
@@ -128,11 +128,15 @@ def test_authorization_url_has_scopes_and_callback():
         google_client_secret="secret",
         base_url="https://party.example.ts.net",
     )
-    url, state = google_auth.authorization_url(s)
+    url, state, verifier = google_auth.authorization_url(s)
     assert url.startswith("https://accounts.google.com/o/oauth2/")
     assert "gmail.send" in url
     assert "auth%2Fcallback" in url  # redirect_uri ends with /auth/callback
     assert state
+    # PKCE must be wired: a verifier is generated and a challenge is in the URL
+    # (regression guard for the "Missing code verifier" bug).
+    assert verifier and len(verifier) >= 20
+    assert "code_challenge" in url
 
 
 def test_login_redirects_to_google_and_disables_dev_login_when_configured(monkeypatch):

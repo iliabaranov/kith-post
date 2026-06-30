@@ -48,17 +48,30 @@ def _client_config(s: Settings) -> dict:
     }
 
 
-def authorization_url(s: Settings) -> tuple[str, str]:
-    """Return (auth_url, state). access_type=offline + prompt=consent → refresh token."""
+def authorization_url(s: Settings) -> tuple[str, str, str | None]:
+    """Return (auth_url, state, code_verifier).
+
+    Google requires PKCE, so we keep the generated ``code_verifier`` and hand it
+    back to the caller to stash in the session — ``exchange_code`` needs the *same*
+    verifier, and it runs on a different request with a fresh Flow.
+    """
     from google_auth_oauthlib.flow import Flow
 
-    flow = Flow.from_client_config(_client_config(s), scopes=SCOPES, redirect_uri=_redirect_uri(s))
-    return flow.authorization_url(
+    flow = Flow.from_client_config(
+        _client_config(s),
+        scopes=SCOPES,
+        redirect_uri=_redirect_uri(s),
+        autogenerate_code_verifier=True,
+    )
+    url, state = flow.authorization_url(
         access_type="offline", prompt="consent", include_granted_scopes="true"
     )
+    return url, state, flow.code_verifier
 
 
-def exchange_code(s: Settings, code: str, state: str) -> GoogleIdentity:
+def exchange_code(
+    s: Settings, code: str, state: str, code_verifier: str | None = None
+) -> GoogleIdentity:
     """Exchange the auth code for tokens and verify the id_token claims."""
     import google.auth.transport.requests
     from google.oauth2 import id_token as google_id_token
@@ -67,6 +80,7 @@ def exchange_code(s: Settings, code: str, state: str) -> GoogleIdentity:
     flow = Flow.from_client_config(
         _client_config(s), scopes=SCOPES, state=state, redirect_uri=_redirect_uri(s)
     )
+    flow.code_verifier = code_verifier  # the PKCE verifier from the auth step
     flow.fetch_token(code=code)
     creds = flow.credentials
     claims = google_id_token.verify_oauth2_token(

@@ -8,6 +8,11 @@ from cryptography.fernet import Fernet
 
 os.environ.setdefault("KITH_DATA_DIR", tempfile.mkdtemp(prefix="kith-test-"))
 os.environ.setdefault("KITH_FERNET_KEY", Fernet.generate_key().decode())
+# Hermetic tests: never inherit a developer's real .env Google credentials.
+# os.environ takes precedence over the .env file, so "" forces the unconfigured
+# (dev-login) baseline; the configured-OAuth test monkeypatches these back.
+os.environ["KITH_GOOGLE_CLIENT_ID"] = ""
+os.environ["KITH_GOOGLE_CLIENT_SECRET"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
