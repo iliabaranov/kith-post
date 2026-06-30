@@ -1,4 +1,4 @@
-# Kith
+# Kith Invite
 
 A free, self-hosted, privacy-first digital invitation service. Upload a card,
 pick your people, and send a personal invite **from your own Gmail** — with

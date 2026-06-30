@@ -1,7 +1,7 @@
-# Kith — Design Language
+# Kith Invite — Design Language
 
 > Direction: **"Kitchen Table"** · Theme: **light & warm** · Locked 2026-06-29.
-> This is the single source of truth for Kith's look. Every screen derives its
+> This is the single source of truth for Kith Invite's look. Every screen derives its
 > colors, type, spacing, and motion from here. See `design/invite-preview.html`
 > for the reference implementation of the hero screen.
 
@@ -9,7 +9,7 @@
 
 ## 1. The idea
 
-Kith should feel like **a warm note from a friend left on the kitchen table** —
+Kith Invite should feel like **a warm note from a friend left on the kitchen table** —
 not a SaaS product. The emotional beat we're designing for is the small, happy
 ritual of *getting real mail you actually want*: a handmade card, a personal line,
 a stamp pressed onto it. Friendly, unhurried, a little hand-made. Never "techy."
@@ -33,7 +33,7 @@ default: **cream `#F4F1EA` background + a high-contrast editorial serif (Playfai
 - **Accent is honey + plum, not terracotta**, with a single **berry** reserved
   for one celebratory moment. Text ink is a deep **aubergine-brown**, never pure
   black.
-- **The memorable element is a rubber-stamp RSVP mark** drawn from Kith's actual
+- **The memorable element is a rubber-stamp RSVP mark** drawn from Kith Invite's actual
   subject (the post), not a generic gradient/number hero.
 
 If a future change drifts toward flat-cream + Playfair + terracotta, it has
@@ -81,6 +81,13 @@ sentence case, warm and plain.
 - **The card is an object, not a div.** The invitation sits on the page as a
   tactile card: `card` surface, soft realistic shadow, a *slight* rotation
   (≈ −1.2°), washi-tape tabs at two corners. It feels placed, not rendered.
+- **The hero fills the view (no tiny floating card).** On laptop/tablet the
+  invitation targets **~75% of viewport height** — `height: min(76vh, 720px)` —
+  capped so it never balloons on huge monitors, with width `min(580px, 92vw)` so
+  it always fits horizontally without scroll. The **card image flexes** to absorb
+  the extra height while text blocks keep their natural size, so nothing is
+  stretched or clipped. On phones the card is width-driven with natural height (no
+  forced height). Always vertically centered with balanced margins.
 - **Generous, asymmetric whitespace.** Roomy margins; content left-aligned and
   comfortable, never edge-to-edge dense.
 - **One column on mobile, gentle two-column on wide** (card + details). Mobile is
@@ -101,14 +108,24 @@ condensed uppercase text, `mix-blend-mode: multiply` so it sinks into the paper.
 It doubles as the dashboard status chip language, so the metaphor is consistent
 end-to-end (the §7 tracking states *are* stamps).
 
-## 7. Motion (restrained — one orchestrated moment)
+## 7. Motion (restrained — two coordinated "mail" moments)
 
-- **The stamp press.** On Accept, the `Coming!` stamp scales from ~1.25 with a
-  small rotation and a single overshoot, settling in ~260ms — like a stamp
-  thunking down. This is the page's signature motion; everything else is calm.
-- Buttons: a 1–2px lift + shadow on hover, 120ms. Cards: no entrance animation
-  storms.
-- **`prefers-reduced-motion`: honored** — the stamp simply appears, no transform.
+Both motions tell the same story — *real mail* — so they read as one idea, not
+scattered effects.
+
+- **Envelope open (entrance).** On the recipient's invite page the card arrives by
+  opening from an envelope: the flap lifts (a `berry` wax-seal dot releases), then
+  the card rises and settles to its resting −1.2° as the envelope recedes. ~1.1s
+  total, **transform + opacity only** (GPU-friendly, no library) so it's smooth on
+  phones, tablets, and laptops. Enhancement only.
+- **The stamp press (response).** On Accept, the `Coming!` stamp scales from ~1.25
+  with a small rotation and a single overshoot, settling in ~260ms — like a stamp
+  thunking down.
+- Buttons: a 1–2px lift + shadow on hover, 120ms. No scattered scroll-reveals.
+- **`prefers-reduced-motion`: honored** — envelope is skipped (the card is simply
+  present), the stamp simply appears; no transforms.
+- **No-JS:** the envelope is JS-gated — without JS the card renders directly and
+  the RSVP still POSTs. Motion never gates function.
 
 ## 8. Components
 
@@ -118,6 +135,9 @@ end-to-end (the §7 tracking states *are* stamps).
 - **Quiet button**: text/outline in `ink-soft` on `card` (e.g. "Can't make it",
   "Maybe later").
 - **Status chip = mini stamp** (see §6).
+- **"Change response"**: a quiet text link (`ink-soft`, underline on hover) shown
+  after a recipient answers; it reverts to the choice buttons so they can re-pick.
+  Changing your mind is a normal path, never an error — no confirm dialog, no nag.
 - **Inputs**: `card` fill, `line` border, `honey` focus ring (visible, 2px). Warm,
   rounded ~10px. Labels above, in `ink-soft`.
 - **Donation link** (later, G6): a single quiet "☕ Buy me a coffee" in the footer

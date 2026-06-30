@@ -1,15 +1,16 @@
-# Kith — Design Document
+# Kith Invite — Design Document
 
 > **Status:** Draft v0.1 · **Date:** 2026-06-29 · **Owner:** ilia
 >
-> *Kith* (n.) — one's friends, acquaintances, and neighbors. As in "kith and kin."
+> **Kith Invite** — from *kith* (n.): one's friends, acquaintances, and
+> neighbors, as in "kith and kin."
 > A free, self-hosted, privacy-first digital invitation service: upload a card,
 > pick your people, and send a personal invite **from your own Gmail** with
 > open / accept / decline tracking. A non-commercial alternative to Punchbowl
 > and Paperless Post.
 >
-> *(Name is a placeholder — trivially renameable. Everything below is the
-> architecture; the name is not load-bearing.)*
+> *(Name locked: **Kith Invite**. That's the brand / display name; the code
+> package stays `kith` for a short import path.)*
 
 ---
 
@@ -55,7 +56,7 @@ export-and-delete. It is free, offered as-is with no warranty.
 - Payments, premium tiers, ads, or profit-seeking monetization. *(One subtle,
   optional "tip jar" to offset hosting — e.g. Buy Me a Coffee / Ko-fi — is the
   lone exception, tracked as a later work item in §17. It links out to an
-  external service, so no payment data ever touches Kith.)*
+  external service, so no payment data ever touches Kith Invite.)*
 - Rich drag-and-drop card *designer* (we accept a finished image; we are not
   Canva). A future "templates" feature is out of scope for MVP.
 - SMS / WhatsApp / push delivery. Email only.
@@ -88,7 +89,7 @@ These were decided up front and constrain everything downstream.
    write a short personal message, choose whether to ask for RSVP.
 3. **Build recipient list:** type/paste emails, or pick from saved contacts.
 4. **Preview** the exact email (rendered with their name as sender).
-5. **Send.** Kith builds one personalized message per recipient, injects tracking
+5. **Send.** Kith Invite builds one personalized message per recipient, injects tracking
    tokens, and sends each via the Gmail API throttled within quota.
 6. **Track** on a dashboard: per-recipient status — Queued → Sent → Opened (≈) →
    Accepted / Declined.
@@ -96,10 +97,12 @@ These were decided up front and constrain everything downstream.
 ### Recipient (no account, no app)
 1. Receives a normal-looking personal email from their friend, with the card
    inlined.
-2. Email contains a **"View invitation & RSVP"** button → opens the Kith landing
-   page (full-res card + details).
+2. Email contains a **"View invitation & RSVP"** button → opens the Kith Invite
+   landing page, where the invitation **animates out of an envelope** (a light,
+   broadly-supported entrance; skipped under reduced-motion). Full-res card + details.
 3. Clicks **Accept** or **Decline** (optionally a +1 count / short note).
-4. Sees a friendly confirmation. No login, ever. One opaque token = one recipient.
+4. Sees a friendly confirmation, and can **return to the same link anytime to
+   change their response** (see §7). No login, ever. One opaque token = one recipient.
 
 ---
 
@@ -117,7 +120,7 @@ These were decided up front and constrain everything downstream.
 - **App posture:** A single Google Cloud project with an OAuth consent screen in
   **"Testing"** mode. Each permitted user is added as a **test user** (≤100).
   - Test users see a "Google hasn't verified this app" interstitial → "Advanced"
-    → "Go to Kith (unsafe)". Acceptable for a trusted circle; documented in
+    → "Go to Kith Invite (unsafe)". Acceptable for a trusted circle; documented in
     onboarding.
   - **No Google verification / security assessment needed** while we stay in
     Testing with the whitelist. This is the key payoff of Decision #2.
@@ -199,11 +202,35 @@ ship.)
 - **No third-party trackers**, no analytics SDKs, no cookies for recipients. All
   tracking is first-party and self-hosted.
 
+### Changing an RSVP (the link is the dashboard)
+
+The recipient's tokenized link (`/i/{token}`) is **durable, not one-shot** — it's
+their permanent view of the invitation. Plans change, so we make changing an
+answer feel expected, not like an error path:
+
+- After responding, the page shows their **current** answer as the stamp
+  ("Coming!" / "Can't make it") plus a quiet **"Change response"** text link. It
+  reverts to the choice buttons; picking again re-stamps. No friction, no
+  "are you sure," no account.
+- Returning to the link later (e.g. from the same email) always lands on their
+  current status with the same change affordance — the link is effectively a tiny
+  personal dashboard for that one invite.
+- **Editable until the event** (sane default; configurable). Once `event_date`
+  passes, the page goes read-only ("This event has passed") so late flips don't
+  mislead the host.
+- **Data:** `Recipient.status` holds the *latest* answer and `rsvp_at` its time;
+  every change also **appends a `TrackingEvent`** (accept/decline), so the host's
+  history is preserved and the dashboard can show "changed their mind 2× · now
+  Coming." Nothing is overwritten silently.
+- The sender's dashboard reflects the change on next load (HTMX poll); the running
+  reminder logic already treats accept/decline as "engaged → stop," and a flip
+  back to non-responded does **not** restart reminders (avoids nagging).
+
 ---
 
 ## 8. Automated Reminders
 
-**Sane default: ON.** When an event has a date, Kith automatically nudges
+**Sane default: ON.** When an event has a date, Kith Invite automatically nudges
 recipients who were sent an invite but **haven't clicked through yet**. A reminder
 reuses the recipient's existing token (so tracking stays continuous), is sent from
 the user's Gmail like the original, and is **threaded as a reply to the first
@@ -244,7 +271,7 @@ Computed relative to `event_date`:
 
 ### Mechanics
 Reuses the existing async send-worker and Gmail quota throttle (§6) — **no new
-infrastructure.** At send time Kith computes each recipient's reminder slots and
+infrastructure.** At send time Kith Invite computes each recipient's reminder slots and
 writes `Reminder` rows; a periodic sweep (every few minutes) enqueues those that
 are due *and* still match the target, then they flow through the same throttled
 `messages.send` path and count against the same daily cap. In `dry-run` /
@@ -291,6 +318,8 @@ Recipient                # one row per (event, person)
   id  event_id→Event     contact_id→Contact?   name 🔒   email 🔒
   token (unique, opaque) status[queued|sent|opened|accepted|declined|bounced]
   plus_one_count?        note? 🔒    sent_at?  first_open_at?  rsvp_at?
+  # status = LATEST answer (mutable); rsvp_at updates on each change.
+  # Every change also appends a TrackingEvent, so history is never lost.
   msg_id_hdr?  thread_id?   # RFC822 Message-ID + Gmail thread of the first send,
                             # so reminders thread as replies (In-Reply-To/References)
 
@@ -560,5 +589,5 @@ Each gate is a working, committed, tested increment.
 
 ---
 
-*End of v0.1. Name locked: **Kith**. Next step on approval: build G0 (scaffold +
+*End of v0.1. Name locked: **Kith Invite**. Next step on approval: build G0 (scaffold +
 local dev loop) and commit.*

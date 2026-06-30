@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>You're invited — Kith</title>
+<title>You're invited — Kith Invite</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Fraunces:opsz,wght,SOFT,WONK@9..144,400..600,0..100,0..1&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -13,8 +13,8 @@
     --paper:#F4ECDD; --card:#FCF8EF; --ink:#3B2A33; --ink-soft:#6E5C63;
     --honey:#E2972B; --plum:#6B3A57; --sage:#A9B7A0; --berry:#C44569;
     --line:#E4D8C4;
-    --shadow: 0 18px 40px -18px rgba(59,42,51,.45), 0 2px 6px rgba(59,42,51,.08);
-    --radius:14px;
+    --shadow: 0 22px 48px -20px rgba(59,42,51,.5), 0 2px 6px rgba(59,42,51,.08);
+    --radius:16px;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;}
@@ -23,7 +23,8 @@
     color:var(--ink); background:var(--paper);
     line-height:1.6; min-height:100vh;
     display:flex; flex-direction:column; align-items:center;
-    padding:clamp(1rem,4vw,3rem) 1rem 2rem;
+    justify-content:safe center;  /* center, but fall back to start if too tall */
+    gap:.6rem; padding:clamp(.75rem,3vh,2rem) 1rem;
     -webkit-font-smoothing:antialiased;
   }
   /* real paper grain, not a flat cream fill */
@@ -32,67 +33,75 @@
     opacity:.5; mix-blend-mode:multiply;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
   }
-  .wrap{position:relative; z-index:1; width:100%; max-width:560px;}
+  .wrap{position:relative; z-index:1; width:100%;
+    display:flex; flex-direction:column; align-items:center; gap:.6rem;}
 
   .eyebrow{
     font-family:"Caveat",cursive; color:var(--plum);
     font-size:1.9rem; line-height:1; text-align:center;
-    margin:0 0 .5rem; transform:rotate(-2deg);
+    margin:0; transform:rotate(-2deg);
   }
 
-  /* ---- the invitation as a tactile object ---- */
+  /* ---- stage holds the envelope + the card ---- */
+  .stage{position:relative; width:min(580px,92vw); perspective:1100px;}
+
+  /* ---- the invitation as a tactile object that fills the view ---- */
   .card{
-    position:relative; background:var(--card); border:1px solid var(--line);
+    position:relative; z-index:1; width:100%;
+    display:flex; flex-direction:column;
+    background:var(--card); border:1px solid var(--line);
     border-radius:var(--radius); box-shadow:var(--shadow);
-    padding:clamp(1.4rem,5vw,2.4rem); transform:rotate(-1.2deg);
+    padding:clamp(1.4rem,4vw,2.2rem); transform:rotate(-1.2deg);
   }
+  /* On laptop/tablet the card targets ~75% of the viewport height,
+     capped, and the photo flexes to absorb the slack. Phones: natural height. */
+  @media (min-width:680px) and (min-height:640px){
+    /* min-height (not height): fills ~76vh when there's room, grows if content
+       needs more — never clips. Photo flexes to absorb any slack. */
+    .card{min-height:min(76vh,720px);}
+  }
+
   .tape{
-    position:absolute; top:-12px; width:92px; height:26px;
-    background:rgba(169,183,160,.42); /* sage, frosted */
-    border:1px solid rgba(255,255,255,.4);
+    position:absolute; top:-12px; width:96px; height:26px; z-index:2;
+    background:rgba(169,183,160,.42); border:1px solid rgba(255,255,255,.4);
     box-shadow:0 1px 3px rgba(59,42,51,.12);
   }
-  .tape.l{left:24px; transform:rotate(-7deg);}
-  .tape.r{right:24px; transform:rotate(6deg); background:rgba(226,151,43,.30);}
+  .tape.l{left:26px; transform:rotate(-7deg);}
+  .tape.r{right:26px; transform:rotate(6deg); background:rgba(226,151,43,.3);}
 
   .photo{
-    aspect-ratio:4/3; border-radius:10px; border:1px solid var(--line);
+    flex:1 1 auto; min-height:clamp(150px,22vh,230px);
+    border-radius:10px; border:1px solid var(--line); margin-bottom:1.3rem;
     background:
       radial-gradient(120% 120% at 20% 10%, rgba(226,151,43,.35), transparent 55%),
-      radial-gradient(120% 120% at 90% 90%, rgba(107,58,87,.30), transparent 55%),
+      radial-gradient(120% 120% at 90% 90%, rgba(107,58,87,.3), transparent 55%),
       var(--paper);
     display:flex; align-items:center; justify-content:center;
-    color:var(--ink-soft); font-size:.82rem; letter-spacing:.04em;
-    text-transform:uppercase; margin-bottom:1.4rem;
+    color:var(--ink-soft); font-size:.8rem; letter-spacing:.05em;
+    text-transform:uppercase;
   }
 
   .title{
     font-family:"Fraunces",Georgia,serif;
-    font-variation-settings:"opsz" 120,"SOFT" 60,"WONK" 1;
-    font-weight:560; font-size:clamp(2rem,7vw,2.9rem); line-height:1.04;
-    margin:.2rem 0 .9rem; color:var(--ink);
+    font-variation-settings:"opsz" 132,"SOFT" 80,"WONK" 1;
+    font-weight:540; font-size:clamp(2rem,5.5vw,2.9rem); line-height:1.04;
+    margin:0 0 .7rem; color:var(--ink);
   }
-
   .meta{
     display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center;
-    color:var(--ink-soft); font-size:.95rem; margin-bottom:1.1rem;
+    color:var(--ink-soft); font-size:.95rem; margin-bottom:.9rem;
   }
   .meta .dot{width:5px; height:5px; border-radius:50%; background:var(--sage);}
   .meta b{color:var(--ink); font-weight:600;}
-
-  .message{margin:0 0 1.4rem; font-size:1.06rem;}
-  .signoff{
-    font-family:"Caveat",cursive; color:var(--plum);
-    font-size:1.6rem; line-height:1; margin:0 0 .4rem;
-  }
+  .message{margin:0 0 1.1rem; font-size:1.05rem;}
+  .signoff{font-family:"Caveat",cursive; color:var(--plum);
+    font-size:1.6rem; line-height:1; margin:0;}
 
   /* ---- actions ---- */
-  .actions{display:flex; flex-wrap:wrap; gap:.7rem; margin-top:1.6rem;}
-  .btn{
-    font:inherit; font-weight:600; cursor:pointer; border-radius:12px;
-    padding:.8rem 1.3rem; border:1px solid transparent; transition:
-      transform .12s ease, box-shadow .12s ease, background .12s ease;
-  }
+  .actions{display:flex; flex-wrap:wrap; gap:.7rem; margin-top:1.3rem;}
+  .btn{font:inherit; font-weight:600; cursor:pointer; border-radius:12px;
+    padding:.8rem 1.3rem; border:1px solid transparent;
+    transition:transform .12s ease, box-shadow .12s ease, background .12s ease;}
   .btn:focus-visible{outline:3px solid var(--honey); outline-offset:2px;}
   .btn-primary{background:var(--honey); color:var(--ink);
     box-shadow:0 6px 14px -6px rgba(226,151,43,.7);}
@@ -102,30 +111,71 @@
   .btn-quiet:hover{transform:translateY(-1px); color:var(--ink);}
   .btn[disabled]{opacity:.45; cursor:default; transform:none; box-shadow:none;}
 
-  .confirm{margin-top:1rem; min-height:1.2rem; color:var(--ink-soft);
-    font-size:.95rem;}
+  .confirm{margin:.9rem 0 0; min-height:1.2rem; color:var(--ink-soft); font-size:.95rem;}
+  /* changing your mind is a normal path, not an error */
+  .change{background:none; border:0; padding:.1rem 0; margin:.35rem 0 0;
+    font:inherit; font-size:.9rem; color:var(--ink-soft);
+    text-decoration:underline; text-underline-offset:3px; cursor:pointer;}
+  .change:hover{color:var(--plum);}
+  .change[hidden]{display:none;}
 
   /* ---- signature element: the rubber stamp ---- */
-  .stamp{
-    position:absolute; top:18px; right:16px; transform:rotate(9deg) scale(.6);
-    opacity:0; pointer-events:none;
+  .stamp{position:absolute; top:16px; right:14px; z-index:3;
+    transform:rotate(9deg) scale(.6); opacity:0; pointer-events:none;
     font-weight:700; text-transform:uppercase; letter-spacing:.06em;
     font-size:1.05rem; padding:.5rem 1rem; border:3px solid currentColor;
-    border-radius:10px; mix-blend-mode:multiply;
-  }
+    border-radius:10px; mix-blend-mode:multiply;}
   .stamp.show{opacity:.85; animation:press .26s cubic-bezier(.2,1.4,.4,1) forwards;}
   .stamp.coming{color:var(--berry);}
   .stamp.declined{color:var(--ink-soft); transform:rotate(-7deg) scale(.6);}
   @keyframes press{
     0%{opacity:0; transform:rotate(9deg) scale(1.35);}
-    60%{opacity:.95;}
-    100%{opacity:.85; transform:rotate(9deg) scale(1);}
-  }
+    60%{opacity:.95;} 100%{opacity:.85; transform:rotate(9deg) scale(1);}}
 
-  footer{position:relative; z-index:1; margin-top:2.4rem; text-align:center;}
+  /* ---- envelope (decorative; JS-gated so no-JS still works) ---- */
+  .envelope{display:none; position:absolute; left:0; right:0; top:50%;
+    transform:translateY(-50%); height:60%; z-index:6; transform-style:preserve-3d;}
+  .env-body{position:absolute; inset:0; border-radius:12px;
+    background:#E7D3A8; border:1px solid #D7BE86;
+    box-shadow:0 16px 30px -16px rgba(59,42,51,.5);}
+  .env-body::after{content:""; position:absolute; inset:0; /* pocket V */
+    clip-path:polygon(0 100%,100% 100%,50% 34%); background:#DFC793;}
+  .env-flap{position:absolute; left:0; right:0; top:0; height:64%; z-index:2;
+    clip-path:polygon(0 0,100% 0,50% 100%); background:#E0C893;
+    transform-origin:top center;}
+  .env-seal{position:absolute; left:50%; top:52%; width:32px; height:32px;
+    margin:-16px 0 0 -16px; border-radius:50%; background:var(--berry); z-index:3;
+    box-shadow:0 2px 5px rgba(59,42,51,.35);}
+
+  html.js .card{opacity:0;}            /* revealed by the rise animation */
+  html.js .envelope{display:block;}
+
+  @media (prefers-reduced-motion:no-preference){
+    html.js .card{animation:cardRise .85s cubic-bezier(.2,.7,.2,1) .5s forwards;}
+    html.js .env-flap{animation:flapOpen .55s ease .15s forwards;}
+    html.js .env-seal{animation:sealOff .35s ease .15s forwards;}
+    html.js .envelope{animation:envOff .7s ease .65s forwards;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html.js .card{opacity:1;}
+    html.js .envelope{display:none;}
+  }
+  /* ?stage=envelope freezes at the closed-envelope frame (for previews) */
+  html.frozen *{animation-play-state:paused !important;}
+
+  @keyframes cardRise{
+    0%{opacity:0; transform:translateY(46px) scale(.95) rotate(0deg);}
+    100%{opacity:1; transform:translateY(0) scale(1) rotate(-1.2deg);}}
+  @keyframes flapOpen{0%{transform:rotateX(0);} 100%{transform:rotateX(-158deg);}}
+  @keyframes sealOff{0%{opacity:1; transform:scale(1);}
+    100%{opacity:0; transform:scale(.5) translateY(-6px);}}
+  @keyframes envOff{0%,40%{opacity:1; transform:translateY(-50%);}
+    100%{opacity:0; transform:translateY(calc(-50% + 30px));}}
+
+  footer{position:relative; z-index:1; margin-top:.8rem; text-align:center;}
   .coffee{color:var(--ink-soft); text-decoration:none; font-size:.9rem;}
   .coffee:hover{color:var(--plum); text-decoration:underline;}
-  .brand{display:block; margin-top:.5rem; color:var(--ink-soft);
+  .brand{display:block; margin-top:.45rem; color:var(--ink-soft);
     font-size:.78rem; letter-spacing:.06em; text-transform:uppercase;}
 
   @media (prefers-reduced-motion:reduce){
@@ -138,65 +188,82 @@
   <main class="wrap">
     <p class="eyebrow">you're invited</p>
 
-    <article class="card" id="card">
-      <span class="tape l" aria-hidden="true"></span>
-      <span class="tape r" aria-hidden="true"></span>
-
-      <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
-      <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
-
-      <div class="photo">your card image</div>
-
-      <h1 class="title">Maya turns five!</h1>
-
-      <div class="meta">
-        <span><b>Sat, May 4</b></span><span class="dot"></span>
-        <span><b>3:00 pm</b></span><span class="dot"></span>
-        <span>The Garcia backyard, 14 Linden St</span>
+    <div class="stage">
+      <div class="envelope" aria-hidden="true">
+        <div class="env-body"></div>
+        <div class="env-flap"></div>
+        <div class="env-seal"></div>
       </div>
 
-      <p class="message">
-        We're throwing a little garden party for Maya's birthday — cake, bubbles,
-        and far too many balloons. We'd love for you and the kids to come play.
-      </p>
-      <p class="signoff">— love, Mara &amp; Tom</p>
+      <article class="card" id="card">
+        <span class="tape l" aria-hidden="true"></span>
+        <span class="tape r" aria-hidden="true"></span>
 
-      <div class="actions">
-        <button class="btn btn-primary" id="yes">I'll be there</button>
-        <button class="btn btn-quiet" id="no">Can't make it</button>
-      </div>
-      <p class="confirm" id="confirm" role="status" aria-live="polite"></p>
-    </article>
+        <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
+        <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
+
+        <div class="photo">your card image</div>
+
+        <h1 class="title">Maya turns five!</h1>
+        <div class="meta">
+          <span><b>Sat, May 4</b></span><span class="dot"></span>
+          <span><b>3:00 pm</b></span><span class="dot"></span>
+          <span>The Garcia backyard, 14 Linden St</span>
+        </div>
+        <p class="message">
+          We're throwing a little garden party for Maya's birthday — cake, bubbles,
+          and far too many balloons. We'd love for you and the kids to come play.
+        </p>
+        <p class="signoff">— love, Mara &amp; Tom</p>
+
+        <div class="actions">
+          <button class="btn btn-primary" id="yes">I'll be there</button>
+          <button class="btn btn-quiet" id="no">Can't make it</button>
+        </div>
+        <p class="confirm" id="confirm" role="status" aria-live="polite"></p>
+        <button class="change" id="change" hidden>Change response</button>
+      </article>
+    </div>
 
     <footer>
-      <a class="coffee" href="#" aria-label="Buy the host of Kith a coffee">☕ Buy me a coffee</a>
-      <span class="brand">Sent with Kith</span>
+      <a class="coffee" href="#" aria-label="Buy the host of Kith Invite a coffee">☕ Buy me a coffee</a>
+      <span class="brand">Sent with Kith Invite</span>
     </footer>
   </main>
 
 <script>
-  // Core RSVP is a real POST in the app; here we just demo the stamp enhancement.
+  document.documentElement.className = 'js';
+  const params = new URLSearchParams(location.search);
+  if (params.get('stage') === 'envelope') document.documentElement.classList.add('frozen');
+
   const yes = document.getElementById('yes');
   const no = document.getElementById('no');
-  const confirm = document.getElementById('confirm');
+  const confirmEl = document.getElementById('confirm');
+  const change = document.getElementById('change');
   const sComing = document.getElementById('stampComing');
   const sDeclined = document.getElementById('stampDeclined');
 
   function respond(coming){
     yes.disabled = true; no.disabled = true;
-    if (coming){
-      sComing.classList.add('show');
-      confirm.textContent = "Wonderful — we'll let Mara know you're coming. 🎈";
-    } else {
-      sDeclined.classList.add('show');
-      confirm.textContent = "Thanks for letting us know — you'll be missed.";
-    }
+    sComing.classList.toggle('show', coming);
+    sDeclined.classList.toggle('show', !coming);
+    confirmEl.textContent = coming
+      ? "Wonderful — we'll let Mara know you're coming. 🎈"
+      : "Thanks for letting us know — you'll be missed.";
+    change.hidden = false;
+  }
+  function reopen(){
+    yes.disabled = false; no.disabled = false;
+    sComing.classList.remove('show'); sDeclined.classList.remove('show');
+    confirmEl.textContent = "No problem — just pick again.";
+    change.hidden = true; yes.focus();
   }
   yes.addEventListener('click', () => respond(true));
   no.addEventListener('click', () => respond(false));
+  change.addEventListener('click', reopen);
 
   // dev affordance: ?rsvp=yes|no pre-renders the responded state (for previews)
-  const pre = new URLSearchParams(location.search).get('rsvp');
+  const pre = params.get('rsvp');
   if (pre === 'yes') respond(true);
   else if (pre === 'no') respond(false);
 </script>
