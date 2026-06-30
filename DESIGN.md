@@ -356,7 +356,8 @@ Reminder                 # one scheduled nudge for a non-responder (§8)
 |---------|--------|-----|
 | Language | **Python 3.12** | Your wheelhouse; great Google client libs; fast to ship. |
 | Web framework | **FastAPI** + Uvicorn | Async (good for the send-queue + I/O to Gmail), typed, clean DI, easy testing. |
-| Templating / UI | **Jinja2 + HTMX + a little Alpine.js**, **Tailwind CSS** | Server-rendered = simple, SEO-irrelevant, no SPA build complexity. HTMX gives snappy dashboard updates. Visual direction is **"Kitchen Table" — light & warm** (see `DESIGN-LANGUAGE.md`); this product deliberately overrides the usual dark-theme default to feel friendly and approachable for a non-technical audience. |
+| Templating / UI | **Jinja2 + HTMX + minimal vanilla JS** | Server-rendered = simple, SEO-irrelevant, no SPA build complexity. HTMX gives snappy dashboard updates. Visual direction is **"Kitchen Table" — light & warm** (see `DESIGN-LANGUAGE.md`); this product deliberately overrides the usual dark-theme default to feel friendly and approachable for a non-technical audience. |
+| CSS | **Hand-written, token-based CSS** (no framework) | The design is bespoke (paper grain, rubber stamp, envelope, washi tape) — Tailwind wouldn't help and would add a Node build step + utility-class bloat + pull toward the "AI-slop" default look. A small `:root` token system + component classes is cleaner. *(Tailwind was considered and dropped for these reasons.)* |
 | Persistence | **SQLite** (WAL mode) via SQLAlchemy | Relational tracking data with queries/joins; single-file, zero-ops, trivially backed up. *(Deviates from the usual "JSON for state" preference — flat JSON can't express the recipient/event/tracking relations or query them; SQLite is the right tool here. Config still TOML.)* |
 | Config | **TOML** (`config.toml`) + env for secrets | House style; secrets via env so they never hit git. |
 | Email build | `email.message.EmailMessage` (stdlib) | Full control over MIME/CID/multipart; no heavy deps. |
@@ -365,6 +366,8 @@ Reminder                 # one scheduled nudge for a non-responder (§8)
 | Crypto at rest | **`cryptography` (Fernet)** keyed from an env secret | Encrypt PII + refresh tokens. Simple, audited. |
 | Background work | **In-process asyncio task** + a `Queued` table (no Celery/Redis) | One container, low volume; a DB-backed queue drained by an async worker is plenty. |
 | Tests | **pytest** | House style. Pure-logic core is unit-tested; Gmail/OAuth mocked. |
+| Env / deps | **`uv`** managing a standard **`.venv`** | Fast installs + lockfile; still real venv isolation. *(pip considered; uv chosen for speed.)* |
+| Lint / format | **Ruff** | One fast tool replacing black + isort + flake8. |
 | Container | **Docker** + `docker-compose` | One service + one volume. |
 | Ingress / TLS | **Tailscale Funnel** | Exposes the container to the internet **with automatic Let's Encrypt HTTPS** on `<machine>.<tailnet>.ts.net`. This *is* our "free open SSL." |
 

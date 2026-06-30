@@ -1,0 +1,26 @@
+# Kith Invite — non-secret tunables.
+# Copy to config.toml to override defaults. Secrets go in .env (never here).
+# Precedence: env (KITH_*) > .env > config.toml > built-in defaults.
+
+app_name = "Kith Invite"
+
+# Public base URL — used for tracking/RSVP links and the OAuth callback.
+# Local:  http://localhost:8000
+# Server: https://<machine>.<tailnet>.ts.net
+base_url = "http://localhost:8000"
+
+# How mail is sent: "dry-run" (write .eml to data/outbox, no Gmail call),
+# "self-only" (send only to the logged-in user), or "live".
+send_mode = "dry-run"
+
+# Where the SQLite db + uploaded images + dry-run outbox live.
+data_dir = "data"
+
+# --- Reminders (documented here; wired up in G5) ---
+# [reminders]
+# enabled = true
+# target = "not-clicked"          # or "no-rsvp"
+# offsets = ["halfway", "7d", "3d"]
+# send_hour_local = 9
+# min_gap_hours = 24
+# max_per_recipient = 3
