@@ -15,7 +15,7 @@ def test_index_renders_logged_out(client):
 def test_landing_has_privacy_faq(client):
     t = client.get("/").text
     assert "What you're signing up for" in t
-    assert "send only" in t            # clarifies we can't read mail
+    assert "can't read" in t           # clarifies we can't read mail
     assert "permanent delete" in t     # data control is stated
 
 
