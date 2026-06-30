@@ -12,6 +12,13 @@ def test_index_renders_logged_out(client):
     assert "no ads" in r.text
 
 
+def test_landing_has_privacy_faq(client):
+    t = client.get("/").text
+    assert "What you're signing up for" in t
+    assert "send only" in t            # clarifies we can't read mail
+    assert "permanent delete" in t     # data control is stated
+
+
 def test_login_offers_dev_signin_when_google_unconfigured(client):
     r = client.get("/auth/login")
     assert r.status_code == 200

@@ -89,6 +89,26 @@ body::before {
   letter-spacing: .02em;
 }
 
+/* privacy/usage FAQ — a quiet native <details> disclosure */
+.faq { max-width: 34rem; margin: 1.4rem auto 0; text-align: left; }
+.faq > summary {
+  list-style: none;
+  cursor: pointer;
+  width: fit-content;
+  margin: 0 auto;
+  padding: .25rem .2rem;
+  font-size: .9rem;
+  color: var(--plum);
+}
+.faq > summary::-webkit-details-marker { display: none; }
+.faq > summary::after { content: " +"; color: var(--ink-soft); }
+.faq[open] > summary::after { content: " –"; }
+.faq > summary:hover { color: var(--berry); text-decoration: underline; text-underline-offset: 3px; }
+.faq-body { margin: .7rem 0 0; }
+.faq-body dt { font-weight: 600; color: var(--ink); margin-top: 1rem; }
+.faq-body dt:first-of-type { margin-top: 0; }
+.faq-body dd { margin: .25rem 0 0; color: var(--ink-soft); font-size: .95rem; line-height: 1.55; }
+
 /* ---- buttons ---- */
 .btn {
   display: inline-block;
