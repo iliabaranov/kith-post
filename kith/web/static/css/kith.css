@@ -46,16 +46,13 @@ body::before {
   z-index: 1;
   flex: 1 1 auto;
   width: 100%;
-  max-width: 640px;
+  max-width: 960px;
   margin-inline: auto;
-  padding: clamp(1.5rem, 6vh, 4rem) 1.25rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  padding: clamp(1.5rem, 5vh, 3.5rem) 1.25rem;
 }
 
 /* ---- hero / landing ---- */
-.hero { text-align: center; }
+.hero { max-width: 40rem; margin: 6vh auto 0; text-align: center; }
 
 .eyebrow {
   font-family: "Caveat", cursive;
@@ -162,6 +159,97 @@ code {
 }
 .brand-link:hover { color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
 
+/* ---- dashboard ---- */
+.dash-head {
+  display: flex; flex-wrap: wrap; gap: 1rem;
+  align-items: flex-end; justify-content: space-between; margin-bottom: 1.6rem;
+}
+.dash-title {
+  font-family: var(--display); font-weight: 600;
+  font-size: clamp(1.8rem, 5vw, 2.4rem); margin: .2rem 0 0; color: var(--ink);
+}
+.event-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .6rem; }
+.event-link {
+  display: flex; flex-direction: column; gap: .15rem; text-decoration: none;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: .9rem 1.1rem; transition: border-color .12s ease, transform .12s ease;
+}
+.event-link:hover { border-color: var(--honey); transform: translateY(-1px); }
+.event-title { font-weight: 600; color: var(--ink); font-size: 1.05rem; }
+.event-meta { color: var(--ink-soft); font-size: .9rem; }
+.empty { color: var(--ink-soft); }
+
+/* ---- compose form ---- */
+.form-wrap { max-width: 42rem; margin: 0 auto; }
+.form-title {
+  font-family: var(--display); font-weight: 600;
+  font-size: clamp(1.8rem, 5vw, 2.3rem); margin: .4rem 0 1rem; color: var(--ink);
+}
+.form-error {
+  background: rgba(196, 69, 105, .1); color: var(--berry); border: 1px solid var(--berry);
+  border-radius: 10px; padding: .7rem 1rem; margin-bottom: 1rem;
+}
+.card-form { display: flex; flex-direction: column; gap: 1.1rem; }
+.field { display: flex; flex-direction: column; gap: .35rem; }
+.field-label { font-weight: 600; color: var(--ink); font-size: .95rem; }
+.field-hint { color: var(--ink-soft); font-size: .82rem; }
+.field-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.field-row .field { flex: 1 1 12rem; }
+input[type="text"], input[type="date"], input[type="file"], textarea {
+  font: inherit; color: var(--ink); background: var(--card);
+  border: 1px solid var(--line); border-radius: 10px; padding: .6rem .7rem;
+}
+input:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--honey); outline-offset: 1px; border-color: var(--honey);
+}
+textarea { resize: vertical; }
+.blocks {
+  border: 1px solid var(--line); border-radius: 12px; padding: .8rem 1rem;
+  display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; margin: 0;
+}
+.blocks legend { padding: 0 .3rem; }
+.chk { display: flex; align-items: center; gap: .4rem; color: var(--ink); font-size: .95rem; }
+.form-actions { display: flex; align-items: center; gap: 1rem; margin-top: .4rem; }
+
+/* ---- event detail / preview ---- */
+.detail-eyebrow { margin: 0 0 1rem; }
+.detail-grid { display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-start; }
+.detail-preview { flex: 1 1 300px; display: flex; justify-content: center; }
+.detail-side { flex: 1 1 240px; }
+.detail-title { font-family: var(--display); font-weight: 600; font-size: 1.6rem; margin: 0 0 .3rem; color: var(--ink); }
+.detail-sub { color: var(--ink-soft); margin: 0 0 1rem; }
+.detail-stat { color: var(--ink); font-weight: 600; margin: 0 0 1.2rem; }
+.detail-actions { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+.btn.is-disabled { opacity: .5; cursor: default; }
+
+/* ---- invitation card (preview) ---- */
+.invite-card {
+  width: 100%; max-width: 460px; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: clamp(1.2rem, 4vw, 1.8rem); transform: rotate(-1deg);
+}
+.ic-eyebrow {
+  font-family: "Caveat", cursive; color: var(--plum); font-size: 1.6rem; line-height: 1;
+  margin: 0 0 .5rem; transform: rotate(-2deg); text-align: center;
+}
+.ic-photo {
+  display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+  border-radius: 10px; border: 1px solid var(--line); margin-bottom: 1.1rem; background: var(--paper);
+}
+.ic-photo-empty {
+  display: flex; align-items: center; justify-content: center; color: var(--ink-soft);
+  text-transform: uppercase; letter-spacing: .05em; font-size: .78rem;
+}
+.ic-title { font-family: var(--display); font-weight: 600; font-size: clamp(1.6rem, 4vw, 2.1rem); line-height: 1.08; margin: 0 0 .6rem; color: var(--ink); }
+.ic-meta { display: flex; flex-wrap: wrap; gap: .35rem .8rem; align-items: center; color: var(--ink-soft); font-size: .9rem; margin-bottom: .7rem; }
+.ic-meta b { color: var(--ink); font-weight: 600; }
+.ic-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--sage); }
+.ic-message { margin: 0 0 .9rem; white-space: pre-line; color: var(--ink); }
+.ic-signoff { font-family: "Caveat", cursive; color: var(--plum); font-size: 1.4rem; line-height: 1; margin: 0; }
+.ic-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.1rem; }
+.ic-actions .btn { cursor: default; }
+
 @media (prefers-reduced-motion: reduce) {
   .btn, .btn:hover { transition: none; transform: none; }
+  .event-link:hover { transform: none; }
 }

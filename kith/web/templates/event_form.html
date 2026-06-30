@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit invitation' if event else 'New invitation' }} — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="form-wrap">
+  <p class="detail-eyebrow"><a class="link" href="/">← your cards</a></p>
+  <h2 class="form-title">{{ 'Edit your card' if event else 'Create an invitation' }}</h2>
+
+  {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+
+  <form class="card-form" method="post"
+        action="{{ ('/events/' ~ event.id) if event else '/events' }}"
+        enctype="multipart/form-data">
+
+    <label class="field">
+      <span class="field-label">Card image</span>
+      <input type="file" name="image" accept="image/*">
+      {% if event and event.asset_id %}<span class="field-hint">Leave empty to keep the current image.</span>{% endif %}
+    </label>
+
+    <label class="field">
+      <span class="field-label">Title</span>
+      <input type="text" name="title" value="{{ event.title if event else '' }}" placeholder="Maya turns five!">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Message</span>
+      <textarea name="message" rows="4" placeholder="A warm note…">{{ event.message if event else '' }}</textarea>
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">Date</span>
+        <input type="date" name="event_date" value="{{ event.event_date.isoformat() if event and event.event_date else '' }}">
+      </label>
+      <label class="field">
+        <span class="field-label">Time</span>
+        <input type="text" name="event_time" value="{{ event.event_time if event and event.event_time else '' }}" placeholder="3:00 pm">
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Location</span>
+      <input type="text" name="location" value="{{ event.location if event and event.location else '' }}" placeholder="The Garcia backyard, 14 Linden St">
+    </label>
+
+    <fieldset class="blocks">
+      <legend class="field-label">Show on the card</legend>
+      <label class="chk"><input type="checkbox" name="block_message" {% if blocks.message %}checked{% endif %}> Message</label>
+      <label class="chk"><input type="checkbox" name="block_date" {% if blocks.date %}checked{% endif %}> Date</label>
+      <label class="chk"><input type="checkbox" name="block_time" {% if blocks.time %}checked{% endif %}> Time</label>
+      <label class="chk"><input type="checkbox" name="block_location" {% if blocks.location %}checked{% endif %}> Location</label>
+      <label class="chk"><input type="checkbox" name="block_rsvp" {% if blocks.rsvp %}checked{% endif %}> RSVP buttons</label>
+      <label class="chk"><input type="checkbox" name="block_headcount" {% if blocks.headcount %}checked{% endif %}> Ask headcount</label>
+    </fieldset>
+
+    <label class="field">
+      <span class="field-label">Who's it for?</span>
+      <textarea name="recipients" rows="4" placeholder="one email per line, or  Name &lt;email&gt;">{{ recipients_text }}</textarea>
+      <span class="field-hint">Emails are encrypted. Separate with new lines or commas.</span>
+    </label>
+
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">{{ 'Save changes' if event else 'Create card' }}</button>
+      <a class="link" href="/">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

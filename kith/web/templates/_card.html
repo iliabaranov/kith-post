@@ -1,0 +1,32 @@
+{# Reusable invitation card (the "Kitchen Table" look).
+   Expects: event, asset (or none), blocks, host_name. #}
+<article class="invite-card">
+  {% if blocks.rsvp %}<p class="ic-eyebrow">you're invited</p>{% endif %}
+
+  {% if asset %}
+    <img class="ic-photo" src="/assets/{{ asset.id }}" alt="">
+  {% else %}
+    <div class="ic-photo ic-photo-empty">your card image</div>
+  {% endif %}
+
+  <h2 class="ic-title">{{ event.title or "Your title here" }}</h2>
+
+  {% if blocks.date or blocks.time or blocks.location %}
+  <div class="ic-meta">
+    {% if blocks.date and event.event_date %}<span><b>{{ event.event_date.strftime('%a, %b %d') }}</b></span>{% endif %}
+    {% if blocks.time and event.event_time %}<span class="ic-dot"></span><span><b>{{ event.event_time }}</b></span>{% endif %}
+    {% if blocks.location and event.location %}<span class="ic-dot"></span><span>{{ event.location }}</span>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if blocks.message and event.message %}<p class="ic-message">{{ event.message }}</p>{% endif %}
+
+  {% if host_name %}<p class="ic-signoff">— {{ host_name }}</p>{% endif %}
+
+  {% if blocks.rsvp %}
+  <div class="ic-actions">
+    <span class="btn btn-primary" aria-hidden="true">I'll be there</span>
+    <span class="btn btn-quiet" aria-hidden="true">Can't make it</span>
+  </div>
+  {% endif %}
+</article>

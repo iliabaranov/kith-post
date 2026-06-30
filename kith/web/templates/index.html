@@ -1,16 +1,38 @@
 {% extends "base.html" %}
-{% block title %}{{ settings.app_name }} — a card from your own inbox{% endblock %}
+{% block title %}{{ settings.app_name }} | a card from you{% endblock %}
 {% block content %}
 {% if user %}
-<section class="hero">
-  <p class="eyebrow">welcome back</p>
-  <h1 class="hero-title">Hello,<br>{{ user.display_name or "friend" }}.</h1>
-  <p class="hero-sub">
-    Your dashboard — create cards, pick your people, track RSVPs — arrives in the
-    next builds. The bones are in place.
+<section class="dash">
+  <div class="dash-head">
+    <div>
+      <p class="eyebrow">your cards</p>
+      <h2 class="dash-title">Hello, {{ user.display_name or "friend" }}.</h2>
+    </div>
+    <a class="btn btn-primary" href="/events/new">Create an invitation</a>
+  </div>
+
+  {% if events %}
+  <ul class="event-list">
+    {% for e in events %}
+    <li class="event-row">
+      <a class="event-link" href="/events/{{ e.id }}">
+        <span class="event-title">{{ e.title or "Untitled card" }}</span>
+        <span class="event-meta">
+          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time }}{% endif %} · {% endif %}
+          {% set n = counts.get(e.id, 0) %}{{ n }} recipient{{ '' if n == 1 else 's' }}
+        </span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No cards yet. <a class="link" href="/events/new">Make your first one.</a></p>
+  {% endif %}
+
+  <p class="reassure">
+    <a class="link" href="/account">Manage account</a> ·
+    <a class="link" href="/auth/logout">Sign out</a>
   </p>
-  <a class="btn btn-quiet" href="/account">Manage account</a>
-  <p class="reassure"><a class="link" href="/auth/logout">Sign out</a></p>
 </section>
 {% else %}
 <section class="hero">

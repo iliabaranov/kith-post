@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ event.title or "Your card" }} — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="detail">
+  <p class="detail-eyebrow"><a class="link" href="/">← your cards</a></p>
+
+  <div class="detail-grid">
+    <div class="detail-preview">
+      {% with blocks = event.blocks, host_name = user.display_name %}
+        {% include "_card.html" %}
+      {% endwith %}
+    </div>
+
+    <aside class="detail-side">
+      <h2 class="detail-title">{{ event.title or "Untitled card" }}</h2>
+      <p class="detail-sub">This is exactly what your people will see.</p>
+      <p class="detail-stat">{{ recipient_count }} recipient{{ '' if recipient_count == 1 else 's' }} on the list</p>
+
+      <div class="detail-actions">
+        <a class="btn btn-quiet" href="/events/{{ event.id }}/edit">Edit</a>
+        <span class="btn btn-primary is-disabled" aria-disabled="true" title="Sending arrives in the next build">Send (soon)</span>
+      </div>
+      <p class="reassure">Nothing has been sent yet — sending lands in the next build.</p>
+    </aside>
+  </div>
+</section>
+{% endblock %}

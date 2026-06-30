@@ -1,7 +1,6 @@
 """Kith Post web app.
 
-G0: landing + dev loop. G1: Google sign-in (with a dev-login fallback when Google
-isn't configured), encrypted refresh-token storage, account export/delete.
+G0 landing + dev loop · G1 Google sign-in + encrypted accounts · G2 compose a card.
 """
 
 from __future__ import annotations
@@ -9,24 +8,22 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from kith.config import get_settings
-from kith.db.models import User
+from kith.db.models import Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth
+from kith.services import google_auth, storage
 from kith.services.google_auth import GoogleIdentity
+from kith.web.deps import WEB_DIR, get_db, load_user, templates
+from kith.web.routes_events import router as events_router
 
-WEB_DIR = Path(__file__).parent
-templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 log = logging.getLogger("kith")
 
 
@@ -43,19 +40,6 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         engine.dispose()
-
-
-def get_db(request: Request):
-    db: Session = request.app.state.session_factory()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def load_user(request: Request, db: Session) -> User | None:
-    uid = request.session.get("user_id")
-    return db.get(User, uid) if uid else None
 
 
 def upsert_user(db: Session, identity: GoogleIdentity) -> User:
@@ -87,6 +71,7 @@ def create_app() -> FastAPI:
         https_only=settings.https_only,
     )
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+    app.include_router(events_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
     def healthz() -> str:
@@ -95,7 +80,21 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, db: Session = Depends(get_db)):
         user = load_user(request, db)
-        ctx = {"settings": settings, "user": user}
+        events = []
+        counts: dict[str, int] = {}
+        if user is not None:
+            events = db.execute(
+                select(Event).where(Event.user_id == user.id).order_by(Event.created_at.desc())
+            ).scalars().all()
+            if events:
+                counts = dict(
+                    db.execute(
+                        select(Recipient.event_id, func.count())
+                        .where(Recipient.event_id.in_([e.id for e in events]))
+                        .group_by(Recipient.event_id)
+                    ).all()
+                )
+        ctx = {"settings": settings, "user": user, "events": events, "counts": counts}
         return templates.TemplateResponse(request, "index.html", ctx)
 
     # ---- auth ----
@@ -106,7 +105,6 @@ def create_app() -> FastAPI:
             request.session["oauth_state"] = state
             request.session["oauth_verifier"] = code_verifier
             return RedirectResponse(url)
-        # No Google creds → local dev sign-in so the signed-in app is testable.
         return templates.TemplateResponse(request, "login_dev.html", {"settings": settings})
 
     @app.get("/auth/callback")
@@ -126,7 +124,7 @@ def create_app() -> FastAPI:
 
     @app.post("/auth/dev-login")
     def dev_login(request: Request, db: Session = Depends(get_db)):
-        if settings.google_configured:  # dev login is disabled once real OAuth is set up
+        if settings.google_configured:
             return RedirectResponse("/auth/login", status_code=303)
         identity = GoogleIdentity(
             sub="dev-user", email="dev@example.com", name="Dev User", refresh_token=None
@@ -154,6 +152,7 @@ def create_app() -> FastAPI:
         user = load_user(request, db)
         if user is None:
             return RedirectResponse("/", status_code=303)
+        events = db.execute(select(Event).where(Event.user_id == user.id)).scalars().all()
         data = {
             "id": user.id,
             "google_sub": user.google_sub,
@@ -161,6 +160,14 @@ def create_app() -> FastAPI:
             "display_name": user.display_name,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+            "events": [
+                {
+                    "id": e.id, "title": e.title, "message": e.message,
+                    "event_date": e.event_date.isoformat() if e.event_date else None,
+                    "event_time": e.event_time, "location": e.location, "blocks": e.blocks,
+                }
+                for e in events
+            ],
         }
         return JSONResponse(
             data, headers={"Content-Disposition": "attachment; filename=kith-post-export.json"}
@@ -170,6 +177,7 @@ def create_app() -> FastAPI:
     def delete_account(request: Request, db: Session = Depends(get_db)):
         user = load_user(request, db)
         if user is not None:
+            storage.delete_user_assets(user.id)  # remove image files (DB rows cascade)
             db.delete(user)
             db.commit()
         request.session.clear()

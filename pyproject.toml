@@ -15,6 +15,8 @@ dependencies = [
     "cryptography>=43",
     "google-auth>=2.35",
     "google-auth-oauthlib>=1.2",
+    "pillow>=11",
+    "python-multipart>=0.0.12",
 ]
 
 [dependency-groups]
@@ -40,8 +42,8 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
-# FastAPI's dependency-injection idiom: Depends() in argument defaults is intended.
-extend-immutable-calls = ["fastapi.Depends"]
+# FastAPI's idioms: Depends()/Form()/File() in argument defaults are intended.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.File"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
