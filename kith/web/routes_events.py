@@ -36,6 +36,16 @@ def _parse_date(s: str) -> date | None:
         return None
 
 
+def _parse_int(s: str, lo: int = 1, hi: int = 30) -> int | None:
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return max(lo, min(int(s), hi))
+    except ValueError:
+        return None
+
+
 def _blocks_from_form(message, date_, time_, location_, rsvp, headcount) -> dict:
     # checkboxes arrive as "on" when ticked, None when not
     return {
@@ -97,6 +107,7 @@ async def create_event(
     event_end_time: str = Form(""),
     location: str = Form(""),
     signoff: str = Form(""),
+    headcount_max: str = Form(""),
     recipients: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -132,6 +143,7 @@ async def create_event(
         location=(location.strip() or None),
         signoff=(signoff.strip() or None),
         blocks=blocks,
+        headcount_max=_parse_int(headcount_max),
         asset_id=asset.id if asset else None,
         status="draft",
     )
@@ -189,6 +201,7 @@ async def update_event(
     event_end_time: str = Form(""),
     location: str = Form(""),
     signoff: str = Form(""),
+    headcount_max: str = Form(""),
     recipients: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -222,6 +235,7 @@ async def update_event(
     ev.event_end_time = (event_end_time.strip() or None)
     ev.location = (location.strip() or None)
     ev.signoff = (signoff.strip() or None)
+    ev.headcount_max = _parse_int(headcount_max)
     ev.blocks = _blocks_from_form(
         block_message, block_date, block_time, block_location, block_rsvp, block_headcount
     )

@@ -68,6 +68,7 @@ class Event(Base):
     signoff: Mapped[str | None] = mapped_column(String, nullable=True)  # signature line
     # blocks = which sections the recipient sees: date/time/location/message/rsvp/headcount
     blocks: Mapped[dict] = mapped_column(JSON, default=dict)
+    headcount_max: Mapped[int | None] = mapped_column(Integer, nullable=True)  # cap per invite
     asset_id: Mapped[str | None] = mapped_column(
         ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
     )

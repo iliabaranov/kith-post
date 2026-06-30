@@ -195,7 +195,7 @@ code {
 .field-hint { color: var(--ink-soft); font-size: .82rem; }
 .field-row { display: flex; gap: 1rem; flex-wrap: wrap; }
 .field-row .field { flex: 1 1 12rem; }
-input[type="text"], input[type="date"], input[type="file"], textarea {
+input[type="text"], input[type="date"], input[type="number"], input[type="file"], textarea {
   font: inherit; color: var(--ink); background: var(--card);
   border: 1px solid var(--line); border-radius: 10px; padding: .6rem .7rem;
 }

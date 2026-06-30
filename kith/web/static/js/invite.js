@@ -28,10 +28,12 @@
     const sComing = document.getElementById("stampComing");
     const sDeclined = document.getElementById("stampDeclined");
     let count = 1;
+    const maxGuests = (headcount && parseInt(headcount.dataset.max, 10)) || 30;
 
     const renderCount = () => {
       if (countEl) countEl.textContent = count;
       if (dec) dec.disabled = count <= 1;
+      if (inc) inc.disabled = count >= maxGuests;
     };
     const setPhase = (p) => {
       actions.hidden = p !== "choose";
@@ -70,7 +72,7 @@
       }
     });
     no.addEventListener("click", () => finalize(false));
-    if (inc) inc.addEventListener("click", () => { count = Math.min(count + 1, 30); renderCount(); });
+    if (inc) inc.addEventListener("click", () => { count = Math.min(count + 1, maxGuests); renderCount(); });
     if (dec) dec.addEventListener("click", () => { count = Math.max(count - 1, 1); renderCount(); });
     if (confirmYes) confirmYes.addEventListener("click", () => finalize(true));
     if (back) back.addEventListener("click", () => setPhase("choose"));

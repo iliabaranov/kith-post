@@ -73,6 +73,7 @@ body::before{ /* real paper grain */
 
 .headcount{margin-top:1.3rem; animation:rise .3s ease;}
 .headcount .q{margin:0 0 .8rem; font-weight:600; color:var(--ink);}
+.hc-max{color:var(--ink-soft); font-weight:400; font-size:.9rem;}
 .stepper{display:inline-flex; align-items:center; gap:1rem; border:1px solid var(--line);
   background:var(--paper); border-radius:14px; padding:.4rem .55rem;}
 .step{width:40px; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--card);

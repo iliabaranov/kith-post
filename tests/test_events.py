@@ -76,6 +76,21 @@ def test_preview_is_the_interactive_invite(client):
     assert "How many of you" in p.text     # headcount step present
 
 
+def test_headcount_max_caps_the_stepper(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Dinner", "recipients": "a@example.com",
+              "block_rsvp": "on", "block_headcount": "on", "headcount_max": "4"},
+        follow_redirects=True,
+    )
+    eid = _event_id()
+    assert _db().execute("SELECT headcount_max FROM events LIMIT 1").fetchone()[0] == 4
+    p = client.get(f"/events/{eid}/preview")
+    assert 'data-max="4"' in p.text   # JS caps the + at this
+    assert "up to 4" in p.text         # guest-facing cue
+
+
 def test_holiday_card_preview_has_no_rsvp(client):
     client.post("/auth/dev-login")
     client.post(

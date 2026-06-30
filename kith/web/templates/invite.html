@@ -61,8 +61,8 @@
         </div>
 
         {% if blocks.headcount %}
-        <div class="headcount" id="headcount" hidden>
-          <p class="q">Lovely! How many of you are coming?</p>
+        <div class="headcount" id="headcount" hidden data-max="{{ event.headcount_max or '' }}">
+          <p class="q">Lovely! How many of you are coming?{% if event.headcount_max %} <span class="hc-max">(up to {{ event.headcount_max }})</span>{% endif %}</p>
           <div class="stepper" role="group" aria-label="Number of guests">
             <button class="step" id="dec" type="button" aria-label="One fewer">&minus;</button>
             <span class="count" id="count" aria-live="polite">1</span>

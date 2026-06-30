@@ -13,7 +13,9 @@
 
     <label class="field">
       <span class="field-label">Card image</span>
-      <input type="file" name="image" accept="image/*">
+      <input type="file" name="image" accept="image/jpeg,image/png,image/webp">
+      <span class="field-hint">JPG, PNG, or WebP, up to 10&nbsp;MB. A landscape photo around
+        1200–2000px wide looks best — we resize it and strip metadata (EXIF/GPS) automatically.</span>
       {% if event and event.asset_id %}<span class="field-hint">Leave empty to keep the current image.</span>{% endif %}
     </label>
 
@@ -62,6 +64,13 @@
       <label class="chk"><input type="checkbox" name="block_rsvp" {% if blocks.rsvp %}checked{% endif %}> RSVP buttons</label>
       <label class="chk"><input type="checkbox" name="block_headcount" {% if blocks.headcount %}checked{% endif %}> Ask headcount</label>
     </fieldset>
+
+    <label class="field">
+      <span class="field-label">Max guests per invite</span>
+      <input type="number" name="headcount_max" min="1" max="30"
+             value="{{ event.headcount_max if event and event.headcount_max else '' }}" placeholder="no limit">
+      <span class="field-hint">Optional. Caps the headcount stepper (e.g. 2 for plus-ones). Only used when “Ask headcount” is on.</span>
+    </label>
 
     <label class="field">
       <span class="field-label">Who's it for?</span>
