@@ -83,8 +83,9 @@
     padding:.8rem 1.3rem; border:1px solid transparent;
     transition:transform .12s ease, box-shadow .12s ease, background .12s ease;}
   .btn:focus-visible{outline:3px solid var(--honey); outline-offset:2px;}
-  .btn-primary{background:var(--honey); color:var(--ink); box-shadow:0 6px 14px -6px rgba(226,151,43,.7);}
-  .btn-primary:hover{transform:translateY(-2px); box-shadow:0 10px 18px -6px rgba(226,151,43,.75);}
+  /* neutral ink shadow, not a honey-colored glow (a common AI-UI tell) */
+  .btn-primary{background:var(--honey); color:var(--ink); box-shadow:0 5px 12px -7px rgba(59,42,51,.4);}
+  .btn-primary:hover{transform:translateY(-2px); box-shadow:0 9px 16px -8px rgba(59,42,51,.45);}
   .btn-quiet{background:transparent; color:var(--ink-soft); border-color:var(--line);}
   .btn-quiet:hover{transform:translateY(-1px); color:var(--ink);}
   .btn[disabled]{opacity:.45; cursor:default; transform:none; box-shadow:none;}

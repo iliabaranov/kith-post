@@ -27,9 +27,10 @@ default: **cream `#F4F1EA` background + a high-contrast editorial serif (Playfai
 
 - **Background** is a warm *ecru* with a real, subtle **paper grain** (SVG
   turbulence overlay), not a flat cream fill — it reads as stock, not a swatch.
-- **Display face** is **Fraunces set *soft & low-contrast*** (high optical-size,
-  raised `SOFT`, gentle `WONK`) — warm and slightly hand-made, the opposite of
-  the crisp high-contrast editorial serif the default reaches for.
+- **Display face** is **Spectral** (a warm, classic book serif) in a deliberate
+  4-role system — *not* Inter-everywhere, and *not* the lazy "Inter body + one
+  italic-serif accent word" pattern. We rejected Fraunces specifically because its
+  `f` has become an AI tell.
 - **Accent is honey + plum, not terracotta**, with a single **berry** reserved
   for one celebratory moment. Text ink is a deep **aubergine-brown**, never pure
   black.
@@ -38,6 +39,32 @@ default: **cream `#F4F1EA` background + a high-contrast editorial serif (Playfai
 
 If a future change drifts toward flat-cream + Playfair + terracotta, it has
 regressed to the default — pull it back.
+
+### 2.1 Anti-slop checklist (informed by community "AI-slop" / "Claude-built app" critiques)
+
+Concrete tells to keep designing *against* — verify every new screen:
+
+- **No Inter** (and no Space Grotesk / Geist / Instrument-Serif-accent combo). We
+  use Spectral + Hanken Grotesk + Caveat + Saira Condensed, on purpose.
+- **No purple/violet "VibeCode" gradient, no cyan-on-dark, no gradient text/buttons,
+  no gradient-stripe surface decoration.** Color is semantic and warm. (The only
+  gradient in the mockup is the *placeholder* standing in for the user's photo.)
+- **No one-sided colored accent border on cards** — cited as the *single most
+  recognizable* AI-UI tell. Our card uses a uniform warm hairline (`--line`).
+- **No colored glows / neon box-shadows.** Shadows are neutral, ink-based.
+- **No badge/pill eyebrow above an oversized centered sans headline.** Our eyebrow
+  is lowercase handwriting (Caveat), rotated; the title is left-aligned Spectral.
+- **No icon-top feature-card grids, no `01/02/03` step rails, no stat banners, no
+  emoji nav** — none of the SaaS-landing furniture.
+- **Vary radius & spacing** (card 16 / button 12 / photo 10 / stamp 4 px) — not one
+  uniform 16px radius and 24px pad on everything.
+- **Motion is meaningful** (envelope open, stamp press) — no uniform fade-in-on-everything,
+  no bouncing/wiggling; buttons ease, never snap.
+- **Emoji: at most one, contextual** (e.g. a single 🎈 in a birthday confirmation) —
+  never in headings, bullets, or nav.
+- **Copy is specific and warm**, never hedging ("may help") or superlative
+  ("best-in-class"). Real names, real details.
+- **Contrast meets WCAG AA** even for `ink-soft` secondary text (no pale-grey-on-cream).
 
 ## 3. Color
 
