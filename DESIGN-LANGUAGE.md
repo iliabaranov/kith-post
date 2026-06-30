@@ -62,9 +62,12 @@ spend it only on the accepted-RSVP stamp. WCAG AA for all text on `paper`/`card`
 
 Three roles, a deliberate non-default pairing (all on Google Fonts):
 
-- **Display — `Fraunces`** (variable). Set *warm*: `opsz` high (~72–144),
-  `SOFT` ~50, `WONK` ~1, weights 400–600. Used with restraint for the invite
-  title, page H1s, and section heads. This is the personality of the page.
+- **Display — being finalized.** ~~Fraunces~~ was **rejected**: it has become a
+  tell-tale of AI-generated design (the distinctive `f` in particular). Choosing
+  among three warmer, less-common faces — **Bitter** (warm slab, ties to the
+  postal/typewriter theme), **Young Serif** (chunky, organic, storybook), and
+  **Spectral** (refined classic book serif). Used with restraint for the invite
+  title and H1s. *(Whichever wins is set via the `--display` CSS var.)*
 - **Body / UI — `Hanken Grotesk`**. Friendly humanist sans, very legible at small
   sizes. All paragraphs, labels, buttons, dashboard text. Weights 400/500/600.
 - **Hand accent — `Caveat`**. A genuine handwriting face used in **exactly one
@@ -98,12 +101,21 @@ sentence case, warm and plain.
 ## 6. Signature element — the rubber stamp
 
 The thing people remember. RSVP and key states render as an **ink rubber-stamp
-mark** pressed onto the card: a rotated, slightly translucent outlined badge with
-condensed uppercase text, `mix-blend-mode: multiply` so it sinks into the paper.
+mark** pressed onto the card. To actually *read* as a rubber stamp (not a pill
+badge), the execution matters:
 
-- `Opened` / sent states → faint `ink-soft` or `sage` stamp.
+- **Double rule** — an outer 2.5px border plus an inner 1px line (`::before`),
+  the classic stamp frame.
+- **Worn ink** — a fine paper-colored speckle overlay (`::after`, a 3px
+  radial-gradient dot grid at ~0.4 opacity) erodes the ink so it looks pressed,
+  not printed.
+- **Condensed type** — Saira Condensed, heavy, uppercase, tight tracking.
+- Rotated ~8°, `mix-blend-mode: multiply` so it sinks into the paper.
+
+States:
+- `Opened` / sent → faint `ink-soft` stamp.
 - **`Coming!`** → `berry` stamp (the one bright moment).
-- `Can't make it` → muted `ink-soft` stamp.
+- `Can't make it` → muted `ink-soft` stamp (rotated the other way).
 
 It doubles as the dashboard status chip language, so the metaphor is consistent
 end-to-end (the §7 tracking states *are* stamps).
@@ -113,11 +125,15 @@ end-to-end (the §7 tracking states *are* stamps).
 Both motions tell the same story — *real mail* — so they read as one idea, not
 scattered effects.
 
-- **Envelope open (entrance).** On the recipient's invite page the card arrives by
-  opening from an envelope: the flap lifts (a `berry` wax-seal dot releases), then
-  the card rises and settles to its resting −1.2° as the envelope recedes. ~1.1s
-  total, **transform + opacity only** (GPU-friendly, no library) so it's smooth on
-  phones, tablets, and laptops. Enhancement only.
+- **Envelope open (entrance).** On the recipient's invite page the card **physically
+  slides up and out of an envelope** — it is not a fade. A kraft pocket sits in
+  front of the card's lower half; the flap lifts (a `berry` wax-seal dot releases),
+  then the card travels upward out of the pocket (`translateY`), settling to its
+  resting −1.2°, and the pocket fades away last. ~1.4s total, **transform + opacity
+  only** (GPU-friendly, no library) so it's smooth on phones, tablets, and laptops.
+  Enhancement only. *(The pocket is layered in front of the card via sibling
+  z-index so the card is genuinely revealed from behind it — that's what sells the
+  "coming out" over a fade.)*
 - **The stamp press (response).** On Accept, the `Coming!` stamp scales from ~1.25
   with a small rotation and a single overshoot, settling in ~260ms — like a stamp
   thunking down.
@@ -140,8 +156,14 @@ scattered effects.
   Changing your mind is a normal path, never an error — no confirm dialog, no nag.
 - **Inputs**: `card` fill, `line` border, `honey` focus ring (visible, 2px). Warm,
   rounded ~10px. Labels above, in `ink-soft`.
-- **Donation link** (later, G6): a single quiet "☕ Buy me a coffee" in the footer
-  — `ink-soft`, no button chrome, never a modal or nag.
+- **Recipient footer = the growth loop.** Recipient-facing invite/RSVP pages end
+  with a quiet brand link: *"Sent with **Kith Invite** · make your own free invite →"*
+  → the home/signup page. It is the **only** brand element a guest ever sees, and
+  it must stay subtle (`ink-soft`, no button chrome).
+- **Donation link** (later, G6): a single quiet "☕ Buy me a coffee" — shown
+  **only in the signed-in sender app, and only after the user has created their
+  first event**. **Never** on any recipient-facing page, in the sent email, or to a
+  guest in any form. `ink-soft`, no button chrome, never a modal or nag.
 
 ## 9. Copy voice
 

@@ -55,8 +55,10 @@ export-and-delete. It is free, offered as-is with no warranty.
 - Public open signup at internet scale (see §5, OAuth verification cost).
 - Payments, premium tiers, ads, or profit-seeking monetization. *(One subtle,
   optional "tip jar" to offset hosting — e.g. Buy Me a Coffee / Ko-fi — is the
-  lone exception, tracked as a later work item in §17. It links out to an
-  external service, so no payment data ever touches Kith Invite.)*
+  lone exception, tracked as a later work item in §17. It links out to an external
+  service, so no payment data ever touches Kith Invite. It appears **only in the
+  signed-in sender app, after the user has created their first event** — never to
+  invited guests, and never in a sent email.)*
 - Rich drag-and-drop card *designer* (we accept a finished image; we are not
   Canva). A future "templates" feature is out of scope for MVP.
 - SMS / WhatsApp / push delivery. Email only.
@@ -103,6 +105,9 @@ These were decided up front and constrain everything downstream.
 3. Clicks **Accept** or **Decline** (optionally a +1 count / short note).
 4. Sees a friendly confirmation, and can **return to the same link anytime to
    change their response** (see §7). No login, ever. One opaque token = one recipient.
+5. The only Kith Invite branding a guest sees is a quiet footer link —
+   *"Sent with Kith Invite · make your own free invite →"* — to the signup page
+   (the growth loop). **No donation prompt ever reaches a guest.**
 
 ---
 
@@ -557,9 +562,10 @@ Each gate is a working, committed, tested increment.
   cases, downtime-safe `pending` rows, target/cancel logic, reply-threaded sends
   reusing G3's queue, per-event config. Dashboard shows reminder status.
 - **G6 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
-  export/delete fully wired, **a subtle "buy me a coffee" donation link** (quiet
-  placement in footer + settings; links to an external service, no payment data
-  stored), deploy behind Tailscale Funnel (`live` mode), backups.
+  export/delete fully wired, **a subtle "buy me a coffee" donation link** (shown
+  only in the signed-in app after the user's first event — never to guests; links
+  out, no payment data stored), the recipient-footer growth link, deploy behind
+  Tailscale Funnel (`live` mode), backups.
 
 ---
 
