@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Sign in — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">developer mode</p>
+  <h1 class="hero-title">Dev sign-in.</h1>
+  <p class="hero-sub">
+    Google isn't configured yet, so this is a local sign-in for testing. Set
+    <code>KITH_GOOGLE_CLIENT_ID</code> and <code>KITH_GOOGLE_CLIENT_SECRET</code>
+    (see <code>docs/google-oauth-setup.md</code>) to enable the real
+    "Sign in with Google".
+  </p>
+  <form method="post" action="/auth/dev-login">
+    <button class="btn btn-primary" type="submit">Continue as a dev user</button>
+  </form>
+  <p class="reassure"><a class="link" href="/">Back home</a></p>
+</section>
+{% endblock %}

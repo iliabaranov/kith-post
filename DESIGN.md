@@ -566,7 +566,9 @@ Each gate is a working, committed, tested increment.
   (uvicorn `--reload`, `KITH_SEND_MODE=dry-run`, `.env.example`). **✅ Done** — runnable
   landing page, `make` dev loop, 6 tests green, ruff clean.
 - **G1 — Google SSO.** OAuth login/logout, encrypted refresh-token storage,
-  test-user onboarding, account export/delete stubs.
+  test-user onboarding, account export/delete stubs. **✅ Done** — google-auth-oauthlib
+  flow + dev-login fallback, `User` model w/ Fernet-encrypted email/refresh-token,
+  sessions, `/account` export + delete, `docs/google-oauth-setup.md`. 15 tests green.
 - **G2 — Compose a card.** Image upload → sanitize → derive inline + full-res;
   event create/edit; recipient list entry; live email preview.
 - **G3 — Send (the hard part).** MIME build w/ CID + tokens, Gmail API send,

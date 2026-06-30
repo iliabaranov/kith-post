@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title %}{{ settings.app_name }} — a card from your own inbox{% endblock %}
 {% block content %}
+{% if user %}
+<section class="hero">
+  <p class="eyebrow">welcome back</p>
+  <h1 class="hero-title">Hello,<br>{{ user.display_name or "friend" }}.</h1>
+  <p class="hero-sub">
+    Your dashboard — create cards, pick your people, track RSVPs — arrives in the
+    next builds. The bones are in place.
+  </p>
+  <a class="btn btn-quiet" href="/account">Manage account</a>
+  <p class="reassure"><a class="link" href="/auth/logout">Sign out</a></p>
+</section>
+{% else %}
 <section class="hero">
   <p class="eyebrow">kith &amp; kin</p>
   <h1 class="hero-title">Send a card<br>from your own inbox.</h1>
@@ -11,4 +23,5 @@
   <a class="btn btn-primary" href="/auth/login">Sign in with Google</a>
   <p class="reassure">No tracking pixels · no ads · we store almost nothing · open source</p>
 </section>
+{% endif %}
 {% endblock %}

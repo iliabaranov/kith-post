@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Your account — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">your account</p>
+  <h1 class="hero-title">{{ user.display_name or "Your account" }}</h1>
+  <p class="hero-sub">{{ user.email }}</p>
+
+  <div class="account-actions">
+    <a class="btn btn-quiet" href="/account/export">Download my data (JSON)</a>
+    <form method="post" action="/account/delete"
+          onsubmit="return confirm('Delete your account and all your data? This cannot be undone.');">
+      <button class="btn btn-danger" type="submit">Delete my account</button>
+    </form>
+  </div>
+
+  <p class="reassure">
+    <a class="link" href="/auth/logout">Sign out</a> ·
+    <a class="link" href="/">Back home</a>
+  </p>
+</section>
+{% endblock %}

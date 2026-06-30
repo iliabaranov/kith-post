@@ -38,5 +38,6 @@ def make_session_factory(engine: Engine) -> sessionmaker:
 
 
 def init_db(engine: Engine) -> None:
-    # Import models here once they exist so they register on Base.metadata.
+    from kith.db import models  # noqa: F401 — register tables on Base.metadata
+
     Base.metadata.create_all(engine)

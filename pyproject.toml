@@ -11,6 +11,10 @@ dependencies = [
     "jinja2>=3.1",
     "pydantic-settings>=2.6",
     "sqlalchemy>=2.0",
+    "itsdangerous>=2.2",
+    "cryptography>=43",
+    "google-auth>=2.35",
+    "google-auth-oauthlib>=1.2",
 ]
 
 [dependency-groups]
@@ -34,6 +38,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom: Depends() in argument defaults is intended.
+extend-immutable-calls = ["fastapi.Depends"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

@@ -39,6 +39,22 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     secret_key: str = "dev-insecure-change-me"
 
+    # Encryption of PII + OAuth refresh tokens at rest (Fernet). Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    fernet_key: str = ""
+
+    # Google OAuth (G1). When unset, /auth/login offers a local dev sign-in.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
+    @property
+    def google_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def https_only(self) -> bool:
+        return self.base_url.startswith("https")
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "kith.sqlite3"

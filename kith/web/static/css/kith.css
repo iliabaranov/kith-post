@@ -110,6 +110,21 @@ body::before {
 .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 9px 16px -8px rgba(59, 42, 51, .45); }
 .btn-quiet { background: transparent; color: var(--ink-soft); border-color: var(--line); }
 .btn-quiet:hover { transform: translateY(-1px); color: var(--ink); }
+.btn-danger { background: transparent; color: var(--berry); border-color: var(--berry); }
+.btn-danger:hover { transform: translateY(-1px); background: var(--berry); color: #fff; }
+
+/* inline text link + account page */
+.link { color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
+.link:hover { color: var(--berry); }
+code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: .85em; background: rgba(107, 58, 87, .08);
+  padding: .1em .35em; border-radius: 5px;
+}
+.account-actions {
+  display: flex; flex-wrap: wrap; gap: .8rem; justify-content: center;
+  align-items: center; margin-top: .6rem;
+}
 
 /* ---- footer ---- */
 .site-footer {
