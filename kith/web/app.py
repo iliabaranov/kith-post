@@ -164,7 +164,8 @@ def create_app() -> FastAPI:
                 {
                     "id": e.id, "title": e.title, "message": e.message,
                     "event_date": e.event_date.isoformat() if e.event_date else None,
-                    "event_time": e.event_time, "location": e.location, "blocks": e.blocks,
+                    "event_time": e.event_time, "event_end_time": e.event_end_time,
+                    "location": e.location, "signoff": e.signoff, "blocks": e.blocks,
                 }
                 for e in events
             ],

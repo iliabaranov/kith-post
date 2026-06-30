@@ -33,14 +33,24 @@
         <input type="date" name="event_date" value="{{ event.event_date.isoformat() if event and event.event_date else '' }}">
       </label>
       <label class="field">
-        <span class="field-label">Time</span>
+        <span class="field-label">Start time</span>
         <input type="text" name="event_time" value="{{ event.event_time if event and event.event_time else '' }}" placeholder="3:00 pm">
+      </label>
+      <label class="field">
+        <span class="field-label">End time</span>
+        <input type="text" name="event_end_time" value="{{ event.event_end_time if event and event.event_end_time else '' }}" placeholder="5:00 pm">
       </label>
     </div>
 
     <label class="field">
       <span class="field-label">Location</span>
       <input type="text" name="location" value="{{ event.location if event and event.location else '' }}" placeholder="The Garcia backyard, 14 Linden St">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Signed</span>
+      <input type="text" name="signoff" value="{{ event.signoff if event and event.signoff else '' }}" placeholder="love, Mara &amp; Tom">
+      <span class="field-hint">The signature line on the card. Defaults to your name.</span>
     </label>
 
     <fieldset class="blocks">

@@ -94,7 +94,9 @@ async def create_event(
     message: str = Form(""),
     event_date: str = Form(""),
     event_time: str = Form(""),
+    event_end_time: str = Form(""),
     location: str = Form(""),
+    signoff: str = Form(""),
     recipients: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -126,7 +128,9 @@ async def create_event(
         message=message.strip(),
         event_date=_parse_date(event_date),
         event_time=(event_time.strip() or None),
+        event_end_time=(event_end_time.strip() or None),
         location=(location.strip() or None),
+        signoff=(signoff.strip() or None),
         blocks=blocks,
         asset_id=asset.id if asset else None,
         status="draft",
@@ -182,7 +186,9 @@ async def update_event(
     message: str = Form(""),
     event_date: str = Form(""),
     event_time: str = Form(""),
+    event_end_time: str = Form(""),
     location: str = Form(""),
+    signoff: str = Form(""),
     recipients: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -213,7 +219,9 @@ async def update_event(
     ev.message = message.strip()
     ev.event_date = _parse_date(event_date)
     ev.event_time = (event_time.strip() or None)
+    ev.event_end_time = (event_end_time.strip() or None)
     ev.location = (location.strip() or None)
+    ev.signoff = (signoff.strip() or None)
     ev.blocks = _blocks_from_form(
         block_message, block_date, block_time, block_location, block_rsvp, block_headcount
     )
@@ -222,6 +230,27 @@ async def update_event(
     db.commit()
     _replace_recipients(db, ev.id, recipients)
     return RedirectResponse(f"/events/{ev.id}", status_code=303)
+
+
+@router.get("/events/{event_id}/preview", response_class=HTMLResponse)
+def preview_event(event_id: str, request: Request, db: Session = Depends(get_db)):
+    """The full interactive invite, exactly as a recipient sees it (owner preview)."""
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    asset = db.get(Asset, ev.asset_id) if ev.asset_id else None
+    ctx = {
+        "settings": get_settings(),
+        "event": ev,
+        "blocks": ev.blocks or {},
+        "host_name": user.display_name,
+        "image_url": (f"/assets/{asset.id}" if asset else None),
+        "preview": True,
+    }
+    return templates.TemplateResponse(request, "invite.html", ctx)
 
 
 @router.get("/assets/{asset_id}")

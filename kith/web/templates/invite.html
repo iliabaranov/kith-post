@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>You're invited — {{ settings.app_name }}</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Hanken+Grotesk:wght@400;500;600;700&family=Saira+Condensed:wght@600;700&family=Spectral:wght@500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="{{ url_for('static', path='css/invite.css') }}" />
+</head>
+<body>
+  {% if preview %}<div class="preview-flag">Preview</div>{% endif %}
+  {% set sig = event.signoff or host_name %}
+  <main class="wrap">
+    {% if blocks.rsvp %}<p class="eyebrow">you're invited</p>{% endif %}
+
+    <div class="stage">
+      <article class="card" id="card">
+        <span class="tape l" aria-hidden="true"></span>
+        <span class="tape r" aria-hidden="true"></span>
+        {% if blocks.rsvp %}
+        <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
+        <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
+        {% endif %}
+
+        {% if image_url %}
+          <img class="photo" id="photo" src="{{ image_url }}" alt="Card image"
+               role="button" tabindex="0" aria-label="Enlarge card image">
+        {% else %}
+          <div class="photo" id="photo" role="button" tabindex="0" aria-label="Enlarge card image">your card image</div>
+        {% endif %}
+
+        <h1 class="title">{{ event.title or "Your title here" }}</h1>
+
+        {% if (blocks.date and event.event_date) or (blocks.time and event.event_time) or (blocks.location and event.location) %}
+        <div class="meta">
+          {% set ns = namespace(first=true) %}
+          {% if blocks.date and event.event_date %}
+            <span><b>{{ event.event_date.strftime('%a, %b %d') }}</b></span>{% set ns.first = false %}
+          {% endif %}
+          {% if blocks.time and event.event_time %}
+            {% if not ns.first %}<span class="dot"></span>{% endif %}
+            <span><b>{{ event.event_time }}{% if event.event_end_time %} – {{ event.event_end_time }}{% endif %}</b></span>{% set ns.first = false %}
+          {% endif %}
+          {% if blocks.location and event.location %}
+            {% if not ns.first %}<span class="dot"></span>{% endif %}
+            <span>{{ event.location }}</span>{% set ns.first = false %}
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if blocks.message and event.message %}<p class="message">{{ event.message }}</p>{% endif %}
+        {% if sig %}<p class="signoff">— {{ sig }}</p>{% endif %}
+
+        {% if blocks.rsvp %}
+        <div class="actions" id="actions">
+          <button class="btn btn-primary" id="yes">I'll be there</button>
+          <button class="btn btn-quiet" id="no">Can't make it</button>
+        </div>
+
+        {% if blocks.headcount %}
+        <div class="headcount" id="headcount" hidden>
+          <p class="q">Lovely! How many of you are coming?</p>
+          <div class="stepper" role="group" aria-label="Number of guests">
+            <button class="step" id="dec" type="button" aria-label="One fewer">&minus;</button>
+            <span class="count" id="count" aria-live="polite">1</span>
+            <button class="step" id="inc" type="button" aria-label="One more">+</button>
+          </div>
+          <div class="hc-row">
+            <button class="btn btn-primary" id="confirmYes">We'll be there</button>
+            <button class="linklike" id="backToChoices" type="button">back</button>
+          </div>
+        </div>
+        {% endif %}
+
+        <p class="confirm" id="confirm" role="status" aria-live="polite"></p>
+        <button class="btn btn-quiet change linklike" id="change" type="button" hidden>Change response</button>
+        {% endif %}
+      </article>
+
+      <div class="envelope" aria-hidden="true">
+        <div class="env-body"></div>
+        <div class="env-flap"></div>
+        <div class="env-seal"></div>
+      </div>
+    </div>
+
+    <footer>
+      <a class="brand-link" href="/" title="Make your own free invite">Sent with <span class="bi">{{ settings.app_name }}</span></a>
+    </footer>
+  </main>
+
+  {% if image_url %}
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Card image, enlarged">
+    <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close enlarged image">✕</button>
+    <img class="lightbox-img" src="{{ image_url }}" alt="Card image, enlarged">
+  </div>
+  {% endif %}
+
+  <script src="{{ url_for('static', path='js/invite.js') }}"></script>
+</body>
+</html>
