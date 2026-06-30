@@ -21,9 +21,12 @@ from kith.web.deps import get_db, load_user, templates
 router = APIRouter()
 
 # Full-invite default. A plain holiday card = turn the blocks off.
+# A new card starts blank — every optional block off. The host ticks what they
+# want (each tick reveals its field), so a card is an invitation or a plain
+# holiday card depending only on what they choose to add.
 DEFAULT_BLOCKS = {
-    "message": True, "date": True, "time": True,
-    "location": True, "rsvp": True, "headcount": False,
+    "message": False, "date": False, "time": False,
+    "location": False, "rsvp": False, "headcount": False,
 }
 
 

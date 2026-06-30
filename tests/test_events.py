@@ -83,6 +83,7 @@ def test_form_has_disclosure_wiring(client):
     assert "What to include" in f
     for tid in ("t-message", "t-date", "t-time", "t-location", "t-headcount"):
         assert f'id="{tid}"' in f and f'data-reveal="{tid}"' in f
+    assert "checked>" not in f  # a new card starts blank — no box pre-selected
     assert 'classList.add("js")' in client.get("/").text  # no-JS keeps fields visible
 
 

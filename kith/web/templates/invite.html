@@ -20,17 +20,19 @@
       <article class="card" id="card">
         <span class="tape l" aria-hidden="true"></span>
         <span class="tape r" aria-hidden="true"></span>
-        {% if blocks.rsvp %}
-        <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
-        <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
-        {% endif %}
 
-        {% if image_url %}
-          <img class="photo" id="photo" src="{{ image_url }}" alt="Card image"
-               role="button" tabindex="0" aria-label="Enlarge card image">
-        {% else %}
-          <div class="photo" id="photo" role="button" tabindex="0" aria-label="Enlarge card image">your card image</div>
-        {% endif %}
+        <div class="card-figure">
+          {% if image_url %}
+            <img class="photo" id="photo" src="{{ image_url }}" alt="Card image"
+                 role="button" tabindex="0" aria-label="Enlarge card image">
+          {% else %}
+            <div class="photo" id="photo" role="button" tabindex="0" aria-label="Enlarge card image">your card image</div>
+          {% endif %}
+          {% if blocks.rsvp %}
+          <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
+          <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
+          {% endif %}
+        </div>
 
         <h1 class="title">{{ event.title or "Your title here" }}</h1>
 

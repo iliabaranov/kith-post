@@ -46,8 +46,12 @@ body::before{ /* real paper grain */
 .tape.l{left:26px; transform:rotate(-7deg);}
 .tape.r{right:26px; transform:rotate(6deg); background:rgba(226,151,43,.3);}
 
-.photo{flex:1 1 auto; min-height:clamp(150px,22vh,230px); width:100%; object-fit:cover;
-  border-radius:10px; border:1px solid var(--line); margin-bottom:1.3rem; background:var(--photo-bg);
+/* the image area is its own positioning context so the RSVP stamp can pin to
+   the photo's lower-right corner (not the whole card, which runs much taller) */
+.card-figure{position:relative; flex:1 1 auto; min-height:clamp(150px,22vh,230px);
+  margin-bottom:1.3rem; display:flex;}
+.photo{flex:1 1 auto; min-height:0; width:100%; object-fit:cover;
+  border-radius:10px; border:1px solid var(--line); background:var(--photo-bg);
   display:flex; align-items:center; justify-content:center;
   color:var(--ink-soft); font-size:.8rem; letter-spacing:.05em; text-transform:uppercase; cursor:zoom-in;}
 .photo:focus-visible{outline:3px solid var(--honey); outline-offset:3px;}
@@ -99,7 +103,7 @@ body::before{ /* real paper grain */
 .addcal .btn{padding:.55rem 1rem; font-size:.95rem;}
 
 /* ---- signature element: a real rubber stamp (double rule + worn ink) ---- */
-.stamp{position:absolute; top:6px; right:4px; z-index:5; font-family:"Saira Condensed",sans-serif;
+.stamp{position:absolute; bottom:14px; right:14px; z-index:5; font-family:"Saira Condensed",sans-serif;
   font-weight:700; text-transform:uppercase; letter-spacing:.03em; font-size:1.2rem; line-height:1;
   padding:.5rem .7rem .42rem; color:var(--ink-soft); border:2.5px solid currentColor; border-radius:4px;
   transform:rotate(-8deg) scale(.6); opacity:0; pointer-events:none; mix-blend-mode:multiply;}

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit invitation' if event else 'New invitation' }} — {{ settings.app_name }}{% endblock %}
+{% block title %}{{ 'Edit card' if event else 'New card' }} — {{ settings.app_name }}{% endblock %}
 {% block content %}
 <section class="form-wrap">
   <p class="detail-eyebrow"><a class="link" href="/">← your cards</a></p>
-  <h2 class="form-title">{{ 'Edit your card' if event else 'Create an invitation' }}</h2>
+  <h2 class="form-title">{{ 'Edit your card' if event else 'Create a card' }}</h2>
 
   {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
 
