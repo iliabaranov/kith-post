@@ -20,3 +20,15 @@ def test_wrong_key_cannot_decrypt():
     token = Cipher(generate_key()).encrypt("secret")
     with pytest.raises(InvalidToken):
         Cipher(generate_key()).decrypt(token)
+
+
+def test_dev_key_persists_across_calls(tmp_path):
+    # The same dev key must be returned on subsequent boots (no ephemeral churn).
+    from kith.core.crypto import _load_or_create_dev_key
+
+    k1 = _load_or_create_dev_key(tmp_path)
+    k2 = _load_or_create_dev_key(tmp_path)
+    assert k1 == k2
+    assert (tmp_path / ".fernet.dev.key").exists()
+    c = Cipher(k1)
+    assert c.decrypt(c.encrypt("x")) == "x"

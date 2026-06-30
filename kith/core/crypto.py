@@ -7,8 +7,10 @@ key with a loud warning (fine for a throwaway dev run, useless across restarts).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from cryptography.fernet import Fernet
 
@@ -31,15 +33,33 @@ class Cipher:
         return self._f.decrypt(token.encode()).decode()
 
 
+def _load_or_create_dev_key(data_dir: Path) -> str:
+    """Persist a dev key under the data dir so it survives restarts.
+
+    Without this, an ephemeral key would change every boot and make previously
+    encrypted rows undecryptable (a hard crash on the next read). Production sets
+    KITH_FERNET_KEY explicitly and never reaches here.
+    """
+    key_file = data_dir / ".fernet.dev.key"
+    if key_file.exists():
+        return key_file.read_text().strip()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    key = generate_key()
+    key_file.write_text(key)
+    with contextlib.suppress(OSError):
+        key_file.chmod(0o600)
+    log.warning(
+        "KITH_FERNET_KEY not set — generated a persistent DEV key at %s. "
+        "Set KITH_FERNET_KEY (and back it up) for anything real.",
+        key_file,
+    )
+    return key
+
+
 @lru_cache
 def default_cipher() -> Cipher:
     from kith.config import get_settings  # local import avoids an import cycle
 
-    key = get_settings().fernet_key
-    if not key:
-        key = generate_key()
-        log.warning(
-            "KITH_FERNET_KEY not set — using an ephemeral key. Encrypted data "
-            "will NOT survive a restart. Set KITH_FERNET_KEY for anything real."
-        )
+    settings = get_settings()
+    key = settings.fernet_key or _load_or_create_dev_key(settings.data_dir)
     return Cipher(key)
