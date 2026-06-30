@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>document.documentElement.classList.add("js");</script>
   <title>{% block title %}{{ settings.app_name }}{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +17,7 @@
     {% block content %}{% endblock %}
   </main>
   <footer class="site-footer">
+    <span class="brand-mark" aria-hidden="true">✉️</span>
     <a class="brand-link" href="/">{{ settings.app_name }}</a>
   </footer>
 </body>

@@ -48,11 +48,14 @@ def _parse_int(s: str, lo: int = 1, hi: int = 30) -> int | None:
 
 
 def _blocks_from_form(message, date_, time_, location_, rsvp, headcount) -> dict:
-    # checkboxes arrive as "on" when ticked, None when not
+    """What shows on the card. Each block is on when its checkbox is ticked
+    (arrives "on" / None). The form reveals each field only while its box is
+    checked, so you can't fill a hidden field and have it silently vanish. Time
+    only counts alongside a date — a bare time is meaningless on an invitation."""
     return {
         "message": message is not None,
         "date": date_ is not None,
-        "time": time_ is not None,
+        "time": time_ is not None and date_ is not None,
         "location": location_ is not None,
         "rsvp": rsvp is not None,
         "headcount": headcount is not None,
@@ -264,13 +267,14 @@ async def update_event(
     ev = _owned_event(db, user.id, event_id)
     if ev is None:
         return RedirectResponse("/", status_code=303)
+    blocks = _blocks_from_form(
+        block_message, block_date, block_time, block_location, block_rsvp, block_headcount
+    )
     try:
         derived = await _read_image(image)
     except images.ImageError as e:
         ctx = {
-            "settings": get_settings(), "user": user, "event": ev,
-            "blocks": _blocks_from_form(block_message, block_date, block_time,
-                                        block_location, block_rsvp, block_headcount),
+            "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
             "recipients_text": recipients, "error": str(e),
         }
         return templates.TemplateResponse(request, "event_form.html", ctx, status_code=400)
@@ -284,9 +288,7 @@ async def update_event(
     ev.signoff = (signoff.strip() or None)
     ev.headcount_max = _parse_int(headcount_max)
     ev.timezone = (timezone.strip() or None)
-    ev.blocks = _blocks_from_form(
-        block_message, block_date, block_time, block_location, block_rsvp, block_headcount
-    )
+    ev.blocks = blocks
     if derived is not None:
         ev.asset_id = storage.store_asset(db, user.id, derived).id
     db.commit()

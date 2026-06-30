@@ -76,6 +76,30 @@ def test_preview_is_the_interactive_invite(client):
     assert "How many of you" in p.text     # headcount step present
 
 
+def test_form_has_disclosure_wiring(client):
+    """Checkboxes sit up top and each reveals its field; collapse is JS-gated."""
+    client.post("/auth/dev-login")
+    f = client.get("/events/new").text
+    assert "What to include" in f
+    for tid in ("t-message", "t-date", "t-time", "t-location", "t-headcount"):
+        assert f'id="{tid}"' in f and f'data-reveal="{tid}"' in f
+    assert 'classList.add("js")' in client.get("/").text  # no-JS keeps fields visible
+
+
+def test_time_block_requires_a_date(client):
+    """A bare time is meaningless on an invite: time only counts with a date."""
+    import json
+    client.post("/auth/dev-login")
+    # time ticked but no date -> time block suppressed server-side
+    client.post(
+        "/events",
+        data={"title": "x", "recipients": "", "event_time": "15:00", "block_time": "on"},
+        follow_redirects=True,
+    )
+    blocks = json.loads(_db().execute("SELECT blocks FROM events LIMIT 1").fetchone()[0])
+    assert blocks["time"] is False and blocks["date"] is False
+
+
 def test_headcount_max_caps_the_stepper(client):
     client.post("/auth/dev-login")
     client.post(

@@ -150,12 +150,14 @@ code {
   text-align: center;
   padding: 1.5rem 1rem 2rem;
 }
+.brand-mark { font-size: .95rem; vertical-align: middle; margin-right: .35rem; }
 .brand-link {
   font-size: .72rem;
   letter-spacing: .04em;
   text-transform: uppercase;
   color: var(--ink-soft);
   text-decoration: none;
+  vertical-align: middle;
 }
 .brand-link:hover { color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
 
@@ -189,7 +191,25 @@ code {
   background: rgba(196, 69, 105, .1); color: var(--berry); border: 1px solid var(--berry);
   border-radius: 10px; padding: .7rem 1rem; margin-bottom: 1rem;
 }
-.card-form { display: flex; flex-direction: column; gap: 1.1rem; }
+/* Spacing is per-child (not flex `gap`) so a collapsed .toggle truly takes no
+   room — otherwise the gap on both sides of a 0-height item leaves a dead band. */
+.card-form { display: flex; flex-direction: column; }
+.card-form > * { margin-bottom: 1.1rem; }
+.card-form > *:last-child { margin-bottom: 0; }
+.card-form > .toggle-group { margin-bottom: 0; }  /* its toggles own their spacing */
+
+/* progressive disclosure: a field fades + collapses when its box is unticked.
+   Gated on .js so that without JavaScript every field stays visible + usable. */
+.js .toggle {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  margin-bottom: 0;
+  transition: max-height .3s ease, opacity .25s ease, margin-bottom .3s ease;
+}
+.js .toggle.on { max-height: 22rem; opacity: 1; margin-bottom: 1.1rem; }
+.toggle { margin-bottom: 1.1rem; }  /* no-JS fallback spacing */
+.blocks-hint { flex-basis: 100%; color: var(--ink-soft); font-size: .82rem; margin-top: .15rem; }
 .field { display: flex; flex-direction: column; gap: .35rem; }
 .field-label { font-weight: 600; color: var(--ink); font-size: .95rem; }
 .field-hint { color: var(--ink-soft); font-size: .82rem; }
@@ -230,4 +250,5 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   .btn, .btn:hover { transition: none; transform: none; }
   .event-link:hover { transform: none; }
+  .toggle { transition: none; }
 }

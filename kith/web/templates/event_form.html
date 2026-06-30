@@ -24,52 +24,72 @@
       <input type="text" name="title" value="{{ event.title if event else '' }}" placeholder="Maya turns five!">
     </label>
 
-    <label class="field">
-      <span class="field-label">Message</span>
-      <textarea name="message" rows="4" placeholder="A warm note…">{{ event.message if event else '' }}</textarea>
-    </label>
+    <fieldset class="blocks">
+      <legend class="field-label">What to include</legend>
+      <label class="chk"><input type="checkbox" id="cb-message" data-reveal="t-message"
+        name="block_message" {% if blocks.message %}checked{% endif %}> Message</label>
+      <label class="chk"><input type="checkbox" id="cb-date" data-reveal="t-date"
+        name="block_date" {% if blocks.date %}checked{% endif %}> Date</label>
+      <label class="chk"><input type="checkbox" id="cb-time" data-reveal="t-time"
+        name="block_time" {% if blocks.time %}checked{% endif %}> Time</label>
+      <label class="chk"><input type="checkbox" id="cb-location" data-reveal="t-location"
+        name="block_location" {% if blocks.location %}checked{% endif %}> Location</label>
+      <label class="chk"><input type="checkbox" id="cb-rsvp"
+        name="block_rsvp" {% if blocks.rsvp %}checked{% endif %}> RSVP buttons</label>
+      <label class="chk"><input type="checkbox" id="cb-headcount" data-reveal="t-headcount"
+        name="block_headcount" {% if blocks.headcount %}checked{% endif %}> Ask headcount</label>
+      <span class="blocks-hint">Tick a box to add it to the card.</span>
+    </fieldset>
 
-    <div class="field-row">
-      <label class="field">
-        <span class="field-label">Date</span>
-        <input type="date" name="event_date" value="{{ event.event_date.isoformat() if event and event.event_date else '' }}">
-      </label>
-      <label class="field">
-        <span class="field-label">Start time</span>
-        <input type="time" name="event_time" value="{{ event.event_time if event and event.event_time else '' }}">
-      </label>
-      <label class="field">
-        <span class="field-label">End time</span>
-        <input type="time" name="event_end_time" value="{{ event.event_end_time if event and event.event_end_time else '' }}">
-      </label>
+    <div class="toggle-group">
+      <div class="toggle" id="t-message">
+        <label class="field">
+          <span class="field-label">Message</span>
+          <textarea name="message" rows="4" placeholder="A warm note…">{{ event.message if event else '' }}</textarea>
+        </label>
+      </div>
+
+      <div class="toggle" id="t-date">
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="event_date" value="{{ event.event_date.isoformat() if event and event.event_date else '' }}">
+        </label>
+      </div>
+
+      <div class="toggle" id="t-time">
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Start time</span>
+            <input type="time" name="event_time" value="{{ event.event_time if event and event.event_time else '' }}">
+          </label>
+          <label class="field">
+            <span class="field-label">End time</span>
+            <input type="time" name="event_end_time" value="{{ event.event_end_time if event and event.event_end_time else '' }}">
+          </label>
+        </div>
+      </div>
+
+      <div class="toggle" id="t-location">
+        <label class="field">
+          <span class="field-label">Location</span>
+          <input type="text" name="location" value="{{ event.location if event and event.location else '' }}" placeholder="The Garcia backyard, 14 Linden St">
+        </label>
+      </div>
+
+      <div class="toggle" id="t-headcount">
+        <label class="field">
+          <span class="field-label">Max guests per invite</span>
+          <input type="number" name="headcount_max" min="1" max="30"
+                 value="{{ event.headcount_max if event and event.headcount_max else '' }}" placeholder="no limit">
+          <span class="field-hint">Optional. Caps the headcount stepper (e.g. 2 for plus-ones).</span>
+        </label>
+      </div>
     </div>
-
-    <label class="field">
-      <span class="field-label">Location</span>
-      <input type="text" name="location" value="{{ event.location if event and event.location else '' }}" placeholder="The Garcia backyard, 14 Linden St">
-    </label>
 
     <label class="field">
       <span class="field-label">Signed</span>
       <input type="text" name="signoff" value="{{ event.signoff if event and event.signoff else '' }}" placeholder="love, Mara &amp; Tom">
       <span class="field-hint">The signature line on the card. Defaults to your name.</span>
-    </label>
-
-    <fieldset class="blocks">
-      <legend class="field-label">Show on the card</legend>
-      <label class="chk"><input type="checkbox" name="block_message" {% if blocks.message %}checked{% endif %}> Message</label>
-      <label class="chk"><input type="checkbox" name="block_date" {% if blocks.date %}checked{% endif %}> Date</label>
-      <label class="chk"><input type="checkbox" name="block_time" {% if blocks.time %}checked{% endif %}> Time</label>
-      <label class="chk"><input type="checkbox" name="block_location" {% if blocks.location %}checked{% endif %}> Location</label>
-      <label class="chk"><input type="checkbox" name="block_rsvp" {% if blocks.rsvp %}checked{% endif %}> RSVP buttons</label>
-      <label class="chk"><input type="checkbox" name="block_headcount" {% if blocks.headcount %}checked{% endif %}> Ask headcount</label>
-    </fieldset>
-
-    <label class="field">
-      <span class="field-label">Max guests per invite</span>
-      <input type="number" name="headcount_max" min="1" max="30"
-             value="{{ event.headcount_max if event and event.headcount_max else '' }}" placeholder="no limit">
-      <span class="field-hint">Optional. Caps the headcount stepper (e.g. 2 for plus-ones). Only used when “Ask headcount” is on.</span>
     </label>
 
     <label class="field">
@@ -90,5 +110,25 @@
   // Capture the host's timezone (for "add to calendar"); keep it if already set.
   var tz = document.getElementById("tzfield");
   if (tz && !tz.value) tz.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+
+  // Progressive disclosure: each "What to include" checkbox fades its field in/out.
+  document.querySelectorAll("[data-reveal]").forEach(function (box) {
+    var section = document.getElementById(box.dataset.reveal);
+    function sync() { if (section) section.classList.toggle("on", box.checked); }
+    box.addEventListener("change", sync);
+    sync();  // reflect pre-checked boxes on an existing card
+  });
+
+  // A time is only meaningful with a date, so keep the two in step.
+  var dateBox = document.getElementById("cb-date");
+  var timeBox = document.getElementById("cb-time");
+  if (dateBox && timeBox) {
+    timeBox.addEventListener("change", function () {
+      if (timeBox.checked && !dateBox.checked) { dateBox.checked = true; dateBox.dispatchEvent(new Event("change")); }
+    });
+    dateBox.addEventListener("change", function () {
+      if (!dateBox.checked && timeBox.checked) { timeBox.checked = false; timeBox.dispatchEvent(new Event("change")); }
+    });
+  }
 </script>
 {% endblock %}
