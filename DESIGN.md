@@ -570,7 +570,11 @@ Each gate is a working, committed, tested increment.
   flow + dev-login fallback, `User` model w/ Fernet-encrypted email/refresh-token,
   sessions, `/account` export + delete, `docs/google-oauth-setup.md`. 15 tests green.
 - **G2 — Compose a card.** Image upload → sanitize → derive inline + full-res;
-  event create/edit; recipient list entry; live email preview.
+  event create/edit; recipient list entry; live email preview. **✅ Done** —
+  Pillow pipeline (EXIF-strip/resize), Asset/Event/Recipient models w/ optional
+  `blocks`, compose form (full-invite default), dashboard, server-rendered preview
+  card. 52 tests + a live image-upload E2E (0 errors). *(Live as-you-type preview
+  deferred; preview renders on the event page.)*
 - **G3 — Send (the hard part).** MIME build w/ CID + tokens, Gmail API send,
   async throttled queue, quota handling, Sent status.
 - **G4 — Track & RSVP.** Invitation landing page (logs the "Opened"/`landing_view`
