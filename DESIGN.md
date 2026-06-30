@@ -563,7 +563,8 @@ Each gate is a working, committed, tested increment.
 
 - **G0 — Scaffold.** Repo, pyproject, config, Docker + `docker compose`, FastAPI
   "hello", light/warm base template (per `DESIGN-LANGUAGE.md`), pytest harness, and the **local dev loop**
-  (uvicorn `--reload`, `KITH_SEND_MODE=dry-run`, `.env.example`). *(this commit + next)*
+  (uvicorn `--reload`, `KITH_SEND_MODE=dry-run`, `.env.example`). **✅ Done** — runnable
+  landing page, `make` dev loop, 6 tests green, ruff clean.
 - **G1 — Google SSO.** OAuth login/logout, encrypted refresh-token storage,
   test-user onboarding, account export/delete stubs.
 - **G2 — Compose a card.** Image upload → sanitize → derive inline + full-res;
