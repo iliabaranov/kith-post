@@ -12,156 +12,162 @@
   :root{
     --paper:#F4ECDD; --card:#FCF8EF; --ink:#3B2A33; --ink-soft:#6E5C63;
     --honey:#E2972B; --plum:#6B3A57; --sage:#A9B7A0; --berry:#C44569;
-    --line:#E4D8C4;
-    --kraft:#E4CE97; --kraft-dk:#D8BE7C;
+    --line:#E4D8C4; --kraft:#E4CE97; --kraft-dk:#D8BE7C;
     --shadow:0 22px 48px -20px rgba(59,42,51,.5), 0 2px 6px rgba(59,42,51,.08);
-    --radius:16px;
-    /* display face is swappable via ?font= for picking — default Bitter */
-    --display:"Spectral",Georgia,serif; --display-weight:600;
+    --radius:16px; --display:"Spectral",Georgia,serif; --display-weight:600;
+    --photo-bg:
+      radial-gradient(120% 120% at 20% 10%, rgba(226,151,43,.35), transparent 55%),
+      radial-gradient(120% 120% at 90% 90%, rgba(107,58,87,.3), transparent 55%),
+      var(--paper);
   }
-
   *{box-sizing:border-box;}
   html,body{margin:0;}
   body{
-    font-family:"Hanken Grotesk",system-ui,sans-serif;
-    color:var(--ink); background:var(--paper);
-    line-height:1.6; min-height:100vh;
-    display:flex; flex-direction:column; align-items:center;
+    font-family:"Hanken Grotesk",system-ui,sans-serif; color:var(--ink); background:var(--paper);
+    line-height:1.6; min-height:100vh; display:flex; flex-direction:column; align-items:center;
     justify-content:safe center; gap:.6rem; padding:clamp(.75rem,3vh,2rem) 1rem;
     -webkit-font-smoothing:antialiased;
   }
   body::before{ /* real paper grain */
-    content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
-    opacity:.5; mix-blend-mode:multiply;
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5; mix-blend-mode:multiply;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
   }
-  .wrap{position:relative; z-index:1; width:100%;
-    display:flex; flex-direction:column; align-items:center; gap:.6rem;}
-  .eyebrow{font-family:"Caveat",cursive; color:var(--plum); font-size:1.9rem;
-    line-height:1; text-align:center; margin:0; transform:rotate(-2deg);}
+  .wrap{position:relative; z-index:1; width:100%; display:flex; flex-direction:column; align-items:center; gap:.6rem;}
+  .eyebrow{font-family:"Caveat",cursive; color:var(--plum); font-size:1.9rem; line-height:1;
+    text-align:center; margin:0; transform:rotate(-2deg);}
 
-  /* ---- stage: card (in flow) + envelope parts (siblings, interleaved z) ---- */
-  .stage{position:relative; width:min(580px,92vw); perspective:1200px;}
-
+  /* ---- stage: the card (in flow) + decorative envelope parts ---- */
+  .stage{position:relative; width:min(580px,92vw); isolation:isolate;}
   .card{
-    position:relative; z-index:3; width:100%;
-    display:flex; flex-direction:column;
-    background:var(--card); border:1px solid var(--line);
-    border-radius:var(--radius); box-shadow:var(--shadow);
-    padding:clamp(1.4rem,4vw,2.2rem); transform:rotate(-1.2deg);
+    position:relative; z-index:1; width:100%; display:flex; flex-direction:column;
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:clamp(1.4rem,4vw,2.2rem); transform:rotate(-1.2deg);
   }
-  @media (min-width:680px) and (min-height:640px){
-    .card{min-height:min(76vh,720px);} /* ~75% of view; grows if needed */
-  }
+  @media (min-width:680px) and (min-height:640px){ .card{min-height:min(76vh,720px);} }
 
   .tape{position:absolute; top:-12px; width:96px; height:26px; z-index:4;
-    background:rgba(169,183,160,.42); border:1px solid rgba(255,255,255,.4);
-    box-shadow:0 1px 3px rgba(59,42,51,.12);}
+    background:rgba(169,183,160,.42); border:1px solid rgba(255,255,255,.4); box-shadow:0 1px 3px rgba(59,42,51,.12);}
   .tape.l{left:26px; transform:rotate(-7deg);}
   .tape.r{right:26px; transform:rotate(6deg); background:rgba(226,151,43,.3);}
 
-  .photo{flex:1 1 auto; min-height:clamp(150px,22vh,230px);
-    border-radius:10px; border:1px solid var(--line); margin-bottom:1.3rem;
-    background:
-      radial-gradient(120% 120% at 20% 10%, rgba(226,151,43,.35), transparent 55%),
-      radial-gradient(120% 120% at 90% 90%, rgba(107,58,87,.3), transparent 55%),
-      var(--paper);
-    display:flex; align-items:center; justify-content:center;
-    color:var(--ink-soft); font-size:.8rem; letter-spacing:.05em; text-transform:uppercase;}
+  .photo{flex:1 1 auto; min-height:clamp(150px,22vh,230px); border-radius:10px; border:1px solid var(--line);
+    margin-bottom:1.3rem; background:var(--photo-bg); display:flex; align-items:center; justify-content:center;
+    color:var(--ink-soft); font-size:.8rem; letter-spacing:.05em; text-transform:uppercase; cursor:zoom-in;}
+  .photo:focus-visible{outline:3px solid var(--honey); outline-offset:3px;}
 
   .title{font-family:var(--display); font-weight:var(--display-weight);
     font-size:clamp(2rem,5.5vw,2.95rem); line-height:1.06; margin:0 0 .7rem; color:var(--ink);}
-  .meta{display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center;
-    color:var(--ink-soft); font-size:.95rem; margin-bottom:.9rem;}
+  .meta{display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; color:var(--ink-soft);
+    font-size:.95rem; margin-bottom:.9rem;}
   .meta .dot{width:5px; height:5px; border-radius:50%; background:var(--sage);}
   .meta b{color:var(--ink); font-weight:600;}
   .message{margin:0 0 1.1rem; font-size:1.05rem;}
   .signoff{font-family:"Caveat",cursive; color:var(--plum); font-size:1.6rem; line-height:1; margin:0;}
 
+  /* ---- actions / RSVP ---- */
   .actions{display:flex; flex-wrap:wrap; gap:.7rem; margin-top:1.3rem;}
-  .btn{font:inherit; font-weight:600; cursor:pointer; border-radius:12px;
-    padding:.8rem 1.3rem; border:1px solid transparent;
-    transition:transform .12s ease, box-shadow .12s ease, background .12s ease;}
+  .actions[hidden],.headcount[hidden]{display:none;}
+  .btn{font:inherit; font-weight:600; cursor:pointer; border-radius:12px; padding:.8rem 1.3rem;
+    border:1px solid transparent; transition:transform .12s ease, box-shadow .12s ease, background .12s ease;}
   .btn:focus-visible{outline:3px solid var(--honey); outline-offset:2px;}
-  /* neutral ink shadow, not a honey-colored glow (a common AI-UI tell) */
   .btn-primary{background:var(--honey); color:var(--ink); box-shadow:0 5px 12px -7px rgba(59,42,51,.4);}
   .btn-primary:hover{transform:translateY(-2px); box-shadow:0 9px 16px -8px rgba(59,42,51,.45);}
   .btn-quiet{background:transparent; color:var(--ink-soft); border-color:var(--line);}
   .btn-quiet:hover{transform:translateY(-1px); color:var(--ink);}
-  .btn[disabled]{opacity:.45; cursor:default; transform:none; box-shadow:none;}
+
+  /* ---- headcount follow-up (only shown if the host asked for it) ---- */
+  .headcount{margin-top:1.3rem; animation:rise .3s ease;}
+  .headcount .q{margin:0 0 .8rem; font-weight:600; color:var(--ink);}
+  .stepper{display:inline-flex; align-items:center; gap:1rem; border:1px solid var(--line);
+    background:var(--paper); border-radius:14px; padding:.4rem .55rem;}
+  .step{width:40px; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--card);
+    color:var(--ink); font-size:1.4rem; line-height:1; cursor:pointer;}
+  .step:hover{border-color:var(--honey);}
+  .step:focus-visible{outline:3px solid var(--honey); outline-offset:2px;}
+  .step:disabled{opacity:.35; cursor:default;}
+  .count{min-width:2.2ch; text-align:center; font-weight:700; font-size:1.2rem;}
+  .hc-row{display:flex; flex-wrap:wrap; align-items:center; gap:.9rem; margin-top:1rem;}
+  .linklike{background:none; border:0; padding:0; font:inherit; font-size:.9rem; color:var(--ink-soft);
+    text-decoration:underline; text-underline-offset:3px; cursor:pointer;}
+  .linklike:hover{color:var(--plum);}
+  @keyframes rise{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;}}
+
   .confirm{margin:.9rem 0 0; min-height:1.2rem; color:var(--ink-soft); font-size:.95rem;}
-  .change{background:none; border:0; padding:.1rem 0; margin:.35rem 0 0; font:inherit;
-    font-size:.9rem; color:var(--ink-soft); text-decoration:underline;
-    text-underline-offset:3px; cursor:pointer;}
-  .change:hover{color:var(--plum);}
+  .change{margin:.35rem 0 0;}
   .change[hidden]{display:none;}
 
   /* ---- signature element: a real rubber stamp (double rule + worn ink) ---- */
-  .stamp{position:absolute; top:6px; right:4px; z-index:5;
-    font-family:"Saira Condensed",sans-serif; font-weight:700; text-transform:uppercase;
-    letter-spacing:.03em; font-size:1.2rem; line-height:1; padding:.5rem .7rem .42rem;
-    color:var(--ink-soft); border:2.5px solid currentColor; border-radius:4px;
+  .stamp{position:absolute; top:6px; right:4px; z-index:5; font-family:"Saira Condensed",sans-serif;
+    font-weight:700; text-transform:uppercase; letter-spacing:.03em; font-size:1.2rem; line-height:1;
+    padding:.5rem .7rem .42rem; color:var(--ink-soft); border:2.5px solid currentColor; border-radius:4px;
     transform:rotate(-8deg) scale(.6); opacity:0; pointer-events:none; mix-blend-mode:multiply;}
   .stamp::before{content:""; position:absolute; inset:3px; border:1px solid currentColor; border-radius:2px;}
-  .stamp::after{content:""; position:absolute; inset:-1px; pointer-events:none; /* worn ink */
+  .stamp::after{content:""; position:absolute; inset:-1px; pointer-events:none;
     background-image:radial-gradient(var(--card) 23%, transparent 24%); background-size:3px 3px; opacity:.42;}
   .stamp.show{opacity:.82; animation:press .28s cubic-bezier(.2,1.4,.4,1) forwards;}
   .stamp.coming{color:var(--berry);}
   .stamp.declined{color:var(--ink-soft); transform:rotate(6deg) scale(.6);}
-  @keyframes press{0%{opacity:0; transform:rotate(-8deg) scale(1.3);}
-    60%{opacity:.92;} 100%{opacity:.82; transform:rotate(-8deg) scale(1);}}
+  @keyframes press{0%{opacity:0; transform:rotate(-8deg) scale(1.3);} 60%{opacity:.92;} 100%{opacity:.82; transform:rotate(-8deg) scale(1);}}
   .stamp.declined.show{animation:pressD .28s cubic-bezier(.2,1.4,.4,1) forwards;}
-  @keyframes pressD{0%{opacity:0; transform:rotate(6deg) scale(1.3);}
-    60%{opacity:.92;} 100%{opacity:.82; transform:rotate(6deg) scale(1);}}
+  @keyframes pressD{0%{opacity:0; transform:rotate(6deg) scale(1.3);} 60%{opacity:.92;} 100%{opacity:.82; transform:rotate(6deg) scale(1);}}
 
-  /* ---- envelope: card slides UP out of a bottom pocket; flap lifts ---- */
-  .env-pocket,.env-flap,.env-seal{display:none;}
+  /* ---- envelope: pure-2D, robust. Card lifts out of a kraft pocket; flap lifts,
+         seal pops, pocket drops away. All parts pointer-events:none so they NEVER
+         block clicks or text selection (and JS removes them when done). ---- */
+  .env-pocket,.env-flap,.env-seal{display:none; pointer-events:none;}
   html.js .env-pocket,html.js .env-flap,html.js .env-seal{display:block;}
-  .env-pocket{position:absolute; left:0; right:0; bottom:0; height:54%; z-index:4;
-    background:var(--kraft); border:1px solid var(--kraft-dk);
-    border-radius:0 0 var(--radius) var(--radius); box-shadow:0 -2px 0 rgba(255,255,255,.25) inset;}
-  .env-pocket::after{content:""; position:absolute; inset:0; /* front V flap */
-    clip-path:polygon(0 100%,100% 100%,50% 24%); background:var(--kraft-dk); opacity:.55;}
-  .env-flap{position:absolute; left:0; right:0; bottom:54%; height:30%; z-index:5;
-    clip-path:polygon(0 0,100% 0,50% 100%); background:var(--kraft-dk);
-    transform-origin:top center; backface-visibility:hidden;}
-  .env-seal{position:absolute; left:50%; bottom:53%; width:34px; height:34px;
-    margin:0 0 -17px -17px; border-radius:50%; background:var(--berry); z-index:6;
-    box-shadow:0 2px 5px rgba(59,42,51,.35);}
+  .env-pocket{position:absolute; left:0; right:0; bottom:0; height:38%; z-index:6;
+    background:var(--kraft); border:1px solid var(--kraft-dk); border-radius:0 0 var(--radius) var(--radius);}
+  .env-pocket::after{content:""; position:absolute; inset:0; clip-path:polygon(0 100%,100% 100%,50% 28%);
+    background:var(--kraft-dk); opacity:.5;}
+  .env-flap{position:absolute; left:0; right:0; bottom:38%; height:17%; z-index:7;
+    clip-path:polygon(0 0,100% 0,50% 100%); background:var(--kraft-dk);}
+  .env-seal{position:absolute; left:50%; bottom:38%; width:30px; height:30px; margin:0 0 -15px -15px;
+    border-radius:50%; background:var(--berry); z-index:8; box-shadow:0 2px 5px rgba(59,42,51,.3);}
 
-  html.js .card{opacity:0;}             /* revealed by the slide-out */
+  html.js .card{opacity:0;}
   @media (prefers-reduced-motion:no-preference){
-    html.js .card{animation:cardRise .95s cubic-bezier(.18,.7,.22,1) .5s forwards;}
-    html.js .env-flap{animation:flapOpen .5s ease .12s forwards, fade .5s ease 1.35s forwards;}
-    html.js .env-seal{animation:sealOff .3s ease .12s forwards;}
-    html.js .env-pocket{animation:fade .55s ease 1.3s forwards;}
+    html.js .card{animation:cardOut 1s cubic-bezier(.16,.7,.2,1) .35s forwards;}
+    html.js .env-flap{animation:flapAway .4s ease .12s forwards;}
+    html.js .env-seal{animation:sealPop .35s ease .08s forwards;}
+    html.js .env-pocket{animation:pocketAway .55s cubic-bezier(.4,0,.7,.4) .95s forwards;}
   }
   @media (prefers-reduced-motion:reduce){
     html.js .card{opacity:1;}
     html.js .env-pocket,html.js .env-flap,html.js .env-seal{display:none;}
   }
   html.frozen *{animation-play-state:paused !important;}  /* ?stage=envelope */
+  @keyframes cardOut{0%{opacity:0; transform:translateY(72px) rotate(-1.2deg);}
+    16%{opacity:1;} 100%{opacity:1; transform:translateY(0) rotate(-1.2deg);}}
+  @keyframes flapAway{0%{opacity:1; transform:translateY(0);} 100%{opacity:0; transform:translateY(-16px);}}
+  @keyframes sealPop{0%{opacity:1; transform:scale(1);} 40%{transform:scale(1.18);}
+    100%{opacity:0; transform:scale(.4) translateY(-6px);}}
+  @keyframes pocketAway{0%{opacity:1; transform:translateY(0);} 100%{opacity:0; transform:translateY(52px);}}
 
-  @keyframes cardRise{
-    0%{opacity:0; transform:translateY(42%) rotate(-2.2deg);}
-    14%{opacity:1;}
-    100%{opacity:1; transform:translateY(0) rotate(-1.2deg);}}
-  @keyframes flapOpen{0%{transform:rotateX(0);} 100%{transform:rotateX(-154deg);}}
-  @keyframes sealOff{0%{opacity:1; transform:scale(1);}
-    100%{opacity:0; transform:scale(.5) translateY(-8px);}}
-  @keyframes fade{0%,40%{opacity:1;} 100%{opacity:0;}}
+  /* ---- image lightbox ---- */
+  .lightbox{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    padding:4vmin; background:rgba(40,28,34,.84); opacity:0; visibility:hidden; cursor:zoom-out;
+    transition:opacity .25s ease;}
+  .lightbox.open{opacity:1; visibility:visible;}
+  .lightbox-img{width:min(96vw,1100px); height:min(90vh,820px); border-radius:14px;
+    border:1px solid rgba(255,255,255,.15); background:var(--photo-bg);
+    display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.85);
+    text-transform:uppercase; letter-spacing:.06em; font-size:.85rem; transform:scale(.92); transition:transform .25s ease;}
+  .lightbox.open .lightbox-img{transform:scale(1);}
+  .lightbox-close{position:absolute; top:18px; right:20px; width:44px; height:44px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.3); background:rgba(0,0,0,.25); color:#fff; font-size:1.2rem; cursor:pointer;}
+  .lightbox-close:focus-visible{outline:3px solid var(--honey); outline-offset:2px;}
 
-  /* ---- footer: NO donation link here. One very subtle brand link home. ---- */
   footer{position:relative; z-index:1; margin-top:1rem; text-align:center;}
-  .brand-link{font-size:.72rem; letter-spacing:.03em; color:var(--ink-soft);
-    text-decoration:none; opacity:.7;}
+  .brand-link{font-size:.72rem; letter-spacing:.03em; color:var(--ink-soft); text-decoration:none; opacity:.7;}
   .brand-link .bi{font-weight:600;}
-  .brand-link:hover,.brand-link:focus-visible{opacity:1; color:var(--plum);
-    text-decoration:underline; text-underline-offset:3px;}
+  .brand-link:hover,.brand-link:focus-visible{opacity:1; color:var(--plum); text-decoration:underline; text-underline-offset:3px;}
 
   @media (prefers-reduced-motion:reduce){
     .btn,.btn-primary:hover,.btn-quiet:hover{transition:none; transform:none;}
     .stamp.show{animation:none; opacity:.82;}
+    .headcount{animation:none;}
+    .lightbox,.lightbox-img{transition:none;} .lightbox-img{transform:none;}
   }
 </style>
 </head>
@@ -176,7 +182,7 @@
         <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
         <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
 
-        <div class="photo">your card image</div>
+        <div class="photo" id="photo" role="button" tabindex="0" aria-label="Enlarge card image">your card image</div>
         <h1 class="title">Maya turns five!</h1>
         <div class="meta">
           <span><b>Sat, May 4</b></span><span class="dot"></span>
@@ -189,15 +195,30 @@
         </p>
         <p class="signoff">— love, Mara &amp; Tom</p>
 
-        <div class="actions">
+        <!-- RSVP block (optional per event; absent for plain holiday cards) -->
+        <div class="actions" id="actions">
           <button class="btn btn-primary" id="yes">I'll be there</button>
           <button class="btn btn-quiet" id="no">Can't make it</button>
         </div>
+
+        <!-- headcount follow-up (optional per event) -->
+        <div class="headcount" id="headcount" hidden>
+          <p class="q">Lovely! How many of you are coming?</p>
+          <div class="stepper" role="group" aria-label="Number of guests">
+            <button class="step" id="dec" type="button" aria-label="One fewer">&minus;</button>
+            <span class="count" id="count" aria-live="polite">1</span>
+            <button class="step" id="inc" type="button" aria-label="One more">+</button>
+          </div>
+          <div class="hc-row">
+            <button class="btn btn-primary" id="confirmYes">We'll be there</button>
+            <button class="linklike" id="backToChoices" type="button">back</button>
+          </div>
+        </div>
+
         <p class="confirm" id="confirm" role="status" aria-live="polite"></p>
-        <button class="change" id="change" hidden>Change response</button>
+        <button class="btn-quiet btn change linklike" id="change" type="button" hidden>Change response</button>
       </article>
 
-      <!-- envelope parts sit in front of the card's lower half -->
       <div class="env-pocket" aria-hidden="true"></div>
       <div class="env-flap" aria-hidden="true"></div>
       <div class="env-seal" aria-hidden="true"></div>
@@ -208,41 +229,75 @@
     </footer>
   </main>
 
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Card image, enlarged">
+    <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close enlarged image">✕</button>
+    <div class="lightbox-img">your card image</div>
+  </div>
+
 <script>
   document.documentElement.className = 'js';
   const params = new URLSearchParams(location.search);
-  const stage = params.get('stage');
-  if (stage === 'envelope') document.documentElement.classList.add('frozen');
+  if (params.get('stage') === 'envelope') document.documentElement.classList.add('frozen');
 
-  const yes = document.getElementById('yes');
-  const no = document.getElementById('no');
-  const confirmEl = document.getElementById('confirm');
-  const change = document.getElementById('change');
-  const sComing = document.getElementById('stampComing');
-  const sDeclined = document.getElementById('stampDeclined');
+  // remove the decorative envelope from the DOM once it has finished, belt-and-suspenders
+  const pocket = document.querySelector('.env-pocket');
+  if (pocket) pocket.addEventListener('animationend', () => {
+    document.querySelectorAll('.env-pocket,.env-flap,.env-seal').forEach(el => el.remove());
+  });
 
-  function respond(coming){
-    yes.disabled = true; no.disabled = true;
+  const yes = document.getElementById('yes'), no = document.getElementById('no');
+  const actions = document.getElementById('actions'), headcount = document.getElementById('headcount');
+  const inc = document.getElementById('inc'), dec = document.getElementById('dec'), countEl = document.getElementById('count');
+  const confirmYes = document.getElementById('confirmYes'), backToChoices = document.getElementById('backToChoices');
+  const confirmEl = document.getElementById('confirm'), change = document.getElementById('change');
+  const sComing = document.getElementById('stampComing'), sDeclined = document.getElementById('stampDeclined');
+  let count = 1;
+
+  function renderCount(){ countEl.textContent = count; dec.disabled = count <= 1; }
+  function setPhase(p){ actions.hidden = (p !== 'choose'); headcount.hidden = (p !== 'headcount'); }
+  function comingMsg(n){ return n > 1
+    ? "Wonderful — all " + n + " of you. See you there! 🎈"
+    : "Wonderful — see you there! 🎈"; }
+
+  function finalize(coming){
+    setPhase('none');
     sComing.classList.toggle('show', coming);
     sDeclined.classList.toggle('show', !coming);
-    confirmEl.textContent = coming
-      ? "Wonderful — we'll let Mara know you're coming. 🎈"
-      : "Thanks for letting us know — you'll be missed.";
+    confirmEl.textContent = coming ? comingMsg(count) : "Thanks for letting us know — you'll be missed.";
     change.hidden = false;
   }
   function reopen(){
-    yes.disabled = false; no.disabled = false;
+    setPhase('choose');
     sComing.classList.remove('show'); sDeclined.classList.remove('show');
     confirmEl.textContent = "No problem — just pick again.";
     change.hidden = true; yes.focus();
   }
-  yes.addEventListener('click', () => respond(true));
-  no.addEventListener('click', () => respond(false));
+
+  yes.addEventListener('click', () => { count = 1; renderCount(); setPhase('headcount'); inc.focus(); });
+  no.addEventListener('click', () => finalize(false));
+  inc.addEventListener('click', () => { count = Math.min(count + 1, 30); renderCount(); });
+  dec.addEventListener('click', () => { count = Math.max(count - 1, 1); renderCount(); });
+  confirmYes.addEventListener('click', () => finalize(true));
+  backToChoices.addEventListener('click', () => setPhase('choose'));
   change.addEventListener('click', reopen);
 
-  const pre = params.get('rsvp');           // preview: ?rsvp=yes|no
-  if (pre === 'yes') respond(true);
-  else if (pre === 'no') respond(false);
+  // ---- image lightbox: click photo to enlarge, click anywhere / Esc to shrink back ----
+  const photo = document.getElementById('photo'), lightbox = document.getElementById('lightbox');
+  const lightboxClose = document.getElementById('lightboxClose');
+  function openLb(){ lightbox.classList.add('open'); lightboxClose.focus(); }
+  function closeLb(){ lightbox.classList.remove('open'); photo.focus(); }
+  photo.addEventListener('click', openLb);
+  photo.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLb(); } });
+  lightbox.addEventListener('click', closeLb);   // click anywhere (incl. image) closes
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLb(); });
+
+  // previews: ?rsvp=yes|no renders the finished state (yes uses a sample party of 2)
+  const pre = params.get('rsvp');
+  if (pre === 'yes') { count = 2; finalize(true); }
+  else if (pre === 'no') finalize(false);
+  const view = params.get('state');           // previews for screenshots
+  if (view === 'headcount') { count = 2; renderCount(); setPhase('headcount'); }
+  else if (view === 'lightbox') openLb();
 </script>
 </body>
 </html>

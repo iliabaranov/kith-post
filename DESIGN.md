@@ -87,8 +87,11 @@ These were decided up front and constrain everything downstream.
 
 ### Sender (the authenticated user)
 1. **Sign in** with Google (consent to SSO + `gmail.send`, one time).
-2. **Create an event/card:** upload image, set title, optional date/location,
-   write a short personal message, choose whether to ask for RSVP.
+2. **Create an event/card:** upload image, set title, and turn on **only the
+   blocks you want** — each is independently optional: date, time, location,
+   message, RSVP buttons, and (if RSVP is on) a headcount/party-size question.
+   With everything off it's a **plain holiday card** — just the image (and maybe a
+   message). The recipient page renders only the enabled blocks.
 3. **Build recipient list:** type/paste emails, or pick from saved contacts.
 4. **Preview** the exact email (rendered with their name as sender).
 5. **Send.** Kith Invite builds one personalized message per recipient, injects tracking
@@ -102,7 +105,10 @@ These were decided up front and constrain everything downstream.
 2. Email contains a **"View invitation & RSVP"** button → opens the Kith Invite
    landing page, where the invitation **animates out of an envelope** (a light,
    broadly-supported entrance; skipped under reduced-motion). Full-res card + details.
-3. Clicks **Accept** or **Decline** (optionally a +1 count / short note).
+3. Can **click the card image to enlarge it** to fill the screen (click / ✕ / Esc
+   to shrink back). If RSVP is on, clicks **Accept** or **Decline**; if the host
+   enabled headcount, Accept gracefully asks **"how many of you are coming?"** (a
+   simple stepper) before confirming.
 4. Sees a friendly confirmation, and can **return to the same link anytime to
    change their response** (see §7). No login, ever. One opaque token = one recipient.
 5. The only Kith Invite branding a guest sees is one small, subtle footer link —
@@ -312,8 +318,12 @@ Contact                  # the reusable address book (Decision #3)
 
 Event                    # one card / occasion
   id  user_id→User       title     message_md    event_date?  location? 🔒
-  rsvp_enabled (bool)    asset_id→Asset  purge_after  status   created_at
+  asset_id→Asset         purge_after    status     created_at
+  blocks (json)          # which blocks recipients see — any / all / none:
+                         #   {date,time,location,message,rsvp,headcount} (bool each)
+                         #   all-off (except image) = a plain holiday card
   reminder_cfg (json)?   # per-event override of [reminders]; null = inherit global
+                         # (reminders only apply when blocks.rsvp is on)
 
 Asset                    # the uploaded image
   id  user_id→User       sha256    mime    full_path (local, purgeable)
@@ -322,7 +332,8 @@ Asset                    # the uploaded image
 Recipient                # one row per (event, person)
   id  event_id→Event     contact_id→Contact?   name 🔒   email 🔒
   token (unique, opaque) status[queued|sent|opened|accepted|declined|bounced]
-  plus_one_count?        note? 🔒    sent_at?  first_open_at?  rsvp_at?
+  party_size?            note? 🔒    sent_at?  first_open_at?  rsvp_at?
+  # party_size = total people coming, from the headcount stepper (if enabled).
   # status = LATEST answer (mutable); rsvp_at updates on each change.
   # Every change also appends a TrackingEvent, so history is never lost.
   msg_id_hdr?  thread_id?   # RFC822 Message-ID + Gmail thread of the first send,

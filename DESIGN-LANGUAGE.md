@@ -150,15 +150,20 @@ end-to-end (the §7 tracking states *are* stamps).
 Both motions tell the same story — *real mail* — so they read as one idea, not
 scattered effects.
 
-- **Envelope open (entrance).** On the recipient's invite page the card **physically
-  slides up and out of an envelope** — it is not a fade. A kraft pocket sits in
-  front of the card's lower half; the flap lifts (a `berry` wax-seal dot releases),
-  then the card travels upward out of the pocket (`translateY`), settling to its
-  resting −1.2°, and the pocket fades away last. ~1.4s total, **transform + opacity
-  only** (GPU-friendly, no library) so it's smooth on phones, tablets, and laptops.
-  Enhancement only. *(The pocket is layered in front of the card via sibling
-  z-index so the card is genuinely revealed from behind it — that's what sells the
-  "coming out" over a fade.)*
+- **Envelope open (entrance).** On the recipient's invite page the card **slides up
+  and out of a kraft pocket** — it is not a fade. Sequence: the wax seal pops, the
+  flap lifts away, the card rises out of the pocket (which is layered *in front* of
+  the card's lower half via sibling z-index, so the card is genuinely revealed from
+  behind it), then the pocket drops away last. ~1.5s total.
+  - **Pure 2D `translateY` + `opacity` — no `rotateX`/3D.** An earlier 3D flap
+    flipped *through* the card content and read as a glitchy shard; the flat
+    technique is robust and smooth on every device.
+  - **The decorative envelope parts are `pointer-events:none` AND removed from the
+    DOM on `animationend`.** *(We shipped a bug where the faded-but-present pocket
+    sat on top of the card and silently blocked all clicks and text selection —
+    never let a decorative overlay retain hit-testing.)*
+  - Enhancement only — JS-gated, reduced-motion skips it, no-JS shows the card
+    directly.
 - **The stamp press (response).** On Accept, the `Coming!` stamp scales from ~1.25
   with a small rotation and a single overshoot, settling in ~260ms — like a stamp
   thunking down.
@@ -179,6 +184,20 @@ scattered effects.
 - **"Change response"**: a quiet text link (`ink-soft`, underline on hover) shown
   after a recipient answers; it reverts to the choice buttons so they can re-pick.
   Changing your mind is a normal path, never an error — no confirm dialog, no nag.
+- **Headcount stepper.** When (and only when) the host asks for a count, clicking
+  *"I'll be there"* gracefully swaps the buttons for a warm follow-up — *"Lovely!
+  How many of you are coming?"* — with a `− N +` stepper (min 1, large 40px hit
+  targets) and a *"We'll be there"* confirm plus a quiet *"back"*. The count flows
+  into the confirmation ("all 4 of you. See you there!"). Decline never asks.
+- **Image lightbox.** The card image is clickable (`cursor: zoom-in`, keyboard-
+  focusable, `role=button`): it enlarges to fill the viewport over a dim backdrop;
+  clicking anywhere, the ✕, or `Esc` shrinks it back and restores focus. Scale +
+  fade transition; reduced-motion = instant.
+- **Optional blocks.** Every block on the invite — date, time, location, message,
+  RSVP buttons, headcount — is **independently optional per event** (see DESIGN.md
+  §4). A plain holiday card is just the image (+ optional message) and the quiet
+  footer: no RSVP, no stepper, no date. The recipient page renders only what the
+  host turned on.
 - **Inputs**: `card` fill, `line` border, `honey` focus ring (visible, 2px). Warm,
   rounded ~10px. Labels above, in `ink-soft`.
 - **Recipient footer = the growth loop, kept whisper-quiet.** Recipient-facing
