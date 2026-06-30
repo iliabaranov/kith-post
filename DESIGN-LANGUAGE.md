@@ -150,20 +150,15 @@ end-to-end (the §7 tracking states *are* stamps).
 Both motions tell the same story — *real mail* — so they read as one idea, not
 scattered effects.
 
-- **Envelope open (entrance).** On the recipient's invite page the card **slides up
-  and out of a kraft pocket** — it is not a fade. Sequence: the wax seal pops, the
-  flap lifts away, the card rises out of the pocket (which is layered *in front* of
-  the card's lower half via sibling z-index, so the card is genuinely revealed from
-  behind it), then the pocket drops away last. ~1.5s total.
-  - **Pure 2D `translateY` + `opacity` — no `rotateX`/3D.** An earlier 3D flap
-    flipped *through* the card content and read as a glitchy shard; the flat
-    technique is robust and smooth on every device.
-  - **The decorative envelope parts are `pointer-events:none` AND removed from the
-    DOM on `animationend`.** *(We shipped a bug where the faded-but-present pocket
-    sat on top of the card and silently blocked all clicks and text selection —
-    never let a decorative overlay retain hit-testing.)*
-  - Enhancement only — JS-gated, reduced-motion skips it, no-JS shows the card
-    directly.
+- **Envelope intro (entrance).** Deliberately dead-simple: a small centered
+  envelope **fades in (~0.5s)**, then **crossfades to the card (~0.5s)** — two
+  opacities, no slide, no 3D, no confetti. *(We tried fancier opening animations —
+  a 3D flap, a slide-out-of-pocket — and they read as broken/glitchy. A clean
+  crossfade is more elegant and can't misrender on any device.)*
+  - **The envelope is `pointer-events:none` AND removed from the DOM once it has
+    faded out** — never let a decorative overlay retain hit-testing (we once
+    shipped a bug where it silently blocked all clicks + text selection).
+  - Enhancement only — JS-gated, reduced-motion + no-JS show the card directly.
 - **The stamp press (response).** On Accept, the `Coming!` stamp scales from ~1.25
   with a small rotation and a single overshoot, settling in ~260ms — like a stamp
   thunking down.

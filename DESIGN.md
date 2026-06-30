@@ -103,8 +103,8 @@ These were decided up front and constrain everything downstream.
 1. Receives a normal-looking personal email from their friend, with the card
    inlined.
 2. Email contains a **"View invitation & RSVP"** button → opens the Kith Invite
-   landing page, where the invitation **animates out of an envelope** (a light,
-   broadly-supported entrance; skipped under reduced-motion). Full-res card + details.
+   landing page, which opens with a brief **envelope fade-in that crossfades into
+   the invitation** (~1s; skipped under reduced-motion). Full-res card + details.
 3. Can **click the card image to enlarge it** to fill the screen (click / ✕ / Esc
    to shrink back). If RSVP is on, clicks **Accept** or **Decline**; if the host
    enabled headcount, Accept gracefully asks **"how many of you are coming?"** (a
