@@ -6,7 +6,7 @@
 <title>You're invited — Kith Invite</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Caveat:wght@500;600&family=Hanken+Grotesk:wght@400;500;600;700&family=Saira+Condensed:wght@600;700&family=Spectral:wght@500;600&family=Young+Serif&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Hanken+Grotesk:wght@400;500;600;700&family=Saira+Condensed:wght@600;700&family=Spectral:wght@500;600&display=swap" rel="stylesheet" />
 <style>
   /* ---- Kitchen Table tokens (see DESIGN-LANGUAGE.md) ---- */
   :root{
@@ -17,10 +17,8 @@
     --shadow:0 22px 48px -20px rgba(59,42,51,.5), 0 2px 6px rgba(59,42,51,.08);
     --radius:16px;
     /* display face is swappable via ?font= for picking — default Bitter */
-    --display:"Bitter",Georgia,serif; --display-weight:600;
+    --display:"Spectral",Georgia,serif; --display-weight:600;
   }
-  body.font-young{--display:"Young Serif",Georgia,serif; --display-weight:400;}
-  body.font-spectral{--display:"Spectral",Georgia,serif; --display-weight:600;}
 
   *{box-sizing:border-box;}
   html,body{margin:0;}
@@ -218,9 +216,6 @@
   const params = new URLSearchParams(location.search);
   const stage = params.get('stage');
   if (stage === 'envelope') document.documentElement.classList.add('frozen');
-  const font = params.get('font');
-  if (font === 'young') document.body.classList.add('font-young');
-  else if (font === 'spectral') document.body.classList.add('font-spectral');
 
   const yes = document.getElementById('yes');
   const no = document.getElementById('no');

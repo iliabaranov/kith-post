@@ -62,12 +62,10 @@ spend it only on the accepted-RSVP stamp. WCAG AA for all text on `paper`/`card`
 
 Three roles, a deliberate non-default pairing (all on Google Fonts):
 
-- **Display — being finalized.** ~~Fraunces~~ was **rejected**: it has become a
-  tell-tale of AI-generated design (the distinctive `f` in particular). Choosing
-  among three warmer, less-common faces — **Bitter** (warm slab, ties to the
-  postal/typewriter theme), **Young Serif** (chunky, organic, storybook), and
-  **Spectral** (refined classic book serif). Used with restraint for the invite
-  title and H1s. *(Whichever wins is set via the `--display` CSS var.)*
+- **Display — `Spectral`** (weight 600 for titles), set via the `--display` CSS
+  var. A refined, warm classic book serif. ~~Fraunces~~ was **rejected** for being
+  a tell-tale of AI-generated design (the distinctive `f` especially). Used with
+  restraint for the invite title and H1s.
 - **Body / UI — `Hanken Grotesk`**. Friendly humanist sans, very legible at small
   sizes. All paragraphs, labels, buttons, dashboard text. Weights 400/500/600.
 - **Hand accent — `Caveat`**. A genuine handwriting face used in **exactly one
