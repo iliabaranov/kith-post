@@ -1,5 +1,5 @@
 [project]
-name = "kith-invite"
+name = "kith"
 version = "0.0.0"
 description = "Free, self-hosted, privacy-first digital invitations sent from your own Gmail."
 readme = "README.md"

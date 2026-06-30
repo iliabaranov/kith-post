@@ -282,7 +282,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kith-invite"
+name = "kith"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
