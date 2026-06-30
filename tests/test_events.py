@@ -91,6 +91,41 @@ def test_headcount_max_caps_the_stepper(client):
     assert "up to 4" in p.text         # guest-facing cue
 
 
+def test_add_to_calendar_on_dated_event(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Maya turns five!", "event_date": "2026-05-04",
+              "event_time": "15:00", "event_end_time": "17:00", "timezone": "America/Toronto",
+              "recipients": "a@example.com",
+              "block_date": "on", "block_time": "on", "block_rsvp": "on"},
+        follow_redirects=True,
+    )
+    eid = _event_id()
+    p = client.get(f"/events/{eid}/preview")
+    assert "calendar.google.com" in p.text     # Google link present
+    assert 'id="addcal"' in p.text             # revealed after accept
+    assert "3:00 pm" in p.text                 # HH:MM formatted for display
+    # the .ics download works
+    ics = client.get(f"/events/{eid}/calendar.ics")
+    assert ics.status_code == 200
+    assert "calendar" in ics.headers["content-type"]
+    assert "BEGIN:VCALENDAR" in ics.text
+    assert "Maya turns five!" in ics.text
+
+
+def test_no_calendar_without_a_date(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Open house", "block_rsvp": "on", "recipients": ""},
+        follow_redirects=True,
+    )
+    eid = _event_id()
+    assert "calendar.google.com" not in client.get(f"/events/{eid}/preview").text
+    assert client.get(f"/events/{eid}/calendar.ics", follow_redirects=False).status_code == 303
+
+
 def test_holiday_card_preview_has_no_rsvp(client):
     client.post("/auth/dev-login")
     client.post(

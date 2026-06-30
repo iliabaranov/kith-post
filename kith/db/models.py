@@ -62,8 +62,9 @@ class Event(Base):
     title: Mapped[str] = mapped_column(String, default="")
     message: Mapped[str] = mapped_column(Text, default="")
     event_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    event_time: Mapped[str | None] = mapped_column(String, nullable=True)  # free text start
-    event_end_time: Mapped[str | None] = mapped_column(String, nullable=True)  # optional end
+    event_time: Mapped[str | None] = mapped_column(String, nullable=True)  # "HH:MM" start
+    event_end_time: Mapped[str | None] = mapped_column(String, nullable=True)  # "HH:MM" end
+    timezone: Mapped[str | None] = mapped_column(String, nullable=True)  # IANA tz for calendar
     location: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)  # PII
     signoff: Mapped[str | None] = mapped_column(String, nullable=True)  # signature line
     # blocks = which sections the recipient sees: date/time/location/message/rsvp/headcount

@@ -92,6 +92,12 @@ body::before{ /* real paper grain */
 .change{margin:.35rem 0 0;}
 .change[hidden]{display:none;}
 
+/* add-to-calendar (revealed after "Coming") */
+.addcal{display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin-top:.9rem;}
+.addcal[hidden]{display:none;}
+.addcal-label{width:100%; color:var(--ink-soft); font-size:.9rem;}
+.addcal .btn{padding:.55rem 1rem; font-size:.95rem;}
+
 /* ---- signature element: a real rubber stamp (double rule + worn ink) ---- */
 .stamp{position:absolute; top:6px; right:4px; z-index:5; font-family:"Saira Condensed",sans-serif;
   font-weight:700; text-transform:uppercase; letter-spacing:.03em; font-size:1.2rem; line-height:1;

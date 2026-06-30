@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from kith.config import get_settings
+from kith.core import calendar as cal
 from kith.core import images
 from kith.core import recipients as rcpt
 from kith.core.tracking import new_token
@@ -108,6 +109,7 @@ async def create_event(
     location: str = Form(""),
     signoff: str = Form(""),
     headcount_max: str = Form(""),
+    timezone: str = Form(""),
     recipients: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -144,6 +146,7 @@ async def create_event(
         signoff=(signoff.strip() or None),
         blocks=blocks,
         headcount_max=_parse_int(headcount_max),
+        timezone=(timezone.strip() or None),
         asset_id=asset.id if asset else None,
         status="draft",
     )
@@ -202,6 +205,7 @@ async def update_event(
     location: str = Form(""),
     signoff: str = Form(""),
     headcount_max: str = Form(""),
+    timezone: str = Form(""),
     recipients: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -236,6 +240,7 @@ async def update_event(
     ev.location = (location.strip() or None)
     ev.signoff = (signoff.strip() or None)
     ev.headcount_max = _parse_int(headcount_max)
+    ev.timezone = (timezone.strip() or None)
     ev.blocks = _blocks_from_form(
         block_message, block_date, block_time, block_location, block_rsvp, block_headcount
     )
@@ -256,15 +261,36 @@ def preview_event(event_id: str, request: Request, db: Session = Depends(get_db)
     if ev is None:
         return RedirectResponse("/", status_code=303)
     asset = db.get(Asset, ev.asset_id) if ev.asset_id else None
+    gcal_url = cal.build_google_url(cal.from_event(ev))
     ctx = {
         "settings": get_settings(),
         "event": ev,
         "blocks": ev.blocks or {},
         "host_name": user.display_name,
         "image_url": (f"/assets/{asset.id}" if asset else None),
+        "gcal_url": gcal_url,
+        "ics_url": (f"/events/{ev.id}/calendar.ics" if gcal_url else None),
         "preview": True,
     }
     return templates.TemplateResponse(request, "invite.html", ctx)
+
+
+@router.get("/events/{event_id}/calendar.ics")
+def event_ics(event_id: str, request: Request, db: Session = Depends(get_db)):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    body = cal.build_ics(cal.from_event(ev), dtstamp=datetime.now(UTC))
+    if body is None:
+        return RedirectResponse(f"/events/{ev.id}", status_code=303)
+    return Response(
+        body,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="kith-post.ics"'},
+    )
 
 
 @router.get("/assets/{asset_id}")

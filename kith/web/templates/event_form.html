@@ -36,11 +36,11 @@
       </label>
       <label class="field">
         <span class="field-label">Start time</span>
-        <input type="text" name="event_time" value="{{ event.event_time if event and event.event_time else '' }}" placeholder="3:00 pm">
+        <input type="time" name="event_time" value="{{ event.event_time if event and event.event_time else '' }}">
       </label>
       <label class="field">
         <span class="field-label">End time</span>
-        <input type="text" name="event_end_time" value="{{ event.event_end_time if event and event.event_end_time else '' }}" placeholder="5:00 pm">
+        <input type="time" name="event_end_time" value="{{ event.event_end_time if event and event.event_end_time else '' }}">
       </label>
     </div>
 
@@ -78,10 +78,17 @@
       <span class="field-hint">Emails are encrypted. Separate with new lines or commas.</span>
     </label>
 
+    <input type="hidden" name="timezone" id="tzfield" value="{{ event.timezone if event and event.timezone else '' }}">
+
     <div class="form-actions">
       <button class="btn btn-primary" type="submit">{{ 'Save changes' if event else 'Create card' }}</button>
       <a class="link" href="/">Cancel</a>
     </div>
   </form>
 </section>
+<script>
+  // Capture the host's timezone (for "add to calendar"); keep it if already set.
+  var tz = document.getElementById("tzfield");
+  if (tz && !tz.value) tz.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+</script>
 {% endblock %}

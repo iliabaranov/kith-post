@@ -18,7 +18,7 @@
       <a class="event-link" href="/events/{{ e.id }}">
         <span class="event-title">{{ e.title or "Untitled card" }}</span>
         <span class="event-meta">
-          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time }}{% endif %} · {% endif %}
+          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% endif %}
           {% set n = counts.get(e.id, 0) %}{{ n }} recipient{{ '' if n == 1 else 's' }}
         </span>
       </a>

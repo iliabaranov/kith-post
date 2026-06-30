@@ -42,7 +42,7 @@
           {% endif %}
           {% if blocks.time and event.event_time %}
             {% if not ns.first %}<span class="dot"></span>{% endif %}
-            <span><b>{{ event.event_time }}{% if event.event_end_time %} – {{ event.event_end_time }}{% endif %}</b></span>{% set ns.first = false %}
+            <span><b>{{ event.event_time | fmt_time }}{% if event.event_end_time %} – {{ event.event_end_time | fmt_time }}{% endif %}</b></span>{% set ns.first = false %}
           {% endif %}
           {% if blocks.location and event.location %}
             {% if not ns.first %}<span class="dot"></span>{% endif %}
@@ -76,6 +76,13 @@
         {% endif %}
 
         <p class="confirm" id="confirm" role="status" aria-live="polite"></p>
+        {% if gcal_url %}
+        <div class="addcal" id="addcal" hidden>
+          <span class="addcal-label">Add to your calendar</span>
+          <a class="btn btn-quiet" href="{{ gcal_url }}" target="_blank" rel="noopener">Google Calendar</a>
+          <a class="btn btn-quiet" href="{{ ics_url }}">Apple / Outlook (.ics)</a>
+        </div>
+        {% endif %}
         <button class="btn btn-quiet change linklike" id="change" type="button" hidden>Change response</button>
         {% endif %}
       </article>

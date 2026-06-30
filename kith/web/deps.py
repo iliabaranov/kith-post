@@ -8,10 +8,12 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from kith.core.calendar import pretty_time
 from kith.db.models import User
 
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+templates.env.filters["fmt_time"] = pretty_time  # "15:00" -> "3:00 pm"
 
 
 def get_db(request: Request):

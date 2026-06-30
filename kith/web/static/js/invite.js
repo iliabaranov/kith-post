@@ -27,6 +27,7 @@
     const change = document.getElementById("change");
     const sComing = document.getElementById("stampComing");
     const sDeclined = document.getElementById("stampDeclined");
+    const addcal = document.getElementById("addcal");
     let count = 1;
     const maxGuests = (headcount && parseInt(headcount.dataset.max, 10)) || 30;
 
@@ -51,6 +52,7 @@
         ? comingMsg(count)
         : "Thanks for letting us know — you'll be missed.";
       change.hidden = false;
+      if (addcal) addcal.hidden = !coming;  // calendar links only after "Coming"
     };
     const reopen = () => {
       setPhase("choose");
@@ -58,6 +60,7 @@
       if (sDeclined) sDeclined.classList.remove("show");
       confirmEl.textContent = "No problem — just pick again.";
       change.hidden = true;
+      if (addcal) addcal.hidden = true;
       yes.focus();
     };
 
