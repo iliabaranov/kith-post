@@ -151,14 +151,13 @@
     100%{opacity:0; transform:scale(.5) translateY(-8px);}}
   @keyframes fade{0%,40%{opacity:1;} 100%{opacity:0;}}
 
-  /* ---- footer: NO donation link here. Brand links home (growth loop). ---- */
+  /* ---- footer: NO donation link here. One very subtle brand link home. ---- */
   footer{position:relative; z-index:1; margin-top:1rem; text-align:center;}
-  .brand-link{display:inline-flex; flex-direction:column; align-items:center; gap:.15rem;
-    text-decoration:none; color:var(--ink-soft);}
-  .brand-link .mark{font-size:.82rem; letter-spacing:.04em;}
-  .brand-link .mark strong{color:var(--plum); font-weight:700;}
-  .brand-link .make{font-size:.78rem; color:var(--ink-soft);}
-  .brand-link:hover .mark strong,.brand-link:hover .make{text-decoration:underline; color:var(--plum);}
+  .brand-link{font-size:.72rem; letter-spacing:.03em; color:var(--ink-soft);
+    text-decoration:none; opacity:.7;}
+  .brand-link .bi{font-weight:600;}
+  .brand-link:hover,.brand-link:focus-visible{opacity:1; color:var(--plum);
+    text-decoration:underline; text-underline-offset:3px;}
 
   @media (prefers-reduced-motion:reduce){
     .btn,.btn-primary:hover,.btn-quiet:hover{transition:none; transform:none;}
@@ -205,10 +204,7 @@
     </div>
 
     <footer>
-      <a class="brand-link" href="/" aria-label="Kith Invite — make your own free invite">
-        <span class="mark">Sent with <strong>Kith Invite</strong></span>
-        <span class="make">make your own free invite →</span>
-      </a>
+      <a class="brand-link" href="/" title="Make your own free invite">Sent with <span class="bi">Kith Invite</span></a>
     </footer>
   </main>
 

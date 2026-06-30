@@ -181,10 +181,12 @@ scattered effects.
   Changing your mind is a normal path, never an error — no confirm dialog, no nag.
 - **Inputs**: `card` fill, `line` border, `honey` focus ring (visible, 2px). Warm,
   rounded ~10px. Labels above, in `ink-soft`.
-- **Recipient footer = the growth loop.** Recipient-facing invite/RSVP pages end
-  with a quiet brand link: *"Sent with **Kith Invite** · make your own free invite →"*
-  → the home/signup page. It is the **only** brand element a guest ever sees, and
-  it must stay subtle (`ink-soft`, no button chrome).
+- **Recipient footer = the growth loop, kept whisper-quiet.** Recipient-facing
+  invite/RSVP pages end with a single small link — just *"Sent with Kith Invite"*
+  (~0.72rem, `ink-soft`, ~0.7 opacity) → the home/signup page; a `title` tooltip
+  carries the "make your own free invite" context. It only brightens (plum +
+  underline) on hover/focus. It is the **only** brand element a guest ever sees and
+  must never shout — no CTA sub-line, no button chrome.
 - **Donation link** (later, G6): a single quiet "☕ Buy me a coffee" — shown
   **only in the signed-in sender app, and only after the user has created their
   first event**. **Never** on any recipient-facing page, in the sent email, or to a

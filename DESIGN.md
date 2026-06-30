@@ -105,9 +105,9 @@ These were decided up front and constrain everything downstream.
 3. Clicks **Accept** or **Decline** (optionally a +1 count / short note).
 4. Sees a friendly confirmation, and can **return to the same link anytime to
    change their response** (see §7). No login, ever. One opaque token = one recipient.
-5. The only Kith Invite branding a guest sees is a quiet footer link —
-   *"Sent with Kith Invite · make your own free invite →"* — to the signup page
-   (the growth loop). **No donation prompt ever reaches a guest.**
+5. The only Kith Invite branding a guest sees is one small, subtle footer link —
+   *"Sent with Kith Invite"* — to the signup page (the growth loop; a tooltip adds
+   "make your own free invite"). **No donation prompt ever reaches a guest.**
 
 ---
 
