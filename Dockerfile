@@ -1,4 +1,4 @@
-# Kith Invite — single image, same locally and on the home server.
+# Kith Post — single image, same locally and on the home server.
 FROM python:3.12-slim
 
 # uv for fast, reproducible installs

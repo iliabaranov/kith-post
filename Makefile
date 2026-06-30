@@ -1,4 +1,4 @@
-# Kith Invite dev loop. PYTHONPATH is cleared so a sourced ROS (or any system
+# Kith Post dev loop. PYTHONPATH is cleared so a sourced ROS (or any system
 # Python) can't leak packages/pytest-plugins into the venv.
 export PYTHONPATH :=
 

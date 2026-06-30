@@ -33,7 +33,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Kith Invite"
+    app_name: str = "Kith Post"
     base_url: str = "http://localhost:8000"
     send_mode: SendMode = SendMode.dry_run
     data_dir: Path = Path("data")

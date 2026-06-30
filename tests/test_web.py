@@ -14,7 +14,7 @@ def test_healthz():
 def test_index_renders():
     r = client.get("/")
     assert r.status_code == 200
-    assert "Kith Invite" in r.text
+    assert "Kith Post" in r.text
     assert "Sign in with Google" in r.text
 
 

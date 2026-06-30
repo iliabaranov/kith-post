@@ -1,7 +1,7 @@
-# Kith Invite — Design Language
+# Kith Post — Design Language
 
 > Direction: **"Kitchen Table"** · Theme: **light & warm** · Locked 2026-06-29.
-> This is the single source of truth for Kith Invite's look. Every screen derives its
+> This is the single source of truth for Kith Post's look. Every screen derives its
 > colors, type, spacing, and motion from here. See `design/invite-preview.html`
 > for the reference implementation of the hero screen.
 
@@ -9,7 +9,7 @@
 
 ## 1. The idea
 
-Kith Invite should feel like **a warm note from a friend left on the kitchen table** —
+Kith Post should feel like **a warm note from a friend left on the kitchen table** —
 not a SaaS product. The emotional beat we're designing for is the small, happy
 ritual of *getting real mail you actually want*: a handmade card, a personal line,
 a stamp pressed onto it. Friendly, unhurried, a little hand-made. Never "techy."
@@ -34,7 +34,7 @@ default: **cream `#F4F1EA` background + a high-contrast editorial serif (Playfai
 - **Accent is honey + plum, not terracotta**, with a single **berry** reserved
   for one celebratory moment. Text ink is a deep **aubergine-brown**, never pure
   black.
-- **The memorable element is a rubber-stamp RSVP mark** drawn from Kith Invite's actual
+- **The memorable element is a rubber-stamp RSVP mark** drawn from Kith Post's actual
   subject (the post), not a generic gradient/number hero.
 
 If a future change drifts toward flat-cream + Playfair + terracotta, it has
@@ -196,7 +196,7 @@ scattered effects.
 - **Inputs**: `card` fill, `line` border, `honey` focus ring (visible, 2px). Warm,
   rounded ~10px. Labels above, in `ink-soft`.
 - **Recipient footer = the growth loop, kept whisper-quiet.** Recipient-facing
-  invite/RSVP pages end with a single small link — just *"Sent with Kith Invite"*
+  invite/RSVP pages end with a single small link — just *"Sent with Kith Post"*
   (~0.72rem, `ink-soft`, ~0.7 opacity) → the home/signup page; a `title` tooltip
   carries the "make your own free invite" context. It only brightens (plum +
   underline) on hover/focus. It is the **only** brand element a guest ever sees and

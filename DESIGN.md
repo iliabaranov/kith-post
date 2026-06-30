@@ -1,15 +1,15 @@
-# Kith Invite — Design Document
+# Kith Post — Design Document
 
 > **Status:** Draft v0.1 · **Date:** 2026-06-29 · **Owner:** ilia
 >
-> **Kith Invite** — from *kith* (n.): one's friends, acquaintances, and
+> **Kith Post** — from *kith* (n.): one's friends, acquaintances, and
 > neighbors, as in "kith and kin."
 > A free, self-hosted, privacy-first digital invitation service: upload a card,
 > pick your people, and send a personal invite **from your own Gmail** with
 > open / accept / decline tracking. A non-commercial alternative to Punchbowl
 > and Paperless Post.
 >
-> *(Name locked: **Kith Invite**. That's the brand / display name; the code
+> *(Name locked: **Kith Post**. That's the brand / display name; the code
 > package stays `kith` for a short import path.)*
 
 ---
@@ -56,7 +56,7 @@ export-and-delete. It is free, offered as-is with no warranty.
 - Payments, premium tiers, ads, or profit-seeking monetization. *(One subtle,
   optional "tip jar" to offset hosting — e.g. Buy Me a Coffee / Ko-fi — is the
   lone exception, tracked as a later work item in §17. It links out to an external
-  service, so no payment data ever touches Kith Invite. It appears **only in the
+  service, so no payment data ever touches Kith Post. It appears **only in the
   signed-in sender app, after the user has created their first event** — never to
   invited guests, and never in a sent email.)*
 - Rich drag-and-drop card *designer* (we accept a finished image; we are not
@@ -94,7 +94,7 @@ These were decided up front and constrain everything downstream.
    message). The recipient page renders only the enabled blocks.
 3. **Build recipient list:** type/paste emails, or pick from saved contacts.
 4. **Preview** the exact email (rendered with their name as sender).
-5. **Send.** Kith Invite builds one personalized message per recipient, injects tracking
+5. **Send.** Kith Post builds one personalized message per recipient, injects tracking
    tokens, and sends each via the Gmail API throttled within quota.
 6. **Track** on a dashboard: per-recipient status — Queued → Sent → Opened (≈) →
    Accepted / Declined.
@@ -102,7 +102,7 @@ These were decided up front and constrain everything downstream.
 ### Recipient (no account, no app)
 1. Receives a normal-looking personal email from their friend, with the card
    inlined.
-2. Email contains a **"View invitation & RSVP"** button → opens the Kith Invite
+2. Email contains a **"View invitation & RSVP"** button → opens the Kith Post
    landing page, which opens with a brief **envelope fade-in that crossfades into
    the invitation** (~1s; skipped under reduced-motion). Full-res card + details.
 3. Can **click the card image to enlarge it** to fill the screen (click / ✕ / Esc
@@ -111,8 +111,8 @@ These were decided up front and constrain everything downstream.
    simple stepper) before confirming.
 4. Sees a friendly confirmation, and can **return to the same link anytime to
    change their response** (see §7). No login, ever. One opaque token = one recipient.
-5. The only Kith Invite branding a guest sees is one small, subtle footer link —
-   *"Sent with Kith Invite"* — to the signup page (the growth loop; a tooltip adds
+5. The only Kith Post branding a guest sees is one small, subtle footer link —
+   *"Sent with Kith Post"* — to the signup page (the growth loop; a tooltip adds
    "make your own free invite"). **No donation prompt ever reaches a guest.**
 
 ---
@@ -131,7 +131,7 @@ These were decided up front and constrain everything downstream.
 - **App posture:** A single Google Cloud project with an OAuth consent screen in
   **"Testing"** mode. Each permitted user is added as a **test user** (≤100).
   - Test users see a "Google hasn't verified this app" interstitial → "Advanced"
-    → "Go to Kith Invite (unsafe)". Acceptable for a trusted circle; documented in
+    → "Go to Kith Post (unsafe)". Acceptable for a trusted circle; documented in
     onboarding.
   - **No Google verification / security assessment needed** while we stay in
     Testing with the whitelist. This is the key payoff of Decision #2.
@@ -241,7 +241,7 @@ answer feel expected, not like an error path:
 
 ## 8. Automated Reminders
 
-**Sane default: ON.** When an event has a date, Kith Invite automatically nudges
+**Sane default: ON.** When an event has a date, Kith Post automatically nudges
 recipients who were sent an invite but **haven't clicked through yet**. A reminder
 reuses the recipient's existing token (so tracking stays continuous), is sent from
 the user's Gmail like the original, and is **threaded as a reply to the first
@@ -282,7 +282,7 @@ Computed relative to `event_date`:
 
 ### Mechanics
 Reuses the existing async send-worker and Gmail quota throttle (§6) — **no new
-infrastructure.** At send time Kith Invite computes each recipient's reminder slots and
+infrastructure.** At send time Kith Post computes each recipient's reminder slots and
 writes `Reminder` rows; a periodic sweep (every few minutes) enqueues those that
 are due *and* still match the target, then they flow through the same throttled
 `messages.send` path and count against the same daily cap. In `dry-run` /
@@ -610,5 +610,5 @@ Each gate is a working, committed, tested increment.
 
 ---
 
-*End of v0.1. Name locked: **Kith Invite**. Next step on approval: build G0 (scaffold +
+*End of v0.1. Name locked: **Kith Post**. Next step on approval: build G0 (scaffold +
 local dev loop) and commit.*

@@ -1,8 +1,8 @@
-# Kith Invite — non-secret tunables.
+# Kith Post — non-secret tunables.
 # Copy to config.toml to override defaults. Secrets go in .env (never here).
 # Precedence: env (KITH_*) > .env > config.toml > built-in defaults.
 
-app_name = "Kith Invite"
+app_name = "Kith Post"
 
 # Public base URL — used for tracking/RSVP links and the OAuth callback.
 # Local:  http://localhost:8000

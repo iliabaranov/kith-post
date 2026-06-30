@@ -1,4 +1,4 @@
-"""Kith Invite web app (G0 scaffold).
+"""Kith Post web app (G0 scaffold).
 
 Serves the warm "Kitchen Table" landing page and a health check, and wires up the
 SQLite data volume on startup. Google SSO, events, sending, and tracking arrive
