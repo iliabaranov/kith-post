@@ -55,7 +55,7 @@ def test_self_only_sends_to_the_host(tmp_path, monkeypatch):
     u, ev = _seed(db, rt="rt-token")
     captured = {}
 
-    def fake(settings, refresh_token, raw_b64):
+    def fake(settings, refresh_token, raw_b64, thread_id=None):
         captured["to"] = _to_of(raw_b64)
         captured["rt"] = refresh_token
         return {"id": "m1", "threadId": "t1"}
@@ -76,7 +76,7 @@ def test_live_sends_to_the_recipient(tmp_path, monkeypatch):
     u, ev = _seed(db, rt="rt")
     captured = {}
 
-    def fake(settings, refresh_token, raw_b64):
+    def fake(settings, refresh_token, raw_b64, thread_id=None):
         captured["to"] = _to_of(raw_b64)
         return {"id": "x", "threadId": "y"}
 

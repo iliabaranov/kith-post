@@ -302,6 +302,7 @@ def _reminders_ui(db: Session, ev: Event, settings) -> dict:
 def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
     sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
+    details_changed: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -322,6 +323,7 @@ def event_detail(
         parsed = [rcpt.Parsed(name=r.name, email=r.email) for r in rows]
         new_contacts = len(book.new_among(db, user.id, parsed))
     stats, recipients = _rsvp_summary(rows)
+    resendable = sum(1 for r in rows if r.status in ("sent", "coming", "declined"))
     ctx = {
         "settings": settings, "user": user, "event": ev,
         "recipient_count": len(rows), "queued_count": queued,
@@ -332,6 +334,7 @@ def event_detail(
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings),
+        "details_changed": bool(details_changed), "resendable": resendable,
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
 
@@ -374,6 +377,42 @@ def toggle_reminders(
     else:
         scheduler.cancel_all_pending_for_event(db, ev.id, reason="disabled")
     return RedirectResponse(f"/events/{ev.id}", status_code=303)
+
+
+@router.post("/events/{event_id}/resend")
+def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db)):
+    """Details changed → re-send the updated card to everyone already invited and
+    re-collect their RSVPs. Resets them to unanswered (keeping token + thread so the
+    re-send threads under the original), re-sends with a note, reschedules reminders."""
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    settings = get_settings()
+    if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+        return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
+    targets = db.execute(
+        select(Recipient).where(
+            Recipient.event_id == ev.id, Recipient.status.in_(("sent", "coming", "declined"))
+        )
+    ).scalars().all()
+    for r in targets:  # re-collect: clear prior response, keep token + thread_id
+        r.status = "queued"
+        r.sent_at = None
+        r.first_open_at = None
+        r.rsvp_at = None
+        r.party_size = None
+    scheduler.cancel_all_pending_for_event(db, ev.id, reason="resend")
+    db.commit()
+    result = send.send_event(
+        db, ev, user, settings, note="Some details have changed — here's the latest."
+    )
+    scheduler.schedule_event_reminders(db, ev, settings)
+    return RedirectResponse(
+        f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
+    )
 
 
 @router.post("/events/{event_id}/delete")
@@ -469,6 +508,9 @@ async def update_event(
         }
         return templates.TemplateResponse(request, "event_form.html", ctx, status_code=400)
 
+    # Snapshot the details that affect whether someone can attend, to detect a
+    # change worth re-sending for (date / time / location).
+    before = (ev.event_date, ev.event_time, ev.event_end_time, ev.location)
     ev.title = title.strip()
     ev.message = message.strip()
     ev.event_date = _parse_date(event_date)
@@ -481,9 +523,18 @@ async def update_event(
     ev.blocks = blocks
     if derived is not None:
         ev.asset_id = storage.store_asset(db, user.id, derived).id
+    details_changed = before != (ev.event_date, ev.event_time, ev.event_end_time, ev.location)
     db.commit()
     _reconcile_recipients(db, ev.id, recipients)
-    return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
+    already_sent = db.execute(
+        select(func.count()).select_from(Recipient).where(
+            Recipient.event_id == ev.id, Recipient.status.in_(("sent", "coming", "declined"))
+        )
+    ).scalar_one()
+    q = "?ask_contacts=1"
+    if details_changed and already_sent:
+        q += "&details_changed=1"
+    return RedirectResponse(f"/events/{ev.id}{q}", status_code=303)
 
 
 @router.get("/events/{event_id}/preview", response_class=HTMLResponse)

@@ -28,6 +28,19 @@
   <p class="sent-note">✓ Saved {{ saved }} to your <a class="link" href="/contacts">address book</a>.</p>
   {% endif %}
 
+  {% if details_changed and resendable %}
+  <div class="ask-note">
+    <span>You changed the date, time, or location. {{ resendable }} {{ 'person' if resendable == 1 else 'people' }} already got this {{ noun }} — re-send the updated {{ noun }} and re-collect RSVPs?</span>
+    <span class="ask-actions">
+      <form method="post" action="/events/{{ event.id }}/resend" class="inline-form"
+            onsubmit="return confirm('Re-send to {{ resendable }} {{ 'person' if resendable == 1 else 'people' }} and clear their previous RSVPs?');">
+        <button class="btn btn-primary btn-sm" type="submit">Re-send &amp; re-collect</button>
+      </form>
+      <a class="link" href="/events/{{ event.id }}">Not now</a>
+    </span>
+  </div>
+  {% endif %}
+
   {% if new_contacts %}
   <div class="ask-note">
     <span>{{ new_contacts }} {{ 'person' if new_contacts == 1 else 'people' }} here {{ "isn't" if new_contacts == 1 else "aren't" }} in your address book yet.</span>

@@ -40,7 +40,9 @@ def _write_outbox(settings: Settings, event_id: str, recipient_id: str, msg) -> 
     (d / f"{recipient_id}.eml").write_bytes(msg.as_bytes())
 
 
-def send_event(db: Session, event: Event, user: User, settings: Settings) -> SendResult:
+def send_event(
+    db: Session, event: Event, user: User, settings: Settings, *, note: str | None = None
+) -> SendResult:
     recipients = db.execute(
         select(Recipient).where(Recipient.event_id == event.id, Recipient.status == "queued")
     ).scalars().all()
@@ -59,8 +61,8 @@ def send_event(db: Session, event: Event, user: User, settings: Settings) -> Sen
             title=event.title, message=event.message, host_name=host_name,
             view_url=view_url,
         )
-        html = mailbuild.invite_html(has_image=bool(image_bytes), rsvp=rsvp, **common)
-        text = mailbuild.invite_text(rsvp=rsvp, **common)
+        html = mailbuild.invite_html(has_image=bool(image_bytes), rsvp=rsvp, note=note, **common)
+        text = mailbuild.invite_text(rsvp=rsvp, note=note, **common)
         to_email = user.email if settings.send_mode == SendMode.self_only else r.email
         msg = mailbuild.build_email(
             subject=mailbuild.subject_for(event.title, rsvp),
@@ -74,7 +76,9 @@ def send_event(db: Session, event: Event, user: User, settings: Settings) -> Sen
             else:
                 from kith.services import gmail
 
-                res = gmail.gmail_send(settings, user.refresh_token, mailbuild.to_raw(msg))
+                res = gmail.gmail_send(
+                    settings, user.refresh_token, mailbuild.to_raw(msg), thread_id=r.thread_id
+                )
                 r.msg_id_hdr = res.get("id")
                 r.thread_id = res.get("threadId")
             r.status = "sent"
