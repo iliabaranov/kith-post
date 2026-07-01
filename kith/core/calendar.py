@@ -50,16 +50,24 @@ class CalEvent:
     uid: str
 
 
-def from_event(ev) -> CalEvent:  # noqa: ANN001 — a DB Event
+def from_event(ev, rsvp_url: str | None = None) -> CalEvent:  # noqa: ANN001 — a DB Event
+    """Build a CalEvent from a DB Event. When rsvp_url is given (the invitee's own
+    invitation link), a "change your answer" line is appended under the message so
+    the calendar entry itself carries a way back to the RSVP page."""
     blocks = ev.blocks or {}
     show_time = bool(blocks.get("time"))
+    message = ev.message if blocks.get("message") else None
+    details = message
+    if rsvp_url:
+        line = f"Need to change your answer? Visit {rsvp_url}"
+        details = f"{message}\n\n{line}" if message else line
     return CalEvent(
         title=ev.title or "Invitation",
         date=ev.event_date if blocks.get("date") else None,
         start=parse_hhmm(ev.event_time) if show_time else None,
         end=parse_hhmm(ev.event_end_time) if show_time else None,
         location=ev.location if blocks.get("location") else None,
-        details=ev.message if blocks.get("message") else None,
+        details=details,
         tz=ev.timezone,
         uid=f"{ev.id}@kith.post",
     )

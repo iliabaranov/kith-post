@@ -46,7 +46,8 @@ def view_invite(
         db.commit()
     owner = db.get(User, ev.user_id)
     asset = db.get(Asset, ev.asset_id) if ev.asset_id else None
-    gcal_url = cal.build_google_url(cal.from_event(ev))
+    rsvp_url = f"{get_settings().base_url.rstrip('/')}/i/{token}"
+    gcal_url = cal.build_google_url(cal.from_event(ev, rsvp_url=rsvp_url))
     locked = _is_locked(ev)
     ctx = {
         "settings": get_settings(),
@@ -113,7 +114,8 @@ def invite_ics(token: str, request: Request, db: Session = Depends(get_db)):
     ev = db.get(Event, r.event_id) if r else None
     if ev is None:
         return Response(status_code=404)
-    body = cal.build_ics(cal.from_event(ev), dtstamp=datetime.now(UTC))
+    rsvp_url = f"{get_settings().base_url.rstrip('/')}/i/{token}"
+    body = cal.build_ics(cal.from_event(ev, rsvp_url=rsvp_url), dtstamp=datetime.now(UTC))
     if body is None:
         return Response(status_code=404)
     return Response(
