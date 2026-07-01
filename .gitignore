@@ -5,8 +5,10 @@ config.toml
 client_secret*.json
 *.key
 
-# Data volume (db, uploaded/derived images)
+# Data volume (db, uploaded/derived images) + any local backups of it
 data/
+data.backup*/
+*.bak-*
 *.sqlite
 *.sqlite3
 *.db
