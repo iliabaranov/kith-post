@@ -178,7 +178,6 @@ code {
   padding: .9rem 3rem .9rem 1.1rem; transition: border-color .12s ease, transform .12s ease, opacity .12s ease;
 }
 .event-link:hover { border-color: var(--honey); transform: translateY(-1px); }
-.event-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .event-title { font-weight: 600; color: var(--ink); font-size: 1.05rem; }
 .event-meta { color: var(--ink-soft); font-size: .9rem; }
 .empty { color: var(--ink-soft); }
@@ -197,8 +196,10 @@ code {
 /* an event whose date has passed: subtly dimmed + a small flag */
 .event-row.is-past .event-link { opacity: .55; }
 .event-row.is-past .event-link:hover { opacity: .8; }
+.event-row.is-past .event-link { padding-right: 9.5rem; }  /* clear the flag + ✕ */
 .event-flag {
-  flex: 0 0 auto; white-space: nowrap;
+  position: absolute; top: 50%; right: 3.3rem; transform: translateY(-50%);
+  z-index: 2; white-space: nowrap;
   font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   color: var(--ink-soft); background: rgba(110, 92, 99, .12);
   border-radius: 6px; padding: .08rem .42rem;
