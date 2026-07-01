@@ -174,3 +174,39 @@ def test_compose_form_shows_importer_when_book_has_people(client):
 def test_compose_form_hides_importer_when_book_empty(client):
     client.post("/auth/dev-login")
     assert "Import from your address book" not in client.get("/events/new").text
+
+
+def test_event_prompts_to_save_new_people_then_saves(client):
+    client.post("/auth/dev-login")
+    r = client.post(
+        "/events", data={"title": "Party", "recipients": "ana@x.com\nben@x.com"},
+        follow_redirects=True,
+    )
+    assert "2 people" in r.text and "in your address book yet" in r.text  # prompt after create
+    eid = sqlite3.connect(get_settings().db_path).execute(
+        "SELECT id FROM events LIMIT 1"
+    ).fetchone()[0]
+    saved = client.post(f"/events/{eid}/save-contacts", follow_redirects=True)
+    assert "Saved 2 to your" in saved.text
+    assert _count("contacts") == 2
+
+
+def test_prompt_counts_only_people_not_already_in_book(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
+    r = client.post(
+        "/events", data={"title": "Party", "recipients": "ana@x.com\nben@x.com"},
+        follow_redirects=True,
+    )
+    assert "1 person" in r.text and "in your address book yet" in r.text  # only ben is new
+
+
+def test_no_prompt_on_a_plain_visit(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events", data={"title": "Party", "recipients": "ana@x.com"}, follow_redirects=True
+    )
+    eid = sqlite3.connect(get_settings().db_path).execute(
+        "SELECT id FROM events LIMIT 1"
+    ).fetchone()[0]
+    assert "in your address book yet" not in client.get(f"/events/{eid}").text  # no ?ask_contacts

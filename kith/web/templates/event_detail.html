@@ -15,6 +15,22 @@
   </p>
   {% endif %}
 
+  {% if saved %}
+  <p class="sent-note">✓ Saved {{ saved }} to your <a class="link" href="/contacts">address book</a>.</p>
+  {% endif %}
+
+  {% if new_contacts %}
+  <div class="ask-note">
+    <span>{{ new_contacts }} {{ 'person' if new_contacts == 1 else 'people' }} here {{ "isn't" if new_contacts == 1 else "aren't" }} in your address book yet.</span>
+    <span class="ask-actions">
+      <form method="post" action="/events/{{ event.id }}/save-contacts" class="inline-form">
+        <button class="btn btn-quiet btn-sm" type="submit">Add to address book</button>
+      </form>
+      <a class="link" href="/events/{{ event.id }}">No thanks</a>
+    </span>
+  </div>
+  {% endif %}
+
   <div class="detail-actions">
     <a class="btn btn-primary" href="/events/{{ event.id }}/preview" target="_blank" rel="noopener">Preview invitation</a>
     <a class="btn btn-quiet" href="/events/{{ event.id }}/edit">Edit</a>

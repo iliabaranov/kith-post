@@ -180,13 +180,13 @@ async def create_event(
     db.commit()
     db.refresh(ev)
     _replace_recipients(db, ev.id, recipients)
-    return RedirectResponse(f"/events/{ev.id}", status_code=303)
+    return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
 @router.get("/events/{event_id}", response_class=HTMLResponse)
 def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
-    sent: int = 0, failed: int = 0,
+    sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -197,6 +197,12 @@ def event_detail(
     settings = get_settings()
     queued = _queued_count(db, ev.id)
     label, hint, confirm = _SEND_UI.get(settings.send_mode.value, _SEND_UI["dry-run"])
+    # right after create/edit, offer to save recipients who aren't in the book yet
+    new_contacts = 0
+    if ask_contacts:
+        rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
+        parsed = [rcpt.Parsed(name=r.name, email=r.email) for r in rows]
+        new_contacts = len(book.new_among(db, user.id, parsed))
     ctx = {
         "settings": settings, "user": user, "event": ev,
         "recipient_count": _recipient_count(db, ev.id), "queued_count": queued,
@@ -204,6 +210,7 @@ def event_detail(
         "send_label": label.format(n=queued), "send_hint": hint,
         "send_confirm": confirm.format(n=queued),
         "sent": sent, "failed": failed,
+        "new_contacts": new_contacts, "saved": saved,
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
 
@@ -240,6 +247,20 @@ def delete_event(event_id: str, request: Request, db: Session = Depends(get_db))
     if asset is not None:
         storage.delete_asset(db, asset)
     return RedirectResponse("/", status_code=303)
+
+
+@router.post("/events/{event_id}/save-contacts")
+def save_contacts(event_id: str, request: Request, db: Session = Depends(get_db)):
+    """Add this event's recipients to the address book (dedup is automatic)."""
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
+    added = sum(book.add_contact(db, user.id, r.email, r.name)[1] for r in rows)
+    return RedirectResponse(f"/events/{ev.id}?saved={added}", status_code=303)
 
 
 @router.get("/events/{event_id}/edit", response_class=HTMLResponse)
@@ -318,7 +339,7 @@ async def update_event(
         ev.asset_id = storage.store_asset(db, user.id, derived).id
     db.commit()
     _replace_recipients(db, ev.id, recipients)
-    return RedirectResponse(f"/events/{ev.id}", status_code=303)
+    return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
 @router.get("/events/{event_id}/preview", response_class=HTMLResponse)

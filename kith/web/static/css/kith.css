@@ -236,6 +236,15 @@ code {
 }
 .book-email { color: var(--ink-soft); font-size: .85em; }
 
+/* "add these new people to your book?" prompt on the event page */
+.ask-note {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem;
+  justify-content: space-between;
+  background: rgba(226, 151, 43, .12); border: 1px solid rgba(226, 151, 43, .5);
+  border-radius: 10px; padding: .7rem 1rem; margin: 0 0 1.2rem; color: var(--ink);
+}
+.ask-actions { display: flex; align-items: center; gap: .9rem; }
+
 /* ---- compose form ---- */
 .form-wrap { max-width: 42rem; margin: 0 auto; }
 .form-title {
