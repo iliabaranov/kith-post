@@ -585,6 +585,11 @@ Each gate is a working, committed, tested increment.
   token image, all-day **and** TZ→UTC timed `.ics`, bad-token 404; 0 errors).
   *(Throttled async queue deferred — direct per-recipient send is fine for a
   friends-and-family circle; revisit if volume needs it.)*
+- **G-AB — Address book.** Reusable per-user contacts (encrypted email/name +
+  blind-index dedup), a `/contacts` page (add/import/edit/delete/CSV export),
+  import-into-compose, and an opt-in "save new people?" prompt after create.
+  **✅ Done** — 4 phases, 103 tests, live-smoked; contacts in account export +
+  delete cascade. *(Inserted before G4 at the user's request.)*
 - **G4 — Track & RSVP.** Invitation landing page (logs the "Opened"/`landing_view`
   signal), accept/decline w/ confirm, dashboard. Auto-purge sweep. *(No pixel.)*
 - **G5 — Automated reminders.** Reminder scheduler (§8): slot computation w/ edge
