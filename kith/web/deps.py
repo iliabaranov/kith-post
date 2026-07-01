@@ -16,6 +16,18 @@ templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.filters["fmt_time"] = pretty_time  # "15:00" -> "3:00 pm"
 
 
+def static_version() -> str:
+    """Cache-busting token = newest mtime under static/. Appended as ?v= to
+    CSS/JS links so a changed asset is refetched without a manual hard-refresh,
+    while unchanged assets stay cached. Cheap (a handful of files)."""
+    root = WEB_DIR / "static"
+    latest = max((p.stat().st_mtime for p in root.rglob("*") if p.is_file()), default=0.0)
+    return str(int(latest))
+
+
+templates.env.globals["static_v"] = static_version
+
+
 def get_db(request: Request):
     db: Session = request.app.state.session_factory()
     try:

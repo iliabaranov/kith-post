@@ -17,8 +17,8 @@
     {% set passed = e.event_date and e.event_date < today %}
     <li class="event-row{% if passed %} is-past{% endif %}">
       <a class="event-link" href="/events/{{ e.id }}">
-        <span class="event-title">
-          {{ e.title or "Untitled card" }}
+        <span class="event-head">
+          <span class="event-title">{{ e.title or "Untitled card" }}</span>
           {% if passed %}<span class="event-flag">event passed</span>{% endif %}
         </span>
         <span class="event-meta">
