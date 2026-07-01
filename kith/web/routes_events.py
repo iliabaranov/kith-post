@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -146,13 +147,52 @@ def _event_noun(ev) -> str:  # noqa: ANN001 — a DB Event
     return "invitation" if is_invite else "card"
 
 
-def _replace_recipients(db: Session, event_id: str, text: str) -> tuple[int, list[str]]:
+@dataclass
+class ReconcileResult:
+    added: int
+    removed: int
+    kept: int
+    invalid: list[str]
+
+
+def _reconcile_recipients(db: Session, event_id: str, text: str) -> ReconcileResult:
+    """Update an event's recipient list without discarding existing rows.
+
+    Match by normalized email: add new addresses (fresh token, queued), keep
+    matched rows untouched (only fill an empty name), remove absent ones. Keeping
+    rows preserves each recipient's token, sent/RSVP state, and mail threading —
+    unlike a delete-and-recreate, which wiped all of that on every edit.
+    """
     valid, invalid = rcpt.parse_recipients(text)
-    db.query(Recipient).filter(Recipient.event_id == event_id).delete()
-    for p in valid:
-        db.add(Recipient(event_id=event_id, email=p.email, name=p.name, token=new_token()))
+    existing = db.execute(
+        select(Recipient).where(Recipient.event_id == event_id)
+    ).scalars().all()
+    by_email: dict[str, Recipient] = {}
+    stale: list[Recipient] = []  # legacy duplicate rows for the same email
+    for r in existing:
+        key = rcpt.normalize(r.email)
+        (stale.append(r) if key in by_email else by_email.setdefault(key, r))
+    wanted = {p.email: p for p in valid}  # p.email is already normalized
+
+    added = kept = removed = 0
+    for email, p in wanted.items():
+        row = by_email.get(email)
+        if row is None:
+            db.add(Recipient(event_id=event_id, email=p.email, name=p.name, token=new_token()))
+            added += 1
+        else:
+            if p.name and not row.name:  # fill a missing name, never overwrite
+                row.name = p.name
+            kept += 1
+    for email, row in by_email.items():
+        if email not in wanted:
+            db.delete(row)  # FK cascade drops any reminders for this recipient
+            removed += 1
+    for row in stale:
+        db.delete(row)
+        removed += 1
     db.commit()
-    return len(valid), invalid
+    return ReconcileResult(added=added, removed=removed, kept=kept, invalid=invalid)
 
 
 async def _read_image(image: UploadFile | None) -> images.Derived | None:
@@ -231,7 +271,7 @@ async def create_event(
     db.add(ev)
     db.commit()
     db.refresh(ev)
-    _replace_recipients(db, ev.id, recipients)
+    _reconcile_recipients(db, ev.id, recipients)
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
@@ -395,7 +435,7 @@ async def update_event(
     if derived is not None:
         ev.asset_id = storage.store_asset(db, user.id, derived).id
     db.commit()
-    _replace_recipients(db, ev.id, recipients)
+    _reconcile_recipients(db, ev.id, recipients)
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 

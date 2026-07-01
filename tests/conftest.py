@@ -8,6 +8,12 @@ from cryptography.fernet import Fernet
 
 os.environ.setdefault("KITH_DATA_DIR", tempfile.mkdtemp(prefix="kith-test-"))
 os.environ.setdefault("KITH_FERNET_KEY", Fernet.generate_key().decode())
+# Stay hermetic if a real .env is present (e.g. running on the deploy box): a
+# production https base_url would make session cookies Secure-only, which the
+# http TestClient drops (breaking every logged-in test); live send-mode would
+# try real Gmail. Pin safe test defaults unless the caller overrides them.
+os.environ.setdefault("KITH_BASE_URL", "http://localhost:8000")
+os.environ.setdefault("KITH_SEND_MODE", "dry-run")
 # Hermetic tests: never inherit a developer's real .env Google credentials.
 # os.environ takes precedence over the .env file, so "" forces the unconfigured
 # (dev-login) baseline; the configured-OAuth test monkeypatches these back.

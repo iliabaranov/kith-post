@@ -20,6 +20,11 @@ class Parsed:
     email: str
 
 
+def normalize(email: str) -> str:
+    """Canonical form for matching/dedup: trimmed + lower-cased."""
+    return (email or "").strip().lower()
+
+
 def parse_recipients(text: str) -> tuple[list[Parsed], list[str]]:
     valid: list[Parsed] = []
     invalid: list[str] = []
@@ -34,7 +39,7 @@ def parse_recipients(text: str) -> tuple[list[Parsed], list[str]]:
         if m:
             name = (m.group(1).strip() or None)
             email = m.group(2).strip()
-        email = email.lower()
+        email = normalize(email)
         if not _EMAIL_RE.match(email):
             invalid.append(s)
             continue
