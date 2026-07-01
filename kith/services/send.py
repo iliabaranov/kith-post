@@ -57,7 +57,7 @@ def send_event(db: Session, event: Event, user: User, settings: Settings) -> Sen
         view_url = f"{base}/i/{r.token}"
         common = dict(
             title=event.title, message=event.message, host_name=host_name,
-            recipient_name=r.name, view_url=view_url,
+            view_url=view_url,
         )
         html = mailbuild.invite_html(has_image=bool(image_bytes), rsvp=rsvp, **common)
         text = mailbuild.invite_text(rsvp=rsvp, **common)

@@ -20,13 +20,8 @@ def subject_for(title: str, rsvp: bool) -> str:
     return f"You're invited: {title}" if rsvp else title
 
 
-def _greeting(name: str | None) -> str:
-    name = (name or "").strip()
-    return f"Hi {name}," if name else "Hi there,"
-
-
 def invite_html(
-    *, title: str, message: str, host_name: str, recipient_name: str | None,
+    *, title: str, message: str, host_name: str,
     view_url: str, has_image: bool, rsvp: bool,
 ) -> str:
     cta = "View invitation &amp; RSVP" if rsvp else "View your card"
@@ -47,8 +42,6 @@ def invite_html(
 <!doctype html><html><body style="margin:0;background:#F4ECDD;">
 <div style="max-width:560px;margin:0 auto;padding:28px 20px;
   font-family:Georgia,'Times New Roman',serif;">
-  <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#3B2A33;{sans}">
-    {escape(_greeting(recipient_name))}</p>
   {img}
   <h1 style="margin:0 0 12px;font-size:28px;line-height:1.15;color:#3B2A33;">{title_html}</h1>
   {msg_html}
@@ -64,11 +57,10 @@ def invite_html(
 
 
 def invite_text(
-    *, title: str, message: str, host_name: str, recipient_name: str | None,
+    *, title: str, message: str, host_name: str,
     view_url: str, rsvp: bool,
 ) -> str:
-    lines = [_greeting(recipient_name), ""]
-    lines.append(title or "You're invited")
+    lines = [title or "You're invited"]
     if message:
         lines += ["", message]
     lines += [

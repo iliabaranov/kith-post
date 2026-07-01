@@ -12,23 +12,29 @@ def test_subject():
 
 def test_html_has_cid_link_and_escapes():
     html = invite_html(
-        title="A & B", message="Line1\nLine2", host_name="Mara", recipient_name="Sam",
+        title="A & B", message="Line1\nLine2", host_name="Mara",
         view_url="https://x.ts.net/i/tok", has_image=True, rsvp=True,
     )
     assert "cid:cardimage" in html
     assert "https://x.ts.net/i/tok" in html
     assert "A &amp; B" in html          # title escaped
     assert "Line1<br>Line2" in html     # newline -> <br>
-    assert "Hi Sam," in html
 
 
-def test_text_has_link_and_greeting():
+def test_html_has_no_greeting():
+    html = invite_html(
+        title="Party", message="", host_name="Mara",
+        view_url="https://x/i/tok", has_image=False, rsvp=True,
+    )
+    assert "Hi " not in html  # no greeting at all — opens on the card
+
+
+def test_text_opens_on_the_title_no_greeting():
     t = invite_text(
-        title="Party", message="", host_name="Mara", recipient_name=None,
-        view_url="https://x/i/tok", rsvp=True,
+        title="Party", message="", host_name="Mara", view_url="https://x/i/tok", rsvp=True,
     )
     assert "https://x/i/tok" in t
-    assert "Hi there," in t
+    assert t.startswith("Party")  # first line is the title, no greeting
 
 
 def test_build_email_is_multipart_with_inline_image():
