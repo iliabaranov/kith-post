@@ -7,8 +7,14 @@ export PYTHONPATH :=
 install:        ## create .venv and install all deps (incl. dev)
 	uv sync
 
-dev:            ## run the app locally with hot reload (http://localhost:8000)
+dev:            ## run the app locally with hot reload (http://localhost:8000), dry-run send
 	uv run uvicorn kith.web.app:app --reload
+
+dev-self:       ## run locally, sending REAL email through Gmail but only to YOU (self-only)
+	KITH_SEND_MODE=self-only uv run uvicorn kith.web.app:app --reload
+
+dev-live:       ## run locally, sending REAL email to the actual recipients — careful
+	KITH_SEND_MODE=live uv run uvicorn kith.web.app:app --reload
 
 test:           ## run the test suite
 	uv run pytest
