@@ -8,6 +8,15 @@
     {{ recipient_count }} recipient{{ '' if recipient_count == 1 else 's' }} on the list{% if queued_count and queued_count != recipient_count %} · {{ queued_count }} not yet sent{% endif %}.
   </p>
 
+  {% if stats.total and event.blocks and event.blocks.rsvp %}
+  <div class="stats">
+    {% if stats.opened %}<span class="stat"><b>{{ stats.opened }}</b> opened</span>{% endif %}
+    <span class="stat is-coming"><b>{{ stats.coming }}</b> coming{% if stats.guests != stats.coming %} · {{ stats.guests }} guests{% endif %}</span>
+    <span class="stat is-declined"><b>{{ stats.declined }}</b> can't make it</span>
+    <span class="stat"><b>{{ stats.no_reply }}</b> no reply</span>
+  </div>
+  {% endif %}
+
   {% if sent or failed %}
   <p class="sent-note">
     {% if sent %}✓ Sent {{ sent }} invitation{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}
@@ -48,5 +57,22 @@
     Sending mode: <b>{{ send_mode }}</b> — {{ send_hint }}
     “Preview invitation” opens exactly what your people will see.
   </p>
+
+  {% if recipients %}
+  <ul class="rsvp-list">
+    {% for r in recipients %}
+    <li class="rsvp-row">
+      <span class="rsvp-who">
+        <span class="rsvp-name">{{ r.name }}</span>
+        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}</span>{% endif %}
+      </span>
+      <span class="rsvp-state">
+        {% if r.when %}<span class="rsvp-when">{{ r.when }}</span>{% endif %}
+        <span class="chip chip-{{ r.state }}">{{ r.label }}{% if r.state == 'coming' and r.party_size and r.party_size > 1 %} · {{ r.party_size }}{% endif %}</span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </section>
 {% endblock %}

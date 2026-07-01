@@ -245,6 +245,33 @@ code {
 }
 .ask-actions { display: flex; align-items: center; gap: .9rem; }
 
+/* ---- RSVP stats + per-recipient list (event page) ---- */
+.stats { display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; margin: 0 0 1.3rem; }
+.stat { font-size: .9rem; color: var(--ink-soft); }
+.stat b { color: var(--ink); font-size: 1.05rem; }
+.stat.is-coming b { color: #40695A; }
+.stat.is-declined b { color: var(--berry); }
+
+.rsvp-list { list-style: none; padding: 0; margin: 1.6rem 0 0; display: flex; flex-direction: column; }
+.rsvp-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .6rem .2rem; border-bottom: 1px solid var(--line);
+}
+.rsvp-who { display: flex; flex-direction: column; min-width: 0; }
+.rsvp-name { color: var(--ink); font-weight: 500; }
+.rsvp-email { color: var(--ink-soft); font-size: .82rem; }
+.rsvp-state { display: flex; align-items: center; gap: .7rem; flex: 0 0 auto; }
+.rsvp-when { color: var(--ink-soft); font-size: .8rem; }
+.chip {
+  font-size: .78rem; font-weight: 600; padding: .16rem .6rem;
+  border-radius: 999px; white-space: nowrap;
+}
+.chip-coming { background: rgba(64, 105, 90, .16); color: #365046; }
+.chip-declined { background: rgba(196, 69, 105, .14); color: var(--berry); }
+.chip-opened { background: rgba(107, 58, 87, .12); color: var(--plum); }
+.chip-sent { background: rgba(110, 92, 99, .12); color: var(--ink-soft); }
+.chip-queued { background: rgba(110, 92, 99, .07); color: var(--ink-soft); }
+
 /* ---- compose form ---- */
 .form-wrap { max-width: 42rem; margin: 0 auto; }
 .form-title {

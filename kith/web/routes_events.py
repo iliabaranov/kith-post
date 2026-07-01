@@ -84,6 +84,50 @@ def _queued_count(db: Session, event_id: str) -> int:
     ).scalar_one()
 
 
+_STATE_LABEL = {
+    "coming": "Coming", "declined": "Can't make it",
+    "opened": "Opened", "sent": "Sent", "queued": "Not sent",
+}
+
+
+def _recipient_state(r: Recipient) -> str:
+    """The one status to show the host, newest signal wins."""
+    if r.status in ("coming", "declined"):
+        return r.status
+    if r.first_open_at:
+        return "opened"
+    if r.sent_at:
+        return "sent"
+    return "queued"
+
+
+def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
+    coming = [r for r in rows if r.status == "coming"]
+    declined = [r for r in rows if r.status == "declined"]
+    stats = {
+        "total": len(rows),
+        "opened": sum(1 for r in rows if r.first_open_at),
+        "coming": len(coming),
+        "guests": sum((r.party_size or 1) for r in coming),
+        "declined": len(declined),
+        "no_reply": len(rows) - len(coming) - len(declined),
+    }
+    recipients = []
+    for r in rows:
+        state = _recipient_state(r)
+        when = ""
+        if state in ("coming", "declined") and r.rsvp_at:
+            when = r.rsvp_at.strftime("%b %d")
+        elif state == "opened" and r.first_open_at:
+            when = r.first_open_at.strftime("%b %d")
+        recipients.append({
+            "name": r.name or r.email, "email": r.email,
+            "state": state, "label": _STATE_LABEL[state],
+            "party_size": r.party_size, "when": when,
+        })
+    return stats, recipients
+
+
 _SEND_UI = {
     "dry-run": ("Send (dry run)", "Writes .eml files to data/outbox — no real email is sent.",
                 "Write {n} dry-run email(s) to the outbox?"),
@@ -195,22 +239,26 @@ def event_detail(
     if ev is None:
         return RedirectResponse("/", status_code=303)
     settings = get_settings()
-    queued = _queued_count(db, ev.id)
+    rows = db.execute(
+        select(Recipient).where(Recipient.event_id == ev.id).order_by(Recipient.created_at)
+    ).scalars().all()
+    queued = sum(1 for r in rows if r.status == "queued")
     label, hint, confirm = _SEND_UI.get(settings.send_mode.value, _SEND_UI["dry-run"])
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
     if ask_contacts:
-        rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
         parsed = [rcpt.Parsed(name=r.name, email=r.email) for r in rows]
         new_contacts = len(book.new_among(db, user.id, parsed))
+    stats, recipients = _rsvp_summary(rows)
     ctx = {
         "settings": settings, "user": user, "event": ev,
-        "recipient_count": _recipient_count(db, ev.id), "queued_count": queued,
+        "recipient_count": len(rows), "queued_count": queued,
         "send_mode": settings.send_mode.value,
         "send_label": label.format(n=queued), "send_hint": hint,
         "send_confirm": confirm.format(n=queued),
         "sent": sent, "failed": failed,
         "new_contacts": new_contacts, "saved": saved,
+        "stats": stats, "recipients": recipients,
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
 

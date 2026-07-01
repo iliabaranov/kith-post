@@ -187,6 +187,33 @@ def test_dashboard_lists_events(client):
     assert "Birthday bash" in client.get("/").text
 
 
+def test_event_page_shows_rsvp_stats_and_list(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Party", "recipients": "a@example.com\nb@example.com", "block_rsvp": "on"},
+        follow_redirects=True,
+    )
+    toks = [r[0] for r in _db().execute("SELECT token FROM recipients").fetchall()]
+    client.post(f"/i/{toks[0]}/rsvp", data={"response": "coming", "party_size": "2"})
+    client.post(f"/i/{toks[1]}/rsvp", data={"response": "declined"})
+    page = client.get(f"/events/{_event_id()}").text
+    assert "chip-coming" in page and "chip-declined" in page  # per-recipient chips
+    assert "2 guests" in page  # party size flows into the guest tally
+    assert "a@example.com" in page and "b@example.com" in page
+
+
+def test_no_rsvp_tally_on_a_plain_card(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Holiday", "recipients": "a@example.com",
+              "message": "hi", "block_message": "on"},
+        follow_redirects=True,
+    )
+    assert 'class="stats"' not in client.get(f"/events/{_event_id()}").text
+
+
 def test_delete_event_removes_it_and_recipients(client):
     client.post("/auth/dev-login")
     client.post(
