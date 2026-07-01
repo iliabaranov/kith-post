@@ -8,6 +8,8 @@ key with a loud warning (fine for a throwaway dev run, useless across restarts).
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import hmac
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -24,6 +26,7 @@ def generate_key() -> str:
 
 class Cipher:
     def __init__(self, key: str) -> None:
+        self._key = key.encode()
         self._f = Fernet(key.encode())
 
     def encrypt(self, plaintext: str) -> str:
@@ -31,6 +34,16 @@ class Cipher:
 
     def decrypt(self, token: str) -> str:
         return self._f.decrypt(token.encode()).decode()
+
+    def blind_index(self, value: str) -> str:
+        """Deterministic keyed hash for equality lookups on encrypted PII.
+
+        Fernet ciphertext is randomized, so two rows with the same email don't
+        match and can't be UNIQUE/queried. This HMAC lets us dedupe and look up
+        ("already in your book?") without storing plaintext. Caller normalizes
+        (e.g. lower-case the email) before hashing.
+        """
+        return hmac.new(self._key, value.encode(), hashlib.sha256).hexdigest()
 
 
 def _load_or_create_dev_key(data_dir: Path) -> str:

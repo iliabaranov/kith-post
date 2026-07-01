@@ -5,7 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kith.db.session import Base
@@ -28,6 +38,25 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Contact(Base):
+    """A person in a user's reusable address book. Email/name are encrypted at
+    rest; email_hash is a blind index (keyed HMAC of the normalized email) so we
+    can dedupe and look up without storing or querying plaintext."""
+
+    __tablename__ = "contacts"
+    __table_args__ = (UniqueConstraint("user_id", "email_hash", name="uq_contact_user_email"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[str] = mapped_column(EncryptedString)
+    name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    email_hash: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Asset(Base):
