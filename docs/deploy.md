@@ -123,6 +123,13 @@ docker compose --profile public up -d --build
 docker compose logs -f                    # watch kith + cloudflared come up
 ```
 
+> **Data dir ownership.** The container runs as uid **10001** (`app`), and
+> `./data` is a bind mount, so the host directory must be writable by that uid or
+> SQLite crashes on startup with `attempt to write a readonly database`. A fresh
+> empty `data/` that the container creates is fine; if you *migrate* an existing
+> `data/` (or restore a backup) from another user, run once on the host:
+> `sudo chown -R 10001:10001 data`.
+
 Then open `https://kithpo.st`, sign in with Google (accept the "unverified app"
 warning), and:
 
