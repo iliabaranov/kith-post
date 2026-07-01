@@ -224,6 +224,18 @@ code {
 .contact-row .row-del { margin-right: 0; opacity: .7; }
 .contact-row:hover .row-del { opacity: 1; }
 
+/* compose: import-from-address-book picker */
+.import-book { margin-top: -.3rem; }
+.import-book > summary { color: var(--plum); }
+.book-picker { padding: .6rem 0 .2rem; }
+.book-all { font-weight: 600; margin-bottom: .4rem; }
+.book-items {
+  display: flex; flex-direction: column; gap: .3rem; max-height: 12rem; overflow-y: auto;
+  padding: .4rem .2rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  margin-bottom: .7rem;
+}
+.book-email { color: var(--ink-soft); font-size: .85em; }
+
 /* ---- compose form ---- */
 .form-wrap { max-width: 42rem; margin: 0 auto; }
 .form-title {

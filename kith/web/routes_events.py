@@ -15,6 +15,7 @@ from kith.core import images
 from kith.core import recipients as rcpt
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient
+from kith.services import contacts as book
 from kith.services import send, storage
 from kith.web.deps import get_db, load_user, templates
 
@@ -116,6 +117,7 @@ def new_event(request: Request, db: Session = Depends(get_db)):
     ctx = {
         "settings": get_settings(), "user": user, "event": None,
         "blocks": DEFAULT_BLOCKS, "recipients_text": "", "error": None,
+        "contacts": book.list_contacts(db, user.id),
     }
     return templates.TemplateResponse(request, "event_form.html", ctx)
 
@@ -154,6 +156,7 @@ async def create_event(
         ctx = {
             "settings": get_settings(), "user": user, "event": None, "blocks": blocks,
             "recipients_text": recipients, "error": str(e),
+            "contacts": book.list_contacts(db, user.id),
         }
         return templates.TemplateResponse(request, "event_form.html", ctx, status_code=400)
 
@@ -254,6 +257,7 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     ctx = {
         "settings": get_settings(), "user": user, "event": ev,
         "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text, "error": None,
+        "contacts": book.list_contacts(db, user.id),
     }
     return templates.TemplateResponse(request, "event_form.html", ctx)
 
@@ -296,6 +300,7 @@ async def update_event(
         ctx = {
             "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
             "recipients_text": recipients, "error": str(e),
+            "contacts": book.list_contacts(db, user.id),
         }
         return templates.TemplateResponse(request, "event_form.html", ctx, status_code=400)
 

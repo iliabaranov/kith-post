@@ -94,9 +94,25 @@
 
     <label class="field">
       <span class="field-label">Who's it for?</span>
-      <textarea name="recipients" rows="4" placeholder="one email per line, or  Name &lt;email&gt;">{{ recipients_text }}</textarea>
+      <textarea id="recipients" name="recipients" rows="4" placeholder="one email per line, or  Name &lt;email&gt;">{{ recipients_text }}</textarea>
       <span class="field-hint">Emails are encrypted. Separate with new lines or commas.</span>
     </label>
+
+    {% if contacts %}
+    <details class="faq import-book">
+      <summary>Import from your address book ({{ contacts|length }})</summary>
+      <div class="book-picker">
+        <label class="chk book-all"><input type="checkbox" id="bookAll"> Select all</label>
+        <div class="book-items">
+          {% for c in contacts %}
+          <label class="chk"><input type="checkbox" class="book-item" data-email="{{ c.email }}" data-name="{{ c.name or '' }}">
+            {{ c.name or c.email }}{% if c.name %} <span class="book-email">&lt;{{ c.email }}&gt;</span>{% endif %}</label>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn btn-quiet btn-sm" id="bookAdd">Add selected</button>
+      </div>
+    </details>
+    {% endif %}
 
     <input type="hidden" name="timezone" id="tzfield" value="{{ event.timezone if event and event.timezone else '' }}">
 
@@ -130,5 +146,33 @@
       if (!dateBox.checked && timeBox.checked) { timeBox.checked = false; timeBox.dispatchEvent(new Event("change")); }
     });
   }
+
+  // Address-book import: append picked contacts as "Name <email>" lines,
+  // skipping any address already in the recipients box.
+  var recips = document.getElementById("recipients");
+  var bookAll = document.getElementById("bookAll");
+  var bookAdd = document.getElementById("bookAdd");
+  if (bookAll) bookAll.addEventListener("change", function () {
+    document.querySelectorAll(".book-item").forEach(function (cb) { cb.checked = bookAll.checked; });
+  });
+  if (bookAdd && recips) bookAdd.addEventListener("click", function () {
+    var have = new Set(recips.value.split(/[\n,;]/).map(function (s) {
+      var m = s.match(/<([^>]+)>/); return (m ? m[1] : s).trim().toLowerCase();
+    }).filter(Boolean));
+    var added = [];
+    document.querySelectorAll(".book-item:checked").forEach(function (cb) {
+      var email = (cb.dataset.email || "").toLowerCase();
+      if (!email || have.has(email)) return;
+      have.add(email);
+      var name = cb.dataset.name || "";
+      added.push(name ? name + " <" + email + ">" : email);
+      cb.checked = false;
+    });
+    if (added.length) {
+      var cur = recips.value.replace(/\s+$/, "");
+      recips.value = (cur ? cur + "\n" : "") + added.join("\n") + "\n";
+    }
+    if (bookAll) bookAll.checked = false;
+  });
 </script>
 {% endblock %}

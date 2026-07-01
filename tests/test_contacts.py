@@ -160,3 +160,17 @@ def test_account_delete_wipes_contacts(client):
     client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
     client.post("/account/delete")
     assert _count("contacts") == 0
+
+
+def test_compose_form_shows_importer_when_book_has_people(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
+    f = client.get("/events/new").text
+    assert "Import from your address book" in f
+    assert 'data-email="ana@x.com"' in f
+    assert 'id="bookAdd"' in f
+
+
+def test_compose_form_hides_importer_when_book_empty(client):
+    client.post("/auth/dev-login")
+    assert "Import from your address book" not in client.get("/events/new").text
