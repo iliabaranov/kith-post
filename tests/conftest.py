@@ -14,6 +14,9 @@ os.environ.setdefault("KITH_FERNET_KEY", Fernet.generate_key().decode())
 # try real Gmail. Pin safe test defaults unless the caller overrides them.
 os.environ.setdefault("KITH_BASE_URL", "http://localhost:8000")
 os.environ.setdefault("KITH_SEND_MODE", "dry-run")
+# Don't run the background reminder sweep loop during tests (scheduling itself
+# stays enabled); tests drive sweep_tick directly with an injected clock.
+os.environ.setdefault("KITH_REMINDERS__SWEEP_SECONDS", "0")
 # Hermetic tests: never inherit a developer's real .env Google credentials.
 # os.environ takes precedence over the .env file, so "" forces the unconfigured
 # (dev-login) baseline; the configured-OAuth test monkeypatches these back.

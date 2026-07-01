@@ -11,6 +11,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -25,11 +26,26 @@ class SendMode(StrEnum):
     live = "live"            # normal sending
 
 
+class ReminderSettings(BaseModel):
+    """Automated-reminder defaults (§8). Per-event overrides live in Event.reminder_cfg.
+    Override via env, e.g. KITH_REMINDERS__ENABLED=false, KITH_REMINDERS__TARGET=not-clicked."""
+
+    enabled: bool = True
+    target: str = "no-rsvp"                       # "no-rsvp" | "not-clicked"
+    offsets: list[str] = ["halfway", "7d", "3d"]  # noqa: RUF012 — pydantic copies defaults
+    send_hour_local: int = 9                       # ~9am sender-local, not the exact instant
+    min_gap_hours: int = 24                        # merge reminders closer than this
+    max_per_recipient: int = 3
+    # background sweep interval in seconds (0 disables the loop)
+    sweep_seconds: int = 300
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="KITH_",
         env_file=".env",
         toml_file="config.toml",
+        env_nested_delimiter="__",
         extra="ignore",
     )
 
@@ -54,6 +70,8 @@ class Settings(BaseSettings):
     allowed_emails: str = ""
     # Shown to people who can't get in, so they know who to ask for access.
     contact_email: str = ""
+
+    reminders: ReminderSettings = ReminderSettings()
 
     @property
     def google_configured(self) -> bool:

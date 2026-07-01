@@ -57,6 +57,32 @@
     “Preview {{ noun }}” opens exactly what your people will see.
   </p>
 
+  {% if reminders.available %}
+  <div class="reminders">
+    <div class="reminders-head">
+      <span class="reminders-title">Automatic reminders</span>
+      <form method="post" action="/events/{{ event.id }}/reminders" class="inline-form">
+        {% if reminders.enabled %}
+        <button class="btn btn-quiet btn-sm" type="submit">Turn off</button>
+        {% else %}
+        <button class="btn btn-quiet btn-sm" type="submit" name="enabled" value="1">Turn on</button>
+        {% endif %}
+      </form>
+    </div>
+    <p class="reminders-body">
+      {% if reminders.enabled %}
+        Nudging people who haven’t replied.
+        {% if reminders.scheduled %}{{ reminders.scheduled }} scheduled{% if reminders.next_label %} · next {{ reminders.next_label }}{% endif %}.{% elif reminders.sent %}All caught up.{% else %}They’ll be scheduled once you send.{% endif %}
+        {% if reminders.sent %} {{ reminders.sent }} reminder{{ '' if reminders.sent == 1 else 's' }} sent so far.{% endif %}
+      {% else %}
+        Off — no automatic nudges for this {{ noun }}.
+      {% endif %}
+    </p>
+  </div>
+  {% elif event.blocks and event.blocks.rsvp %}
+  <p class="reassure">Reminders need an event date — add one to auto-nudge people who haven’t replied.</p>
+  {% endif %}
+
   {% if recipients %}
   <ul class="rsvp-list">
     {% for r in recipients %}

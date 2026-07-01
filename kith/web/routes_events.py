@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -15,7 +16,7 @@ from kith.core import calendar as cal
 from kith.core import images
 from kith.core import recipients as rcpt
 from kith.core.tracking import new_token
-from kith.db.models import Asset, Event, Recipient
+from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
 from kith.services import scheduler, send, storage
 from kith.web.deps import get_db, load_user, templates
@@ -275,6 +276,28 @@ async def create_event(
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
+def _reminders_ui(db: Session, ev: Event, settings) -> dict:
+    """Host-facing reminder summary for the event page."""
+    cfg = scheduler.resolved_cfg(settings, ev)
+    rows = db.execute(select(Reminder).where(Reminder.event_id == ev.id)).scalars().all()
+    pending = [r for r in rows if r.status == "pending"]
+    next_label = None
+    if pending:
+        next_at = min(scheduler._as_utc(r.scheduled_for) for r in pending)
+        try:
+            local = next_at.astimezone(ZoneInfo(ev.timezone)) if ev.timezone else next_at
+        except Exception:
+            local = next_at
+        next_label = local.strftime("%a, %b %d")
+    return {
+        "available": bool(ev.event_date) and bool((ev.blocks or {}).get("rsvp")),
+        "enabled": cfg.enabled,
+        "scheduled": len(pending),
+        "sent": sum(1 for r in rows if r.status == "sent"),
+        "next_label": next_label,
+    }
+
+
 @router.get("/events/{event_id}", response_class=HTMLResponse)
 def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
@@ -308,6 +331,7 @@ def event_detail(
         "sent": sent, "failed": failed,
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
+        "reminders": _reminders_ui(db, ev, settings),
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
 
@@ -328,6 +352,28 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
     return RedirectResponse(
         f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
     )
+
+
+@router.post("/events/{event_id}/reminders")
+def toggle_reminders(
+    event_id: str, request: Request, db: Session = Depends(get_db),
+    enabled: str | None = Form(None),
+):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    on = enabled is not None
+    ev.reminder_cfg = {**(ev.reminder_cfg or {}), "enabled": on}
+    db.commit()
+    settings = get_settings()
+    if on:
+        scheduler.schedule_event_reminders(db, ev, settings)  # (re)build for sent recipients
+    else:
+        scheduler.cancel_all_pending_for_event(db, ev.id, reason="disabled")
+    return RedirectResponse(f"/events/{ev.id}", status_code=303)
 
 
 @router.post("/events/{event_id}/delete")
