@@ -59,7 +59,7 @@ def from_event(ev, rsvp_url: str | None = None) -> CalEvent:  # noqa: ANN001 —
     message = ev.message if blocks.get("message") else None
     details = message
     if rsvp_url:
-        line = f"Need to change your answer? Visit {rsvp_url}"
+        line = f"Need to change your answer?\n{rsvp_url}"
         details = f"{message}\n\n{line}" if message else line
     return CalEvent(
         title=ev.title or "Invitation",
