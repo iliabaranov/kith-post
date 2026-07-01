@@ -80,19 +80,15 @@ body::before {
 }
 
 .reassure {
-  margin-top: 1.4rem;
+  margin-top: 1.3rem;
   font-size: .85rem;
   color: var(--ink-soft);
   letter-spacing: .02em;
 }
-/* invite-only heads-up under the sign-in button — a touch more present than the
-   quiet reassurance line, so a not-yet-added visitor sees it before Google's wall */
-.invite-note {
-  margin-top: .9rem;
-  max-width: 34rem;
-  font-size: .9rem;
-  color: var(--ink);
-}
+/* The two fine-print lines under the sign-in button share one quiet treatment
+   (inherited from .reassure) and sit tight as a single group. */
+.invite-note { margin-top: 1.3rem; }
+.invite-note + .reassure { margin-top: .3rem; }
 
 /* privacy/usage FAQ — a quiet native <details> disclosure */
 .faq { max-width: 34rem; margin: 1.4rem auto 0; text-align: left; }
