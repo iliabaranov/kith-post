@@ -50,6 +50,13 @@
     they arrive as a note from you, not a marketing blast.
   </p>
   <a class="btn btn-primary" href="/auth/login">Sign in with Google</a>
+  {% if settings.contact_email %}
+  <p class="reassure invite-note">
+    Invite-only for now. If you haven't been added, Google will block the sign-in —
+    email <a class="link" href="mailto:{{ settings.contact_email }}?subject={{ ('Access to ' ~ settings.app_name) | urlencode }}">{{ settings.contact_email }}</a>
+    first to get access.
+  </p>
+  {% endif %}
   <p class="reassure">No tracking pixels · no ads · we store almost nothing · open source</p>
 
   <details class="faq">

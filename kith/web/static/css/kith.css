@@ -85,6 +85,14 @@ body::before {
   color: var(--ink-soft);
   letter-spacing: .02em;
 }
+/* invite-only heads-up under the sign-in button — a touch more present than the
+   quiet reassurance line, so a not-yet-added visitor sees it before Google's wall */
+.invite-note {
+  margin-top: .9rem;
+  max-width: 34rem;
+  font-size: .9rem;
+  color: var(--ink);
+}
 
 /* privacy/usage FAQ — a quiet native <details> disclosure */
 .faq { max-width: 34rem; margin: 1.4rem auto 0; text-align: left; }
