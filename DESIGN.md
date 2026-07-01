@@ -592,6 +592,12 @@ Each gate is a working, committed, tested increment.
   delete cascade. *(Inserted before G4 at the user's request.)*
 - **G4 — Track & RSVP.** Invitation landing page (logs the "Opened"/`landing_view`
   signal), accept/decline w/ confirm, dashboard. Auto-purge sweep. *(No pixel.)*
+  **✅ Done** — `/i/{token}` marks Opened on first visit; `POST /i/{token}/rsvp`
+  persists coming/declined + party size (server-clamped to `headcount_max`),
+  progressive-enhancement form (works no-JS, PRG reload renders the stamp),
+  replies lock after the event date; the event page shows summary tallies +
+  a per-recipient status list. Latest-state only (no audit log). 112 tests.
+  *(Auto-purge sweep deferred to G5/G6.)*
 - **G5 — Automated reminders.** Reminder scheduler (§8): slot computation w/ edge
   cases, downtime-safe `pending` rows, target/cancel logic, reply-threaded sends
   reusing G3's queue, per-event config. Dashboard shows reminder status.
