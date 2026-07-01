@@ -5,6 +5,8 @@ G0 landing + dev loop · G1 Google sign-in + encrypted accounts · G2 compose a 
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
@@ -19,7 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from kith.config import get_settings
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth, storage
+from kith.services import google_auth, scheduler, storage
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
 from kith.web.routes_contacts import router as contacts_router
@@ -38,9 +40,20 @@ async def lifespan(app: FastAPI):
     init_db(engine)
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
+    # Reminder sweep: an in-process background task. Guarded on reminder config so
+    # it stays inert until that config is wired (and off when disabled).
+    app.state.sweep_task = None
+    rcfg = getattr(settings, "reminders", None)
+    if rcfg is not None and getattr(rcfg, "enabled", False):
+        interval = getattr(rcfg, "sweep_seconds", 300)
+        app.state.sweep_task = asyncio.create_task(scheduler.sweep_loop(app, settings, interval))
     try:
         yield
     finally:
+        if app.state.sweep_task is not None:
+            app.state.sweep_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await app.state.sweep_task
         engine.dispose()
 
 

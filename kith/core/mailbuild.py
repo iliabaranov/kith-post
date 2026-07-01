@@ -22,9 +22,15 @@ def subject_for(title: str, rsvp: bool) -> str:
 
 def invite_html(
     *, title: str, message: str, host_name: str,
-    view_url: str, has_image: bool, rsvp: bool,
+    view_url: str, has_image: bool, rsvp: bool, note: str | None = None,
 ) -> str:
     cta = "View invitation &amp; RSVP" if rsvp else "View your card"
+    sans = "font-family:Helvetica,Arial,sans-serif;"
+    note_html = (
+        f'<p style="margin:0 0 20px;padding:12px 16px;background:#FBEFD6;border-radius:10px;'
+        f'font-size:15px;color:#6B3A57;{sans}">{escape(note)}</p>'
+        if note else ""
+    )
     img = (
         f'<img src="cid:{IMAGE_CID}" alt="" width="520" '
         'style="display:block;width:100%;max-width:520px;height:auto;border-radius:12px;'
@@ -36,12 +42,12 @@ def invite_html(
         f"{escape(message).replace(chr(10), '<br>')}</p>"
         if message else ""
     )
-    sans = "font-family:Helvetica,Arial,sans-serif;"
     title_html = escape(title or "You're invited")
     return f"""\
 <!doctype html><html><body style="margin:0;background:#F4ECDD;">
 <div style="max-width:560px;margin:0 auto;padding:28px 20px;
   font-family:Georgia,'Times New Roman',serif;">
+  {note_html}
   {img}
   <h1 style="margin:0 0 12px;font-size:28px;line-height:1.15;color:#3B2A33;">{title_html}</h1>
   {msg_html}
@@ -58,9 +64,11 @@ def invite_html(
 
 def invite_text(
     *, title: str, message: str, host_name: str,
-    view_url: str, rsvp: bool,
+    view_url: str, rsvp: bool, note: str | None = None,
 ) -> str:
     lines = [title or "You're invited"]
+    if note:
+        lines += ["", note]
     if message:
         lines += ["", message]
     lines += [
@@ -76,11 +84,15 @@ def build_email(
     *, subject: str, from_name: str, from_email: str, to_email: str,
     to_name: str | None = None, html: str, text: str,
     image_bytes: bytes | None = None, image_subtype: str = "jpeg",
+    in_reply_to: str | None = None, references: str | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
     msg["To"] = formataddr((to_name, to_email)) if to_name else to_email
+    if in_reply_to:  # best-effort RFC822 threading; Gmail also threads via threadId
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = references or in_reply_to
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
     if image_bytes:
@@ -89,6 +101,49 @@ def build_email(
             image_bytes, maintype="image", subtype=image_subtype, cid=f"<{IMAGE_CID}>"
         )
     return msg
+
+
+def reminder_subject(original_subject: str) -> str:
+    """'Re: …' so the nudge reads as a follow-up on the original thread."""
+    s = (original_subject or "").strip() or "Your invitation"
+    return s if s.lower().startswith("re:") else f"Re: {s}"
+
+
+def reminder_html(*, title: str, host_name: str, view_url: str, rsvp: bool) -> str:
+    sans = "font-family:Helvetica,Arial,sans-serif;"
+    cta = "View invitation &amp; RSVP" if rsvp else "View your card"
+    lead = (
+        "Just a gentle nudge — we'd still love to know if you can make it."
+        if rsvp else "Just a gentle nudge, in case you missed this."
+    )
+    title_html = escape(title or "your invitation")
+    return f"""\
+<!doctype html><html><body style="margin:0;background:#F4ECDD;">
+<div style="max-width:560px;margin:0 auto;padding:28px 20px;{sans}">
+  <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#3B2A33;">
+    Hi — {escape(host_name)} here. {lead}</p>
+  <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#3B2A33;">
+    <strong>{title_html}</strong></p>
+  <a href="{escape(view_url)}" style="display:inline-block;background:#E2972B;color:#3B2A33;
+    text-decoration:none;font-weight:bold;padding:14px 24px;border-radius:12px;">{cta}</a>
+  <p style="margin:28px 0 0;font-size:12px;color:#6E5C63;">
+    <a href="{escape(view_url)}" style="color:#6B3A57;">{escape(view_url)}</a></p>
+</div></body></html>"""
+
+
+def reminder_text(*, title: str, host_name: str, view_url: str, rsvp: bool) -> str:
+    lead = (
+        "Just a gentle nudge — we'd still love to know if you can make it."
+        if rsvp else "Just a gentle nudge, in case you missed this."
+    )
+    lines = [
+        f"Hi — {host_name} here. {lead}",
+        "",
+        title or "your invitation",
+        "",
+        f"{'View it and RSVP' if rsvp else 'View your card'}: {view_url}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def to_raw(msg: EmailMessage) -> str:
