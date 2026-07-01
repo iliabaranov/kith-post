@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -127,4 +128,27 @@ class Recipient(Base):
     rsvp_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # reply-threading (G5)
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Reminder(Base):
+    """One scheduled nudge for a non-responding recipient (G5, §8). Persisted so the
+    sweep is downtime-safe: any pending row whose time has passed fires on the next
+    tick. FKs cascade, so deleting a recipient/event cleans up its reminders."""
+
+    __tablename__ = "reminders"
+    __table_args__ = (Index("ix_reminders_due", "status", "scheduled_for"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    event_id: Mapped[str] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    recipient_id: Mapped[str] = mapped_column(
+        ForeignKey("recipients.id", ondelete="CASCADE"), index=True
+    )
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # UTC
+    offset_label: Mapped[str] = mapped_column(String)  # "halfway" | "7d" | "3d" | "manual"
+    status: Mapped[str] = mapped_column(String, default="pending")  # pending|sent|skipped|canceled
+    skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)  # past|engaged|capped
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

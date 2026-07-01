@@ -95,6 +95,11 @@ def _to_utc(dt: datetime, tz: str | None) -> datetime | None:
         return None
 
 
+def to_utc(dt: datetime, tz: str | None) -> datetime | None:
+    """Public: naive local datetime + IANA tz → aware UTC (None if tz missing/invalid)."""
+    return _to_utc(dt, tz)
+
+
 def build_google_url(ev: CalEvent) -> str | None:
     if ev.date is None:
         return None
