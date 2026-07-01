@@ -19,7 +19,7 @@
 
   {% if sent or failed %}
   <p class="sent-note">
-    {% if sent %}✓ Sent {{ sent }} invitation{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}
+    {% if sent %}✓ Sent {{ sent }} {{ noun }}{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}
     {% if failed %} {{ failed }} couldn't be sent{% if send_mode != 'dry-run' and not user.refresh_token %} — sign in with Google first.{% else %} — check the server logs.{% endif %}{% endif %}
   </p>
   {% endif %}
@@ -41,7 +41,7 @@
   {% endif %}
 
   <div class="detail-actions">
-    <a class="btn btn-primary" href="/events/{{ event.id }}/preview" target="_blank" rel="noopener">Preview invitation</a>
+    <a class="btn btn-primary" href="/events/{{ event.id }}/preview" target="_blank" rel="noopener">Preview {{ noun }}</a>
     <a class="btn btn-quiet" href="/events/{{ event.id }}/edit">Edit</a>
     {% if queued_count and queued_count > 0 %}
       <form method="post" action="/events/{{ event.id }}/send" class="inline-form"
@@ -54,7 +54,7 @@
   </div>
 
   <p class="reassure">
-    “Preview invitation” opens exactly what your people will see.
+    “Preview {{ noun }}” opens exactly what your people will see.
   </p>
 
   {% if recipients %}

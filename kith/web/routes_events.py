@@ -134,8 +134,16 @@ _SEND_UI = {
     "self-only": ("Send a test to yourself", "Sends only to your own inbox, for testing.",
                   "Send {n} test email(s) to your own inbox?"),
     "live": ("Send to {n} now", "Sends from your Gmail to everyone still queued.",
-             "Send {n} real invitation(s) from your Gmail now?"),
+             "Send {n} real {noun}(s) from your Gmail now?"),
 }
+
+
+def _event_noun(ev) -> str:  # noqa: ANN001 — a DB Event
+    """Host-facing noun. Something that asks for a reply or is pinned to a date is
+    an 'invitation'; a plain image/title/message greeting is a 'card'."""
+    blocks = ev.blocks or {}
+    is_invite = bool(blocks.get("rsvp") or (blocks.get("date") and ev.event_date))
+    return "invitation" if is_invite else "card"
 
 
 def _replace_recipients(db: Session, event_id: str, text: str) -> tuple[int, list[str]]:
@@ -244,6 +252,7 @@ def event_detail(
     ).scalars().all()
     queued = sum(1 for r in rows if r.status == "queued")
     label, hint, confirm = _SEND_UI.get(settings.send_mode.value, _SEND_UI["dry-run"])
+    noun = _event_noun(ev)
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
     if ask_contacts:
@@ -255,7 +264,7 @@ def event_detail(
         "recipient_count": len(rows), "queued_count": queued,
         "send_mode": settings.send_mode.value,
         "send_label": label.format(n=queued), "send_hint": hint,
-        "send_confirm": confirm.format(n=queued),
+        "send_confirm": confirm.format(n=queued, noun=noun), "noun": noun,
         "sent": sent, "failed": failed,
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
