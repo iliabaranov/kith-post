@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Address book — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="form-wrap">
+  <p class="detail-eyebrow"><a class="link" href="/">← your cards</a></p>
+  <h2 class="form-title">Address book</h2>
+  <p class="field-hint">People here can be imported into any card, then edited per invite without changing this list.</p>
+
+  {% if added or skipped %}
+  <p class="sent-note">
+    {% if added %}Added {{ added }}{% if skipped %}, {% endif %}{% endif %}{% if skipped %}skipped {{ skipped }} already in your book{% endif %}.
+  </p>
+  {% endif %}
+
+  <form class="add-contact" method="post" action="/contacts/add">
+    <input type="text" name="name" placeholder="Name (optional)" aria-label="Name">
+    <input type="email" name="email" placeholder="email@example.com" required aria-label="Email">
+    <button class="btn btn-primary" type="submit">Add</button>
+  </form>
+
+  <details class="faq bulk-import">
+    <summary>Import several at once</summary>
+    <form method="post" action="/contacts/import">
+      <textarea name="people" rows="4" placeholder="one per line, or  Name &lt;email&gt;,  or comma-separated"></textarea>
+      <button class="btn btn-quiet" type="submit">Import list</button>
+    </form>
+  </details>
+
+  {% if contacts %}
+  <ul class="contact-list">
+    {% for c in contacts %}
+    <li class="contact-row">
+      <form class="contact-form" method="post" action="/contacts/{{ c.id }}/edit">
+        <input class="contact-name" type="text" name="name" value="{{ c.name or '' }}" placeholder="Name" aria-label="Name">
+        <input class="contact-email" type="email" name="email" value="{{ c.email }}" required aria-label="Email">
+        <button class="btn btn-quiet btn-sm" type="submit">Save</button>
+      </form>
+      <form method="post" action="/contacts/{{ c.id }}/delete"
+            onsubmit="return confirm('Remove {{ (c.name or c.email)|e }} from your address book?')">
+        <button class="row-del" type="submit" title="Remove" aria-label="Remove {{ c.name or c.email }}">✕</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="reassure"><a class="link" href="/contacts/export">Export as CSV</a> · {{ contacts|length }} in your book</p>
+  {% else %}
+  <p class="empty">No contacts yet. Add someone above, or they'll offer to be saved when you send a card.</p>
+  {% endif %}
+</section>
+{% endblock %}

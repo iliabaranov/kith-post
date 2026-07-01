@@ -205,6 +205,25 @@ code {
   border-radius: 6px; padding: .08rem .42rem;
 }
 
+/* ---- address book ---- */
+.add-contact { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1.1rem 0 .8rem; }
+.add-contact input[type="text"] { flex: 1 1 9rem; }
+.add-contact input[type="email"] { flex: 2 1 13rem; }
+.bulk-import { margin: 0 0 1.2rem; }
+.bulk-import summary { color: var(--plum); }
+.bulk-import textarea { width: 100%; margin: .6rem 0; }
+.contact-list { list-style: none; padding: 0; margin: 1.2rem 0 .6rem; display: flex; flex-direction: column; gap: .5rem; }
+.contact-row { display: flex; align-items: center; gap: .5rem; }
+.contact-form {
+  flex: 1 1 auto; display: flex; gap: .5rem; align-items: center;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .45rem .55rem;
+}
+.contact-name { flex: 1 1 7rem; min-width: 0; }
+.contact-email { flex: 2 1 11rem; min-width: 0; }
+.btn-sm { padding: .4rem .8rem; font-size: .85rem; border-radius: 9px; }
+.contact-row .row-del { margin-right: 0; opacity: .7; }
+.contact-row:hover .row-del { opacity: 1; }
+
 /* ---- compose form ---- */
 .form-wrap { max-width: 42rem; margin: 0 auto; }
 .form-title {

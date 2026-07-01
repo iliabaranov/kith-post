@@ -1,12 +1,21 @@
 """Address-book service: encrypted-at-rest with blind-index dedup/lookup."""
 
+import sqlite3
+
 from sqlalchemy import text
 
+from kith.config import get_settings
 from kith.core.crypto import default_cipher
 from kith.core.recipients import Parsed
 from kith.db.models import User
 from kith.db.session import init_db, make_engine, make_session_factory
 from kith.services import contacts
+
+
+def _count(table: str) -> int:
+    return sqlite3.connect(get_settings().db_path).execute(
+        f"SELECT COUNT(*) FROM {table}"
+    ).fetchone()[0]
 
 
 def _session(tmp_path):
@@ -95,3 +104,59 @@ def test_new_among_returns_only_unknown_people(tmp_path):
     ]
     fresh = contacts.new_among(db, u.id, parsed)
     assert [p.email for p in fresh] == ["new1@x.com"]  # known dropped, dup collapsed
+
+
+# ---- web routes (dev-login session) ----
+
+def test_contacts_page_requires_login(client):
+    assert client.get("/contacts", follow_redirects=False).status_code == 303
+
+
+def test_add_and_list_via_page(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
+    page = client.get("/contacts").text
+    assert "ana@x.com" in page and "Ana" in page
+    assert _count("contacts") == 1
+
+
+def test_import_bulk_dedups(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/contacts/import",
+        data={"people": "ana@x.com\nBen <ben@x.com>\nana@x.com"},
+        follow_redirects=True,
+    )
+    assert _count("contacts") == 2
+
+
+def test_delete_via_page(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "", "email": "gone@x.com"}, follow_redirects=True)
+    cid = sqlite3.connect(get_settings().db_path).execute(
+        "SELECT id FROM contacts LIMIT 1"
+    ).fetchone()[0]
+    client.post(f"/contacts/{cid}/delete", follow_redirects=True)
+    assert _count("contacts") == 0
+
+
+def test_export_csv(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
+    r = client.get("/contacts/export")
+    assert r.status_code == 200 and "text/csv" in r.headers["content-type"]
+    assert "name,email" in r.text and "ana@x.com" in r.text
+
+
+def test_account_export_includes_contacts(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
+    data = client.get("/account/export").json()
+    assert any(c["email"] == "ana@x.com" for c in data["contacts"])
+
+
+def test_account_delete_wipes_contacts(client):
+    client.post("/auth/dev-login")
+    client.post("/contacts/add", data={"name": "Ana", "email": "ana@x.com"}, follow_redirects=True)
+    client.post("/account/delete")
+    assert _count("contacts") == 0
