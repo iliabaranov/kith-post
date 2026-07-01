@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Access needed — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">invite-only</p>
+  <h1 class="hero-title">You're not on<br>the guest list yet.</h1>
+  <p class="hero-sub">
+    {{ settings.app_name }} is private, so sign-in is limited to people who've been
+    added{% if attempted_email %} — and <strong>{{ attempted_email }}</strong> isn't on it yet{% endif %}.
+  </p>
+  {% if settings.contact_email %}
+  <a class="btn btn-primary"
+     href="mailto:{{ settings.contact_email }}?subject={{ ('Access to ' ~ settings.app_name) | urlencode }}{% if attempted_email %}&body={{ ('Please add ' ~ attempted_email ~ '.') | urlencode }}{% endif %}">Email for access</a>
+  <p class="reassure">Ask <a class="link" href="mailto:{{ settings.contact_email }}">{{ settings.contact_email }}</a> to add you, then sign in again.</p>
+  {% else %}
+  <p class="reassure">Ask the person who invited you to add your Google address, then try again.</p>
+  {% endif %}
+  <p class="reassure"><a class="link" href="/auth/login">Try a different Google account</a></p>
+</section>
+{% endblock %}

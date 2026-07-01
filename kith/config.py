@@ -47,9 +47,31 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # Access control. When ``allowed_emails`` is non-empty, only those addresses
+    # may sign in; everyone else gets the "request access" page. Comma/space
+    # separated. Empty = rely on Google's OAuth test-user list (the default).
+    # If you enable it, include your OWN Google address or you'll lock yourself out.
+    allowed_emails: str = ""
+    # Shown to people who can't get in, so they know who to ask for access.
+    contact_email: str = ""
+
     @property
     def google_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def allowed_email_set(self) -> frozenset[str]:
+        return frozenset(
+            e.strip().lower()
+            for e in self.allowed_emails.replace(",", " ").split()
+            if e.strip()
+        )
+
+    def email_allowed(self, email: str) -> bool:
+        """True if this email may sign in. An empty allowlist permits anyone who
+        made it through Google (i.e. Google's test-user list is the gate)."""
+        allow = self.allowed_email_set
+        return not allow or (email or "").strip().lower() in allow
 
     @property
     def https_only(self) -> bool:

@@ -114,8 +114,28 @@ def create_app() -> FastAPI:
             return RedirectResponse(url)
         return templates.TemplateResponse(request, "login_dev.html", {"settings": settings})
 
+    def _no_access(request: Request, email: str = "") -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "no_access.html",
+            {"settings": settings, "attempted_email": email},
+            status_code=403,
+        )
+
     @app.get("/auth/callback")
-    def callback(request: Request, db: Session = Depends(get_db), code: str = "", state: str = ""):
+    def callback(
+        request: Request,
+        db: Session = Depends(get_db),
+        code: str = "",
+        state: str = "",
+        error: str = "",
+    ):
+        # Google refused or the user cancelled (e.g. ?error=access_denied). In an
+        # invite-only app that usually means "not on the list" — point them at the
+        # host rather than dumping them back on the homepage.
+        if error:
+            log.info("OAuth callback returned error=%s", error)
+            return _no_access(request)
         expected = request.session.pop("oauth_state", None)
         verifier = request.session.pop("oauth_verifier", None)
         if not code or (expected and state != expected):
@@ -125,6 +145,11 @@ def create_app() -> FastAPI:
         except Exception:
             log.exception("OAuth token exchange failed")
             return RedirectResponse("/?error=auth", status_code=303)
+        # App-level whitelist, in addition to Google's test-user list. Matters when
+        # the app is "in production (unverified)", where anyone can authenticate.
+        if not settings.email_allowed(identity.email):
+            log.info("Sign-in blocked: address not on the allowlist")
+            return _no_access(request, identity.email)
         user = upsert_user(db, identity)
         request.session["user_id"] = user.id
         return RedirectResponse("/", status_code=303)
