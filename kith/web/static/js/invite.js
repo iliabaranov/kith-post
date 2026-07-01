@@ -9,6 +9,18 @@
   const frozen = params.get("stage") === "envelope";
   if (frozen) document.documentElement.classList.add("frozen");
 
+  // The envelope intro plays only the first time a real invite is opened on this
+  // device. Later loads — notably the PRG reload after an RSVP POST, and the
+  // ?edit=1 "change response" view — skip straight to the card. Scoped to /i/…
+  // so preview (which never reloads) keeps animating each time.
+  if (!frozen && location.pathname.indexOf("/i/") === 0) {
+    const seenKey = "kith:opened:" + location.pathname;
+    let seen = false;
+    try { seen = localStorage.getItem(seenKey) === "1"; } catch (e) {}
+    if (seen) document.documentElement.classList.add("seen");
+    else { try { localStorage.setItem(seenKey, "1"); } catch (e) {} }
+  }
+
   const envelope = document.querySelector(".envelope");
   if (envelope && !frozen) {
     envelope.addEventListener("animationend", () => envelope.remove());

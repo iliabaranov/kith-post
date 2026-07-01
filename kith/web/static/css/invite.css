@@ -140,6 +140,10 @@ html.js .card{opacity:0;}
 }
 html.frozen .envelope{animation:none; opacity:1;}
 html.frozen .card{animation:none; opacity:0;}
+/* Already opened once on this device: skip the intro, show the card straight away
+   (e.g. the PRG reload after an RSVP, or the ?edit=1 "change response" view). */
+html.seen .envelope{display:none;}
+html.seen .card{animation:none; opacity:1;}
 @keyframes envInOut{0%{opacity:0;} 50%{opacity:1;} 100%{opacity:0;}}
 @keyframes cardFade{0%,50%{opacity:0;} 100%{opacity:1;}}
 
