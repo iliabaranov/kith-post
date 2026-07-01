@@ -7,6 +7,7 @@ only the latest state on the Recipient row (status + party_size + timestamps).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -17,8 +18,10 @@ from sqlalchemy.orm import Session
 from kith.config import get_settings
 from kith.core import calendar as cal
 from kith.db.models import Asset, Event, Recipient, User
+from kith.services import scheduler
 from kith.web.deps import get_db, templates
 
+log = logging.getLogger("kith")
 router = APIRouter()
 
 
@@ -95,6 +98,12 @@ def submit_rsvp(
     if r.first_open_at is None:
         r.first_open_at = r.rsvp_at
     db.commit()
+    # They responded — stop any future nudges. Never let a scheduler hiccup break
+    # the recipient's page.
+    try:
+        scheduler.cancel_pending_reminders(db, r.id)
+    except Exception:
+        log.exception("failed to cancel reminders after RSVP (recipient %s)", r.id)
     return RedirectResponse(f"/i/{token}", status_code=303)
 
 

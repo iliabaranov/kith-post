@@ -17,7 +17,7 @@ from kith.core import recipients as rcpt
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient
 from kith.services import contacts as book
-from kith.services import send, storage
+from kith.services import scheduler, send, storage
 from kith.web.deps import get_db, load_user, templates
 
 router = APIRouter()
@@ -324,6 +324,7 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
     if settings.send_mode != SendMode.dry_run and not user.refresh_token:
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
     result = send.send_event(db, ev, user, settings)
+    scheduler.schedule_event_reminders(db, ev, settings)  # nudge non-responders (G5)
     return RedirectResponse(
         f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
     )

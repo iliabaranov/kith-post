@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
@@ -134,6 +134,71 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
         return SweepResult(considered=len(due), sent=sent, skipped=skipped)
     finally:
         db.close()
+
+
+def schedule_recipient_reminders(
+    db: Session, event: Event, recipient: Recipient, cfg: rem.ReminderConfig,
+    *, now: datetime | None = None,
+) -> int:
+    """Rebuild the pending reminders for one recipient (idempotent: drops existing
+    pending first). No-op unless reminders are enabled, the event is dated with an
+    RSVP block, the recipient has been sent, and they still need a nudge."""
+    db.execute(
+        delete(Reminder).where(
+            Reminder.recipient_id == recipient.id, Reminder.status == "pending"
+        )
+    )
+    ok = (
+        cfg.enabled
+        and event.event_date is not None
+        and bool((event.blocks or {}).get("rsvp"))
+        and recipient.sent_at is not None
+        and rem.still_needs_nudge(recipient.status, recipient.first_open_at, cfg.target)
+    )
+    slots = []
+    if ok:
+        slots = rem.compute_slots(
+            sent_at=_as_utc(recipient.sent_at), event_date=event.event_date,
+            event_time=event.event_time, tz=event.timezone, cfg=cfg,
+            now=now or datetime.now(UTC),
+        )
+        for s in slots:
+            db.add(Reminder(
+                event_id=event.id, recipient_id=recipient.id,
+                scheduled_for=s.scheduled_for, offset_label=s.label, status="pending",
+            ))
+    db.commit()
+    return len(slots)
+
+
+def schedule_event_reminders(
+    db: Session, event: Event, settings: Settings, *, now: datetime | None = None
+) -> int:
+    """(Re)build reminders for every already-sent recipient of an event."""
+    cfg = resolved_cfg(settings, event)
+    sent_recipients = db.execute(
+        select(Recipient).where(Recipient.event_id == event.id, Recipient.status == "sent")
+    ).scalars().all()
+    return sum(schedule_recipient_reminders(db, event, r, cfg, now=now) for r in sent_recipients)
+
+
+def cancel_pending_reminders(db: Session, recipient_id: str, reason: str = "engaged") -> None:
+    """Stop future nudges for one recipient (they engaged)."""
+    db.execute(
+        update(Reminder)
+        .where(Reminder.recipient_id == recipient_id, Reminder.status == "pending")
+        .values(status="canceled", skip_reason=reason)
+    )
+    db.commit()
+
+
+def cancel_all_pending_for_event(db: Session, event_id: str, reason: str = "rescheduled") -> None:
+    db.execute(
+        update(Reminder)
+        .where(Reminder.event_id == event_id, Reminder.status == "pending")
+        .values(status="canceled", skip_reason=reason)
+    )
+    db.commit()
 
 
 async def sweep_loop(app, settings: Settings, interval_s: int) -> None:

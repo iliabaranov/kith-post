@@ -5,6 +5,8 @@ import base64
 import email
 from datetime import UTC, date, datetime
 
+from sqlalchemy import select
+
 from kith.config import SendMode, Settings
 from kith.core.tracking import new_token
 from kith.db.models import Event, Recipient, Reminder, User
@@ -165,3 +167,59 @@ def test_idempotent_across_ticks(tmp_path):
     s = _settings(tmp_path)
     assert scheduler.sweep_tick(f, s, now=NOW).sent == 1
     assert scheduler.sweep_tick(f, s, now=NOW).sent == 0  # already sent
+
+
+# --- P4: schedule creation + cancellation ---
+
+SCHED_NOW = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def _pending(db):
+    return db.execute(select(Reminder).where(Reminder.status == "pending")).scalars().all()
+
+
+def test_schedule_creates_pending_for_sent(tmp_path):
+    f = _factory(tmp_path)
+    db = f()
+    _, ev, r = _seed(db)
+    n = scheduler.schedule_event_reminders(db, ev, _settings(tmp_path), now=SCHED_NOW)
+    assert n >= 1
+    assert len(_pending(db)) == n
+
+
+def test_no_reminders_without_rsvp_block(tmp_path):
+    f = _factory(tmp_path)
+    db = f()
+    _, ev, r = _seed(db)
+    ev.blocks = {}
+    db.commit()
+    assert scheduler.schedule_event_reminders(db, ev, _settings(tmp_path), now=SCHED_NOW) == 0
+
+
+def test_no_reminders_without_date(tmp_path):
+    f = _factory(tmp_path)
+    db = f()
+    _, ev, r = _seed(db, event_date=None)
+    assert scheduler.schedule_event_reminders(db, ev, _settings(tmp_path), now=SCHED_NOW) == 0
+
+
+def test_reschedule_is_idempotent(tmp_path):
+    f = _factory(tmp_path)
+    db = f()
+    _, ev, r = _seed(db)
+    s = _settings(tmp_path)
+    n1 = scheduler.schedule_event_reminders(db, ev, s, now=SCHED_NOW)
+    n2 = scheduler.schedule_event_reminders(db, ev, s, now=SCHED_NOW)
+    assert n1 == n2
+    assert len(_pending(db)) == n2  # rebuilt, not duplicated
+
+
+def test_cancel_pending_reminders(tmp_path):
+    f = _factory(tmp_path)
+    db = f()
+    _, ev, r = _seed(db)
+    scheduler.schedule_event_reminders(db, ev, _settings(tmp_path), now=SCHED_NOW)
+    scheduler.cancel_pending_reminders(db, r.id)
+    assert _pending(db) == []
+    canceled = db.execute(select(Reminder).where(Reminder.status == "canceled")).scalars().all()
+    assert len(canceled) >= 1

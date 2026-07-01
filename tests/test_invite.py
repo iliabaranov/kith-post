@@ -35,6 +35,28 @@ def _make_event(client, **extra):
     return _token()
 
 
+def _reminder_counts():
+    rows = sqlite3.connect(get_settings().db_path).execute(
+        "SELECT status, COUNT(*) FROM reminders GROUP BY status"
+    ).fetchall()
+    return dict(rows)
+
+
+def test_rsvp_cancels_pending_reminders(client):
+    # A dated + RSVP event, sent (dry-run) → reminders scheduled; RSVP cancels them.
+    tok = _make_event(client, block_date="on", event_date="2030-01-01")
+    eid = sqlite3.connect(get_settings().db_path).execute(
+        "SELECT id FROM events LIMIT 1"
+    ).fetchone()[0]
+    client.post(f"/events/{eid}/send")
+    assert _reminder_counts().get("pending", 0) > 0
+
+    client.post(f"/i/{tok}/rsvp", data={"response": "coming", "party_size": "1"})
+    counts = _reminder_counts()
+    assert counts.get("pending", 0) == 0
+    assert counts.get("canceled", 0) > 0
+
+
 def test_invite_landing_renders(client):
     client.post("/auth/dev-login")
     client.post(
