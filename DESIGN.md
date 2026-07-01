@@ -601,6 +601,14 @@ Each gate is a working, committed, tested increment.
 - **G5 — Automated reminders.** Reminder scheduler (§8): slot computation w/ edge
   cases, downtime-safe `pending` rows, target/cancel logic, reply-threaded sends
   reusing G3's queue, per-event config. Dashboard shows reminder status.
+  **✅ Done** — pure `core/reminders.py` (halfway/7d/3d → 9am-local snap → past/
+  after-event skip → min-gap merge → cap), `Reminder` table, in-process
+  `services/scheduler.py` sweep (testable `sweep_tick` + lifespan loop), reply
+  threading via Gmail `threadId`, on-by-default for dated+RSVP events, target
+  `no-rsvp` (stop on reply), engage-cancel on RSVP, event-page card + per-event
+  toggle. Also **edit reconciliation** (edits no longer wipe RSVPs) and a
+  **details-changed → re-send & re-collect** flow (date/time/location change prompts
+  an opt-in re-send that clears prior RSVPs and reschedules). 148 tests.
 - **G6 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
   export/delete fully wired, **a subtle "buy me a coffee" donation link** (shown
   only in the signed-in app after the user's first event — never to guests; links
