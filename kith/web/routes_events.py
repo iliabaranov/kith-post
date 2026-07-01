@@ -362,6 +362,8 @@ def preview_event(event_id: str, request: Request, db: Session = Depends(get_db)
         "gcal_url": gcal_url,
         "ics_url": (f"/events/{ev.id}/calendar.ics" if gcal_url else None),
         "preview": True,
+        "token": None, "rsvp_status": None, "party_size": None,
+        "locked": False, "editing": False,
     }
     return templates.TemplateResponse(request, "invite.html", ctx)
 

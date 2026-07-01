@@ -29,8 +29,8 @@
             <div class="photo" id="photo" role="button" tabindex="0" aria-label="Enlarge card image">your card image</div>
           {% endif %}
           {% if blocks.rsvp %}
-          <div class="stamp coming" id="stampComing" aria-hidden="true">Coming!</div>
-          <div class="stamp declined" id="stampDeclined" aria-hidden="true">Can't make it</div>
+          <div class="stamp coming{% if rsvp_status == 'coming' and not editing %} show{% endif %}" id="stampComing" aria-hidden="true">Coming!</div>
+          <div class="stamp declined{% if rsvp_status == 'declined' and not editing %} show{% endif %}" id="stampDeclined" aria-hidden="true">Can't make it</div>
           {% endif %}
         </div>
 
@@ -57,35 +57,59 @@
         {% if sig %}<p class="signoff">— {{ sig }}</p>{% endif %}
 
         {% if blocks.rsvp %}
-        <div class="actions" id="actions">
-          <button class="btn btn-primary" id="yes">I'll be there</button>
-          <button class="btn btn-quiet" id="no">Can't make it</button>
-        </div>
-
-        {% if blocks.headcount %}
-        <div class="headcount" id="headcount" hidden data-max="{{ event.headcount_max or '' }}">
-          <p class="q">Lovely! How many of you are coming?{% if event.headcount_max %} <span class="hc-max">(up to {{ event.headcount_max }})</span>{% endif %}</p>
-          <div class="stepper" role="group" aria-label="Number of guests">
-            <button class="step" id="dec" type="button" aria-label="One fewer">&minus;</button>
-            <span class="count" id="count" aria-live="polite">1</span>
-            <button class="step" id="inc" type="button" aria-label="One more">+</button>
+        {% set responded = rsvp_status in ('coming', 'declined') %}
+        {% if locked %}
+        <p class="confirm locked">
+          {% if rsvp_status == 'coming' %}You're down as coming{% if party_size and party_size > 1 %} — {{ party_size }} of you{% endif %}.
+          {% elif rsvp_status == 'declined' %}You let them know you can't make it.
+          {% else %}This event has already passed.{% endif %}
+        </p>
+        {% else %}
+        <form class="rsvp-form" id="rsvpForm" method="post"
+              action="{{ ('/i/' ~ token ~ '/rsvp') if not preview else '' }}"
+              data-preview="{{ '1' if preview else '' }}">
+          <div class="actions" id="actions"{% if responded and not editing %} hidden{% endif %}>
+            <button class="btn btn-primary" type="submit" name="response" value="coming" id="yes">I'll be there</button>
+            <button class="btn btn-quiet" type="submit" name="response" value="declined" id="no">Can't make it</button>
           </div>
-          <div class="hc-row">
-            <button class="btn btn-primary" id="confirmYes">We'll be there</button>
-            <button class="linklike" id="backToChoices" type="button">back</button>
-          </div>
-        </div>
-        {% endif %}
 
-        <p class="confirm" id="confirm" role="status" aria-live="polite"></p>
+          {% if blocks.headcount %}
+          <div class="headcount" id="headcount" hidden data-max="{{ event.headcount_max or '' }}">
+            <p class="q">Lovely! How many of you are coming?{% if event.headcount_max %} <span class="hc-max">(up to {{ event.headcount_max }})</span>{% endif %}</p>
+            <div class="stepper" role="group" aria-label="Number of guests">
+              <button class="step" id="dec" type="button" aria-label="One fewer">&minus;</button>
+              <span class="count" id="count" aria-live="polite">1</span>
+              <button class="step" id="inc" type="button" aria-label="One more">+</button>
+            </div>
+            <input type="hidden" name="party_size" id="partySize" value="{{ party_size or 1 }}">
+            <div class="hc-row">
+              <button class="btn btn-primary" type="submit" name="response" value="coming" id="confirmYes">We'll be there</button>
+              <button class="linklike" id="backToChoices" type="button">back</button>
+            </div>
+          </div>
+          {% endif %}
+        </form>
+
+        <p class="confirm" id="confirm" role="status" aria-live="polite">
+          {%- if not editing -%}
+            {%- if rsvp_status == 'coming' -%}
+              {% if party_size and party_size > 1 %}Wonderful — all {{ party_size }} of you. See you there! 🎈{% else %}Wonderful — see you there! 🎈{% endif %}
+            {%- elif rsvp_status == 'declined' -%}Thanks for letting us know — you'll be missed.{%- endif -%}
+          {%- endif -%}
+        </p>
         {% if gcal_url %}
-        <div class="addcal" id="addcal" hidden>
+        <div class="addcal" id="addcal"{% if not (rsvp_status == 'coming' and not editing) %} hidden{% endif %}>
           <span class="addcal-label">Add to your calendar</span>
           <a class="btn btn-quiet" href="{{ gcal_url }}" target="_blank" rel="noopener">Google Calendar</a>
           <a class="btn btn-quiet" href="{{ ics_url }}">Apple / Outlook (.ics)</a>
         </div>
         {% endif %}
+        {% if preview %}
         <button class="btn btn-quiet change linklike" id="change" type="button" hidden>Change response</button>
+        {% elif responded and not editing %}
+        <a class="btn btn-quiet change linklike" id="change" href="/i/{{ token }}?edit=1">Change response</a>
+        {% endif %}
+        {% endif %}
         {% endif %}
       </article>
 

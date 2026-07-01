@@ -1,6 +1,8 @@
 // Kith Post invitation page: envelope intro, image lightbox, RSVP -> headcount ->
 // stamp, change response. Every block is optional, so guard for missing elements.
-// (In preview mode there's no persistence; recipient persistence lands in G4.)
+// Live mode persists via a real form POST (works with no JS; the reload renders
+// the stamp) — JS only adds the headcount stepper. Preview mode is a client-only
+// demo and saves nothing.
 (function () {
   document.documentElement.className = "js";
   const params = new URLSearchParams(location.search);
@@ -15,6 +17,8 @@
   // ---- RSVP (only present when the host enabled it) ----
   const yes = document.getElementById("yes");
   if (yes) {
+    const form = document.getElementById("rsvpForm");
+    const preview = !!(form && form.dataset.preview === "1");
     const no = document.getElementById("no");
     const actions = document.getElementById("actions");
     const headcount = document.getElementById("headcount"); // may be absent
@@ -23,63 +27,68 @@
     const countEl = document.getElementById("count");
     const confirmYes = document.getElementById("confirmYes");
     const back = document.getElementById("backToChoices");
+    const partySize = document.getElementById("partySize");
     const confirmEl = document.getElementById("confirm");
     const change = document.getElementById("change");
     const sComing = document.getElementById("stampComing");
     const sDeclined = document.getElementById("stampDeclined");
     const addcal = document.getElementById("addcal");
-    let count = 1;
+    let count = parseInt((partySize && partySize.value) || "1", 10) || 1;
     const maxGuests = (headcount && parseInt(headcount.dataset.max, 10)) || 30;
 
     const renderCount = () => {
       if (countEl) countEl.textContent = count;
+      if (partySize) partySize.value = count;
       if (dec) dec.disabled = count <= 1;
       if (inc) inc.disabled = count >= maxGuests;
     };
     const setPhase = (p) => {
-      actions.hidden = p !== "choose";
+      if (actions) actions.hidden = p !== "choose";
       if (headcount) headcount.hidden = p !== "headcount";
     };
-    const comingMsg = (n) =>
-      n > 1
-        ? "Wonderful — all " + n + " of you. See you there! 🎈"
-        : "Wonderful — see you there! 🎈";
-    const finalize = (coming) => {
-      setPhase("none");
-      if (sComing) sComing.classList.toggle("show", coming);
-      if (sDeclined) sDeclined.classList.toggle("show", !coming);
-      confirmEl.textContent = coming
-        ? comingMsg(count)
-        : "Thanks for letting us know — you'll be missed.";
-      change.hidden = false;
-      if (addcal) addcal.hidden = !coming;  // calendar links only after "Coming"
-    };
-    const reopen = () => {
-      setPhase("choose");
-      if (sComing) sComing.classList.remove("show");
-      if (sDeclined) sDeclined.classList.remove("show");
-      confirmEl.textContent = "No problem — just pick again.";
-      change.hidden = true;
-      if (addcal) addcal.hidden = true;
-      yes.focus();
-    };
 
-    yes.addEventListener("click", () => {
-      if (headcount) {
-        count = 1;
-        renderCount();
-        setPhase("headcount");
-        if (inc) inc.focus();
-      } else {
-        finalize(true);
-      }
-    });
-    no.addEventListener("click", () => finalize(false));
+    // stepper (shared by both modes)
     if (inc) inc.addEventListener("click", () => { count = Math.min(count + 1, maxGuests); renderCount(); });
     if (dec) dec.addEventListener("click", () => { count = Math.max(count - 1, 1); renderCount(); });
-    if (confirmYes) confirmYes.addEventListener("click", () => finalize(true));
     if (back) back.addEventListener("click", () => setPhase("choose"));
-    change.addEventListener("click", reopen);
+    // "I'll be there" reveals the stepper first (when a headcount is asked)
+    if (headcount) {
+      yes.addEventListener("click", (e) => {
+        e.preventDefault();
+        count = 1; renderCount(); setPhase("headcount");
+        if (inc) inc.focus();
+      });
+    }
+
+    if (preview) {
+      const comingMsg = (n) =>
+        n > 1 ? "Wonderful — all " + n + " of you. See you there! 🎈" : "Wonderful — see you there! 🎈";
+      const finalize = (coming) => {
+        setPhase("none");
+        if (sComing) sComing.classList.toggle("show", coming);
+        if (sDeclined) sDeclined.classList.toggle("show", !coming);
+        if (confirmEl) confirmEl.textContent = coming ? comingMsg(count) : "Thanks for letting us know — you'll be missed.";
+        if (change) change.hidden = false;
+        if (addcal) addcal.hidden = !coming;
+      };
+      const reopen = () => {
+        setPhase("choose");
+        if (sComing) sComing.classList.remove("show");
+        if (sDeclined) sDeclined.classList.remove("show");
+        if (confirmEl) confirmEl.textContent = "No problem — just pick again.";
+        if (change) change.hidden = true;
+        if (addcal) addcal.hidden = true;
+        yes.focus();
+      };
+      if (form) form.addEventListener("submit", (e) => e.preventDefault());
+      if (!headcount) yes.addEventListener("click", () => finalize(true));
+      no.addEventListener("click", () => finalize(false));
+      if (confirmYes) confirmYes.addEventListener("click", () => finalize(true));
+      if (change) change.addEventListener("click", reopen);
+    } else if (confirmYes) {
+      // live: keep party size current, then let the form submit (PRG reload)
+      confirmYes.addEventListener("click", () => { if (partySize) partySize.value = count; });
+    }
   }
 
   // ---- image lightbox ----
