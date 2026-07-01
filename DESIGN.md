@@ -483,20 +483,20 @@ home server
     ├── kith        (FastAPI app + async send-worker, one image — same as laptop)
     │     volume: ./data  → sqlite db + uploaded/derived images
     │     env:    OAuth creds, FERNET_KEY, SESSION_SECRET,
-    │             BASE_URL=https://<machine>.<tailnet>.ts.net,
+    │             BASE_URL=https://kithpo.st,
     │             KITH_SEND_MODE=live
-    └── (tailscale) — Funnel enabled, forwarding 443 → kith:8000
+    └── cloudflared — Cloudflare Tunnel, forwarding 443 → kith:8000
 ```
 
-- **Promotion = change env, not code.** Flip `BASE_URL` to the `ts.net` host and
+- **Promotion = change env, not code.** Flip `BASE_URL` to the custom domain and
   `KITH_SEND_MODE` to `live`; everything else is identical to what you tested.
-- **TLS / domain:** Tailscale Funnel publishes
-  `https://<machine>.<tailnet>.ts.net` with an auto-managed Let's Encrypt cert —
-  this is the "free SSL." Recipient links and OAuth callback use `BASE_URL`.
-  - *Consideration:* recipient-facing links live on a `*.ts.net` domain, which is
-    unfamiliar and *might* dent click trust slightly. v1 ships on `ts.net`; a
-    later option is fronting with a Cloudflare Tunnel for a custom domain if link
-    trust/deliverability warrants it. Logged as a risk, not a blocker.
+- **TLS / domain:** a Cloudflare Tunnel publishes `https://kithpo.st` with
+  Cloudflare-managed TLS — free auto-HTTPS, no open router ports, works behind
+  CGNAT. Recipient links and OAuth callback use `BASE_URL`. See
+  [`docs/deploy.md`](./docs/deploy.md) for the full walkthrough.
+  - *Consideration:* Cloudflare terminates TLS, so it can see decrypted traffic.
+    For a path where no third party sees plaintext, deploy.md §7 sketches a
+    VPS + Caddy + Tailscale alternative (~$5/mo, self-managed Let's Encrypt).
 - **Backups:** the SQLite file + `data/` volume; a nightly copy is sufficient for
   a hobby service.
 - **Config:** `config.toml` for non-secret tunables (send mode, purge windows,

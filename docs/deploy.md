@@ -8,6 +8,19 @@ sketched at the end.)
 Everything is one image; moving from laptop to server is a `.env` change, not a
 code change.
 
+## Pre-flight checklist
+
+Work top to bottom; each item maps to a section below.
+
+- [ ] `kithpo.st` is **Active** on Cloudflare (registrar nameservers switched) — §1
+- [ ] Home server has **Docker + Docker Compose** and can `git clone` the repo — §1
+- [ ] `.env` created from `.env.example` with real `KITH_SECRET_KEY` + `KITH_FERNET_KEY` (backed up) — §2
+- [ ] `KITH_BASE_URL=https://kithpo.st`, `KITH_SEND_MODE=self-only` to start — §2
+- [ ] Cloudflare tunnel created; token in `CLOUDFLARE_TUNNEL_TOKEN`; public hostname `kithpo.st → http://kith:8000` — §3
+- [ ] Google OAuth: `https://kithpo.st/auth/callback` added as redirect URI; `kithpo.st` an authorized domain — §4
+- [ ] `docker compose --profile public up -d --build`; sign in; self-only test send round-trips — §5
+- [ ] Flip `KITH_SEND_MODE=live` and re-up — §5
+
 ---
 
 ## 0. Why the public URL matters

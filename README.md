@@ -51,8 +51,9 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 - **Privacy first** — minimal data, PII encrypted at rest, one-click export &
   delete, heavy assets auto-purged. We use the `gmail.send` scope only and can
   never read your mailbox.
-- **Self-hosted & free** — one container on your own hardware, exposed via
-  Tailscale Funnel with automatic HTTPS. No paid dependencies, no monetization.
+- **Self-hosted & free** — one container on your own hardware, exposed via a
+  Cloudflare Tunnel with automatic HTTPS (no open router ports, works behind
+  CGNAT). No paid dependencies, no monetization. See [`docs/deploy.md`](./docs/deploy.md).
 - **Honest tracking, no pixel** — signals are Sent, Opened (= the recipient
   visited the invitation page), Accepted, and Declined. No hidden tracking pixel
   or beacons; "Opened" is an explicit page visit, never an inferred open.
@@ -60,7 +61,7 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 ## Stack
 
 Python 3.12 · FastAPI · SQLite · Jinja2 + HTMX + hand-written token CSS (light/warm) · Pillow ·
-Google API client · Docker · Tailscale Funnel. Tested with pytest.
+Google API client · Docker · Cloudflare Tunnel. Tested with pytest.
 
 ## License
 
