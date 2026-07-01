@@ -187,6 +187,57 @@ def test_dashboard_lists_events(client):
     assert "Birthday bash" in client.get("/").text
 
 
+def test_delete_event_removes_it_and_recipients(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Gone soon", "recipients": "a@example.com\nb@example.com"},
+        files=_png_file(),
+        follow_redirects=True,
+    )
+    eid = _event_id()
+    r = client.post(f"/events/{eid}/delete", follow_redirects=True)
+    assert r.status_code == 200
+    assert "Gone soon" not in r.text
+    db = _db()
+    assert db.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+    assert db.execute("SELECT COUNT(*) FROM recipients").fetchone()[0] == 0
+
+
+def test_delete_requires_login(client):
+    client.post("/auth/dev-login")
+    client.post("/events", data={"title": "Keep me", "recipients": ""}, follow_redirects=True)
+    eid = _event_id()
+    client.get("/auth/logout")
+    assert client.post(f"/events/{eid}/delete", follow_redirects=False).status_code == 303
+    client.post("/auth/dev-login")
+    assert _db().execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1  # still there
+
+
+def test_past_event_is_flagged(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Old party", "recipients": "",
+              "event_date": "2020-01-01", "block_date": "on"},
+        follow_redirects=True,
+    )
+    home = client.get("/").text
+    assert "event passed" in home and "is-past" in home
+
+
+def test_future_event_is_not_flagged(client):
+    client.post("/auth/dev-login")
+    client.post(
+        "/events",
+        data={"title": "Future fest", "recipients": "",
+              "event_date": "2099-12-31", "block_date": "on"},
+        follow_redirects=True,
+    )
+    home = client.get("/").text
+    assert "Future fest" in home and "event passed" not in home
+
+
 def test_bad_image_is_rejected_gracefully(client):
     client.post("/auth/dev-login")
     r = client.post(

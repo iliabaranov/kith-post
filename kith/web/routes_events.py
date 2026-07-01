@@ -222,6 +222,23 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
     )
 
 
+@router.post("/events/{event_id}/delete")
+def delete_event(event_id: str, request: Request, db: Session = Depends(get_db)):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    asset = db.get(Asset, ev.asset_id) if ev.asset_id else None
+    db.query(Recipient).filter(Recipient.event_id == ev.id).delete()
+    db.delete(ev)
+    db.commit()
+    if asset is not None:
+        storage.delete_asset(db, asset)
+    return RedirectResponse("/", status_code=303)
+
+
 @router.get("/events/{event_id}/edit", response_class=HTMLResponse)
 def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     user = load_user(request, db)

@@ -8,20 +8,28 @@
       <p class="eyebrow">your cards</p>
       <h2 class="dash-title">Hello, {{ user.display_name or "friend" }}.</h2>
     </div>
-    <a class="btn btn-primary" href="/events/new">Create an invitation</a>
+    <a class="btn btn-primary" href="/events/new">Create a card</a>
   </div>
 
   {% if events %}
   <ul class="event-list">
     {% for e in events %}
-    <li class="event-row">
+    {% set passed = e.event_date and e.event_date < today %}
+    <li class="event-row{% if passed %} is-past{% endif %}">
       <a class="event-link" href="/events/{{ e.id }}">
-        <span class="event-title">{{ e.title or "Untitled card" }}</span>
+        <span class="event-title">
+          {{ e.title or "Untitled card" }}
+          {% if passed %}<span class="event-flag">event passed</span>{% endif %}
+        </span>
         <span class="event-meta">
           {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% endif %}
           {% set n = counts.get(e.id, 0) %}{{ n }} recipient{{ '' if n == 1 else 's' }}
         </span>
       </a>
+      <form class="event-del" method="post" action="/events/{{ e.id }}/delete"
+            onsubmit="return confirm('Delete “{{ (e.title or 'this card')|e }}” and its recipients? This can’t be undone.')">
+        <button class="row-del" type="submit" title="Delete this card" aria-label="Delete {{ e.title or 'this card' }}">✕</button>
+      </form>
     </li>
     {% endfor %}
   </ul>

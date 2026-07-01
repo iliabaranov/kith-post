@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -96,7 +96,10 @@ def create_app() -> FastAPI:
                         .group_by(Recipient.event_id)
                     ).all()
                 )
-        ctx = {"settings": settings, "user": user, "events": events, "counts": counts}
+        ctx = {
+            "settings": settings, "user": user, "events": events,
+            "counts": counts, "today": date.today(),
+        }
         return templates.TemplateResponse(request, "index.html", ctx)
 
     # ---- auth ----

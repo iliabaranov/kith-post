@@ -45,3 +45,11 @@ def store_asset(db: Session, user_id: str, d: Derived) -> Asset:
 def delete_user_assets(user_id: str) -> None:
     """Remove a user's asset files from disk (DB rows cascade separately)."""
     shutil.rmtree(_assets_root() / user_id, ignore_errors=True)
+
+
+def delete_asset(db: Session, asset: Asset) -> None:
+    """Remove one asset's files + row — used when its event is deleted. Each
+    upload makes its own Asset, so an event's asset is never shared."""
+    shutil.rmtree(Path(asset.full_path).parent, ignore_errors=True)
+    db.delete(asset)
+    db.commit()
