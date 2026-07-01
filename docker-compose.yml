@@ -1,18 +1,45 @@
-# Local + home-server run. Promotion to the server = change env, not code:
-# set KITH_BASE_URL to the ts.net host and KITH_SEND_MODE=live.
+# Kith Post — one image, local and on the home server. Promotion to the server
+# is a config change, not a code change: put real values in .env (KITH_BASE_URL,
+# KITH_SEND_MODE, KITH_FERNET_KEY, Google creds, tunnel token), then run:
+#
+#   docker compose --profile public up -d --build
+#
+# Without .env the app falls back to safe defaults (localhost + dry-run), so a
+# bare `docker compose up` is fine for a quick local look.
 services:
   kith:
     build: .
+    # Bound to localhost only — the tunnel reaches the app over the compose
+    # network (kith:8000), so nothing is exposed to the LAN or the internet.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      KITH_BASE_URL: "http://localhost:8000"
-      KITH_SEND_MODE: "dry-run"
       KITH_DATA_DIR: "/data"
-    # Secrets (KITH_SECRET_KEY, Google creds from G1) go here once you have a .env:
-    # env_file:
-    #   - path: .env
-    #     required: false
     volumes:
       - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Public HTTPS via Cloudflare Tunnel — free auto-TLS, no open router ports,
+  # works behind CGNAT. Enable only when you want the app reachable publicly:
+  #   docker compose --profile public up -d
+  # Requires CLOUDFLARE_TUNNEL_TOKEN in .env (from the Zero Trust dashboard),
+  # and a public hostname there routing your domain -> http://kith:8000.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["public"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+    depends_on:
+      - kith
     restart: unless-stopped
