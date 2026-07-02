@@ -58,6 +58,31 @@ def test_compose_picker_carries_groups(client):
     assert 'data-groups="family"' in page
 
 
+def test_csv_import_with_groups(client):
+    client.post("/auth/dev-login")
+    csv_data = (
+        "name,email,groups\n"
+        'Alex,alex@example.com,"family, local"\n'   # quoted multi-group cell
+        "Sam,sam@example.com,work\n"
+    )
+    r = client.post("/contacts/import-csv",
+                    files={"file": ("contacts.csv", csv_data, "text/csv")},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    all_groups = set()
+    for (g,) in _db().execute("SELECT groups FROM contacts").fetchall():
+        all_groups |= set(json.loads(g or "[]"))
+    assert all_groups == {"family", "local", "work"}
+    assert _db().execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 2
+
+
+def test_csv_template_download(client):
+    r = client.get("/contacts/template.csv")
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert r.text.splitlines()[0] == "name,email,groups"
+
+
 def test_csv_export_includes_groups(client):
     client.post("/auth/dev-login")
     client.post("/contacts/add", data={"email": "a@example.com", "groups": "family, local"})

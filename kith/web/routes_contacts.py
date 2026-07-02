@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
@@ -55,6 +55,27 @@ def import_bulk(request: Request, db: Session = Depends(get_db), people: str = F
         return RedirectResponse("/", status_code=303)
     added, skipped, _invalid = book.import_text(db, user.id, people)
     return RedirectResponse(f"/contacts?added={added}&skipped={skipped}", status_code=303)
+
+
+@router.post("/contacts/import-csv")
+async def import_csv_route(
+    request: Request, db: Session = Depends(get_db), file: UploadFile = File(...)
+):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    text = (await file.read()).decode("utf-8-sig", errors="replace")  # strip BOM from Excel
+    added, skipped, _invalid = book.import_csv(db, user.id, text)
+    return RedirectResponse(f"/contacts?added={added}&skipped={skipped}", status_code=303)
+
+
+@router.get("/contacts/template.csv")
+def csv_template():
+    return Response(
+        book.CSV_TEMPLATE,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=kith-contacts-template.csv"},
+    )
 
 
 @router.post("/contacts/{contact_id}/edit")

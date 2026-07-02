@@ -27,6 +27,17 @@
     </form>
   </details>
 
+  <details class="faq bulk-import">
+    <summary>Import a CSV (name, email, groups)</summary>
+    <form method="post" action="/contacts/import-csv" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".csv,text/csv" required>
+      <button class="btn btn-quiet btn-sm" type="submit">Import CSV</button>
+    </form>
+    <p class="field-hint">Columns: <code>name, email, groups</code>. Groups are optional; put
+      multiple in quotes, e.g. <code>"family, local"</code>.
+      <a class="link" href="/contacts/template.csv">Download a template</a> to fill in.</p>
+  </details>
+
   {% if all_groups %}
   <div class="group-filter" id="groupFilter">
     <button type="button" class="group-chip active" data-group="">All</button>

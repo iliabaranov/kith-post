@@ -8,6 +8,8 @@ event edits never touch the book.
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -105,6 +107,42 @@ def import_text(db: Session, user_id: str, text: str) -> tuple[int, int, list[st
     for p in parsed:
         _, created = add_contact(db, user_id, p.email, p.name)
         if created:
+            added += 1
+        else:
+            skipped += 1
+    return added, skipped, invalid
+
+
+CSV_TEMPLATE = (
+    "name,email,groups\n"
+    'Alex Rivera,alex@example.com,"family, local"\n'
+    "Sam Chen,sam@example.com,work\n"
+    "Jordan Lee,jordan@example.com,\n"
+)
+
+
+def import_csv(db: Session, user_id: str, text: str) -> tuple[int, int, list[str]]:
+    """Bulk-add from a CSV with columns: name, email, groups. The groups cell may
+    hold several comma-separated tags (quote it in the file), and any extra trailing
+    columns are also treated as tags. Returns (added, skipped, invalid)."""
+    added = skipped = 0
+    invalid: list[str] = []
+    for i, row in enumerate(csv.reader(io.StringIO(text))):
+        cells = [c.strip() for c in row]
+        if not any(cells):
+            continue
+        # skip a header row
+        is_header = cells[0].lower() == "name" or (len(cells) > 1 and cells[1].lower() == "email")
+        if i == 0 and is_header:
+            continue
+        if len(cells) >= 2:
+            name, email, groups = cells[0], cells[1], parse_groups(",".join(cells[2:]))
+        else:
+            name, email, groups = "", cells[0], []
+        contact, created = add_contact(db, user_id, email, name or None, groups=groups)
+        if contact is None:
+            invalid.append(",".join(cells) or "(blank)")
+        elif created:
             added += 1
         else:
             skipped += 1
