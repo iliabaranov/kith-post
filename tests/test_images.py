@@ -4,6 +4,7 @@ import io
 import pytest
 from PIL import Image
 
+from kith.core import images
 from kith.core.images import ImageError, process
 
 
@@ -11,6 +12,14 @@ def _png(size=(40, 30), color="red", mode="RGB") -> bytes:
     b = io.BytesIO()
     Image.new(mode, size, color).save(b, "PNG")
     return b.getvalue()
+
+
+def test_rejects_decompression_bomb(monkeypatch):
+    # A modest image is rejected once its pixel count exceeds the cap — proving the
+    # pre-decode guard fires (without allocating a real gigapixel bomb).
+    monkeypatch.setattr(images, "MAX_PIXELS", 100)
+    with pytest.raises(ImageError):
+        process(_png((60, 40)))  # 2400 px > 100
 
 
 def _jpeg_with_orientation() -> bytes:

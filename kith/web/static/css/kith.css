@@ -138,6 +138,9 @@ body::before {
 
 /* inline text link + account page */
 .link { color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
+.link-btn { background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
+.link-btn:hover { color: var(--berry); }
 .link:hover { color: var(--berry); }
 code {
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;

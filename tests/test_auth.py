@@ -54,7 +54,7 @@ def test_dev_login_is_idempotent(client):
 
 def test_logout_returns_to_landing(client):
     client.post("/auth/dev-login")
-    client.get("/auth/logout")
+    client.post("/auth/logout")
     assert "Sign in with Google" in client.get("/").text
 
 

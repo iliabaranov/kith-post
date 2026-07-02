@@ -88,6 +88,23 @@ def create_app() -> FastAPI:
         same_site="lax",
         https_only=settings.https_only,
     )
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        resp = await call_next(request)
+        resp.headers.setdefault("X-Frame-Options", "DENY")  # clickjacking
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # only send the origin (not the /i/<token> path) to external links
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        resp.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        )
+        return resp
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
     app.include_router(events_router)
     app.include_router(invite_router)
@@ -189,7 +206,7 @@ def create_app() -> FastAPI:
         request.session["user_id"] = user.id
         return RedirectResponse("/", status_code=303)
 
-    @app.get("/auth/logout")
+    @app.post("/auth/logout")
     def logout(request: Request):
         request.session.clear()
         return RedirectResponse("/", status_code=303)

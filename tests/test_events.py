@@ -236,7 +236,7 @@ def test_delete_requires_login(client):
     client.post("/auth/dev-login")
     client.post("/events", data={"title": "Keep me", "recipients": ""}, follow_redirects=True)
     eid = _event_id()
-    client.get("/auth/logout")
+    client.post("/auth/logout")
     assert client.post(f"/events/{eid}/delete", follow_redirects=False).status_code == 303
     client.post("/auth/dev-login")
     assert _db().execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1  # still there
@@ -284,7 +284,7 @@ def test_asset_served_to_owner_only(client):
     )
     asset_id = _db().execute("SELECT id FROM assets LIMIT 1").fetchone()[0]
     assert client.get(f"/assets/{asset_id}").status_code == 200
-    client.get("/auth/logout")
+    client.post("/auth/logout")
     assert client.get(f"/assets/{asset_id}", follow_redirects=False).status_code == 303
 
 

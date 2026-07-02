@@ -16,6 +16,9 @@ from PIL import Image, ImageOps
 
 ALLOWED_INPUT_FORMATS = {"JPEG", "PNG", "WEBP", "GIF", "MPO"}
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_PIXELS = 40_000_000  # ~40 MP — reject decompression bombs before decoding
+# Backstop: Pillow raises DecompressionBombError past 2x this while decoding.
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 FULL_EDGE = 2000   # full-res long edge (landing page)
 INLINE_EDGE = 1100  # inline long edge (email CID)
 JPEG_QUALITY = 82
@@ -55,7 +58,15 @@ def process(data: bytes, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Derived:
         raise ImageError(f"That image is larger than {max_bytes // (1024 * 1024)} MB.")
     try:
         img = Image.open(io.BytesIO(data))
+        # Check declared dimensions from the header BEFORE decoding, so a small but
+        # highly-compressed "bomb" can't blow up memory in img.load().
+        if img.width * img.height > MAX_PIXELS:
+            raise ImageError("That image has too many megapixels — try a smaller one.")
         img.load()
+    except ImageError:
+        raise
+    except Image.DecompressionBombError as e:
+        raise ImageError("That image is too large to process.") from e
     except Exception as e:
         raise ImageError("That doesn't look like an image.") from e
     if (img.format or "").upper() not in ALLOWED_INPUT_FORMATS:
