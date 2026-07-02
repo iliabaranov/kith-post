@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -130,7 +131,9 @@ def invite_image(token: str, request: Request, db: Session = Depends(get_db)):
     asset = db.get(Asset, ev.asset_id) if ev and ev.asset_id else None
     if asset is None:
         return Response(status_code=404)
-    return FileResponse(asset.full_path, media_type=asset.mime)
+    # fall back to the inline copy if the full-res file was auto-purged
+    path = asset.full_path if Path(asset.full_path).exists() else asset.inline_path
+    return FileResponse(path, media_type=asset.mime)
 
 
 @router.get("/i/{token}/calendar.ics")

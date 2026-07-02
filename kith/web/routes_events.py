@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -598,4 +599,6 @@ def serve_asset(asset_id: str, request: Request, db: Session = Depends(get_db)):
     asset = db.get(Asset, asset_id)
     if user is None or asset is None or asset.user_id != user.id:
         return RedirectResponse("/", status_code=303)
-    return FileResponse(asset.full_path, media_type=asset.mime)
+    # fall back to the inline copy if the full-res file was auto-purged
+    path = asset.full_path if Path(asset.full_path).exists() else asset.inline_path
+    return FileResponse(path, media_type=asset.mime)

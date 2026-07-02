@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from kith.config import SendMode, Settings
 from kith.core import mailbuild
 from kith.core import reminders as rem
-from kith.db.models import Event, Recipient, Reminder, User
+from kith.db.models import Asset, Event, Recipient, Reminder, User
 
 log = logging.getLogger("kith")
 
@@ -109,15 +110,48 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
     return True
 
 
+def purge_expired_assets(db: Session, settings: Settings, *, now: datetime | None = None) -> int:
+    """Delete heavy full-res card images past their retention window (measured from
+    the event date, or creation for dateless/orphaned cards). Keeps the small inline
+    copy and the DB row (marked purged_at). Returns how many were purged."""
+    days = getattr(settings, "asset_retention_days", 0) or 0
+    if days <= 0:
+        return 0
+    now = now or datetime.now(UTC)
+    cutoff = (now - timedelta(days=days)).date()
+    purged = 0
+    for a in db.execute(select(Asset).where(Asset.purged_at.is_(None))).scalars().all():
+        ev = db.execute(select(Event).where(Event.asset_id == a.id)).scalars().first()
+        if ev is not None and ev.event_date is not None:
+            basis = ev.event_date
+        elif ev is not None and ev.created_at is not None:
+            basis = _as_utc(ev.created_at).date()
+        else:  # orphaned (event deleted) or missing timestamp
+            basis = _as_utc(a.created_at).date() if a.created_at is not None else cutoff
+        if basis >= cutoff:
+            continue
+        try:
+            p = Path(a.full_path)
+            if p.exists():
+                p.unlink()
+        except Exception:
+            log.exception("purge: could not remove %s", a.full_path)
+        a.purged_at = now
+        purged += 1
+    db.commit()
+    return purged
+
+
 @dataclass
 class SweepResult:
     considered: int
     sent: int
     skipped: int
+    purged: int = 0
 
 
 def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = None) -> SweepResult:
-    """Fire every pending reminder whose scheduled_for has passed. Own DB session."""
+    """Periodic maintenance: fire due reminders, then purge expired assets. Own session."""
     now = now or datetime.now(UTC)
     db: Session = session_factory()
     try:
@@ -131,7 +165,8 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
                 sent += 1
             else:
                 skipped += 1
-        return SweepResult(considered=len(due), sent=sent, skipped=skipped)
+        purged = purge_expired_assets(db, settings, now=now)
+        return SweepResult(considered=len(due), sent=sent, skipped=skipped, purged=purged)
     finally:
         db.close()
 

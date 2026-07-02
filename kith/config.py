@@ -73,6 +73,11 @@ class Settings(BaseSettings):
 
     reminders: ReminderSettings = ReminderSettings()
 
+    # Heavy full-res card images are deleted this many days after the event (or,
+    # for dateless/orphaned cards, after creation). The small inline copy is kept
+    # so the card still renders. 0 disables auto-purge.
+    asset_retention_days: int = 30
+
     @property
     def google_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)

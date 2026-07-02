@@ -44,8 +44,10 @@ async def lifespan(app: FastAPI):
     # it stays inert until that config is wired (and off when disabled).
     app.state.sweep_task = None
     rcfg = getattr(settings, "reminders", None)
+    # A single maintenance loop drives reminders AND asset purge, so it runs
+    # whenever the sweep interval is set (reminders may be off but purge still due).
     interval = getattr(rcfg, "sweep_seconds", 0) if rcfg is not None else 0
-    if rcfg is not None and rcfg.enabled and interval > 0:
+    if interval > 0:
         app.state.sweep_task = asyncio.create_task(scheduler.sweep_loop(app, settings, interval))
     try:
         yield
