@@ -282,15 +282,18 @@ code {
 .book-divider { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0 1.2rem; }
 
 .contact-list { list-style: none; padding: 0; margin: 1.1rem 0 .7rem; display: flex; flex-direction: column; gap: .55rem; }
-.contact-row { display: flex; align-items: center; gap: .5rem; }
-.contact-form {
-  flex: 1 1 auto; display: flex; gap: .45rem; align-items: center;
+/* each row is a full-width card that lines up edge-to-edge with the panel above;
+   the delete ✕ lives inside it, on the right */
+.contact-row {
+  display: flex; align-items: center; gap: .45rem;
   background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .45rem .55rem;
 }
+.contact-form { flex: 1 1 auto; min-width: 0; display: flex; gap: .45rem; align-items: center; }
 /* inputs sit flush inside the row card — a hairline appears on hover/focus so it
    still reads as editable, without the "boxes inside a box" look */
 .contact-form input {
-  background: transparent; border: 1px solid transparent; padding: .4rem .5rem; border-radius: 8px;
+  min-width: 0; background: transparent; border: 1px solid transparent;
+  padding: .4rem .5rem; border-radius: 8px;
 }
 .contact-form input:hover { border-color: var(--line); }
 .contact-form input:focus-visible { background: var(--paper); }
