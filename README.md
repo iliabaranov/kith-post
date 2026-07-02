@@ -1,5 +1,8 @@
 # Kith Post
 
+[![CI](https://github.com/iliabaranov/kith-post/actions/workflows/ci.yml/badge.svg)](https://github.com/iliabaranov/kith-post/actions/workflows/ci.yml)
+&nbsp;License: MIT &nbsp;·&nbsp; Python 3.12 · FastAPI · SQLite
+
 A free, self-hosted, privacy-first digital invitation service. Upload a card,
 pick your people, and send a personal invite **from your own Gmail** — with
 open / accept / decline tracking. A non-commercial alternative to Punchbowl and
