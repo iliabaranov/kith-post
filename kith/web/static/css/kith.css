@@ -228,22 +228,56 @@ code {
 }
 
 /* ---- address book ---- */
-.add-contact { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1.1rem 0 .8rem; }
-.add-contact input[type="text"] { flex: 1 1 9rem; }
-.add-contact input[type="email"] { flex: 2 1 13rem; }
-.bulk-import { margin: 0 0 1.2rem; }
-.bulk-import summary { color: var(--plum); }
-.bulk-import textarea { width: 100%; margin: .6rem 0; }
-.contact-list { list-style: none; padding: 0; margin: 1.2rem 0 .6rem; display: flex; flex-direction: column; gap: .5rem; }
+.book-panel {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1.2rem 1.25rem 1.3rem; margin: 1.3rem 0 1.5rem;
+}
+.panel-title {
+  margin: 0 0 .85rem; font-family: var(--display); font-size: 1.1rem; color: var(--ink);
+}
+.add-contact { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: 0; }
+.add-contact input { width: 100%; }
+.add-contact .btn { width: 100%; }
+
+/* labelled hairline divider between "add" and "import" */
+.or-divider {
+  display: flex; align-items: center; gap: .8rem; margin: 1.3rem 0 1.1rem;
+  color: var(--ink-soft); font-size: .74rem; text-transform: uppercase; letter-spacing: .1em;
+}
+.or-divider::before, .or-divider::after {
+  content: ""; flex: 1 1 auto; height: 1px; background: var(--line);
+}
+
+.import-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.3rem 1.6rem; }
+.import-col { display: flex; flex-direction: column; gap: .5rem; }
+.import-col form { display: flex; flex-direction: column; gap: .55rem; align-items: flex-start; }
+.import-title { margin: 0; font-weight: 600; font-size: .9rem; color: var(--ink); }
+.import-col textarea { width: 100%; margin: 0; min-height: 4.6rem; }
+.import-col input[type="file"] { width: 100%; }
+.import-col .field-hint { margin: 0; }
+@media (max-width: 34rem) {
+  .add-contact, .import-grid { grid-template-columns: 1fr; }
+}
+
+.book-divider { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0 1.2rem; }
+
+.contact-list { list-style: none; padding: 0; margin: 1.1rem 0 .7rem; display: flex; flex-direction: column; gap: .55rem; }
 .contact-row { display: flex; align-items: center; gap: .5rem; }
 .contact-form {
-  flex: 1 1 auto; display: flex; gap: .5rem; align-items: center;
+  flex: 1 1 auto; display: flex; gap: .45rem; align-items: center;
   background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .45rem .55rem;
 }
+/* inputs sit flush inside the row card — a hairline appears on hover/focus so it
+   still reads as editable, without the "boxes inside a box" look */
+.contact-form input {
+  background: transparent; border: 1px solid transparent; padding: .4rem .5rem; border-radius: 8px;
+}
+.contact-form input:hover { border-color: var(--line); }
+.contact-form input:focus-visible { background: var(--paper); }
 .contact-name { flex: 1 1 7rem; min-width: 0; }
 .contact-email { flex: 2 1 11rem; min-width: 0; }
 .btn-sm { padding: .4rem .8rem; font-size: .85rem; border-radius: 9px; }
-.contact-row .row-del { margin-right: 0; opacity: .7; }
+.contact-row .row-del { margin-right: 0; opacity: .55; }
 .contact-row:hover .row-del { opacity: 1; }
 
 /* compose: import-from-address-book picker */
@@ -360,7 +394,9 @@ code {
 .field-hint { color: var(--ink-soft); font-size: .82rem; }
 .field-row { display: flex; gap: 1rem; flex-wrap: wrap; }
 .field-row .field { flex: 1 1 12rem; }
-input[type="text"], input[type="date"], input[type="number"], input[type="file"], textarea {
+input[type="text"], input[type="email"], input[type="date"], input[type="time"],
+input[type="datetime-local"], input[type="number"], input[type="file"],
+input[type="search"], input[type="tel"], input[type="url"], textarea {
   font: inherit; color: var(--ink); background: var(--card);
   border: 1px solid var(--line); border-radius: 10px; padding: .6rem .7rem;
 }

@@ -11,31 +11,39 @@
   </p>
   {% endif %}
 
-  <form class="add-contact" method="post" action="/contacts/add">
-    <input type="text" name="name" placeholder="Name (optional)" aria-label="Name">
-    <input type="email" name="email" placeholder="email@example.com" required aria-label="Email">
-    <input type="text" name="groups" placeholder="groups (comma-separated)" aria-label="Groups">
-    <button class="btn btn-primary" type="submit">Add</button>
-  </form>
-
-  <details class="faq bulk-import">
-    <summary>Import several at once</summary>
-    <form method="post" action="/contacts/import">
-      <textarea name="people" rows="4" placeholder="One email per line, or comma-separated. Optionally: Name &lt;email&gt;"></textarea>
-      <button class="btn btn-quiet" type="submit">Import list</button>
+  <div class="book-panel">
+    <p class="panel-title">Add someone</p>
+    <form class="add-contact" method="post" action="/contacts/add">
+      <input type="text" name="name" placeholder="Name (optional)" aria-label="Name">
+      <input type="email" name="email" placeholder="email@example.com" required aria-label="Email">
+      <input type="text" name="groups" placeholder="groups (comma-separated)" aria-label="Groups">
+      <button class="btn btn-primary" type="submit">Add</button>
     </form>
-  </details>
 
-  <details class="faq bulk-import">
-    <summary>Import a CSV (name, email, groups)</summary>
-    <form method="post" action="/contacts/import-csv" enctype="multipart/form-data">
-      <input type="file" name="file" accept=".csv,text/csv" required>
-      <button class="btn btn-quiet btn-sm" type="submit">Import CSV</button>
-    </form>
-    <p class="field-hint">Columns: <code>name, email, groups</code>. Groups are optional; put
-      multiple in quotes, e.g. <code>"family, local"</code>.
-      <a class="link" href="/contacts/template.csv">Download a template</a> to fill in.</p>
-  </details>
+    <div class="or-divider">or import a batch</div>
+
+    <div class="import-grid">
+      <div class="import-col">
+        <p class="import-title">Paste a list</p>
+        <form method="post" action="/contacts/import">
+          <textarea name="people" rows="4" placeholder="One email per line, or comma-separated. Optionally: Name &lt;email&gt;"></textarea>
+          <button class="btn btn-quiet btn-sm" type="submit">Import list</button>
+        </form>
+      </div>
+      <div class="import-col">
+        <p class="import-title">Upload a CSV</p>
+        <form method="post" action="/contacts/import-csv" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".csv,text/csv" required>
+          <button class="btn btn-quiet btn-sm" type="submit">Import CSV</button>
+        </form>
+        <p class="field-hint">Columns: <code>name, email, groups</code> (groups optional;
+          quote multiples, e.g. <code>"family, local"</code>).
+          <a class="link" href="/contacts/template.csv">Download a template</a>.</p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="book-divider">
 
   {% if all_groups %}
   <div class="group-filter" id="groupFilter">
