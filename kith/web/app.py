@@ -14,6 +14,21 @@ from datetime import UTC, date, datetime
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
+
+class CachedStaticFiles(StaticFiles):
+    """StaticFiles that sets long-lived cache headers. URLs carrying a ``?v=``
+    cache-buster (our CSS/JS use ``?v=<mtime>``) are safe to cache forever;
+    everything else (e.g. the unversioned favicon) gets a modest one-hour TTL."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if resp.status_code == 200:
+            if b"v=" in scope.get("query_string", b""):
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                resp.headers["Cache-Control"] = "public, max-age=3600"
+        return resp
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -105,7 +120,7 @@ def create_app() -> FastAPI:
             "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
         )
         return resp
-    app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+    app.mount("/static", CachedStaticFiles(directory=str(WEB_DIR / "static")), name="static")
     app.include_router(events_router)
     app.include_router(invite_router)
     app.include_router(contacts_router)

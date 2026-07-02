@@ -632,4 +632,8 @@ def serve_asset(asset_id: str, request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     # fall back to the inline copy if the full-res file was auto-purged
     path = asset.full_path if Path(asset.full_path).exists() else asset.inline_path
-    return FileResponse(path, media_type=asset.mime)
+    # asset id is content-stable (a new image gets a new id), so cache hard.
+    return FileResponse(
+        path, media_type=asset.mime,
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )

@@ -133,7 +133,11 @@ def invite_image(token: str, request: Request, db: Session = Depends(get_db)):
         return Response(status_code=404)
     # fall back to the inline copy if the full-res file was auto-purged
     path = asset.full_path if Path(asset.full_path).exists() else asset.inline_path
-    return FileResponse(path, media_type=asset.mime)
+    # per-recipient image; cache briefly so reloads don't re-fetch, but a
+    # swapped card image still shows up within the hour.
+    return FileResponse(
+        path, media_type=asset.mime, headers={"Cache-Control": "private, max-age=3600"}
+    )
 
 
 @router.get("/i/{token}/calendar.ics")
