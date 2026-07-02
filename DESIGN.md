@@ -234,7 +234,7 @@ answer feel expected, not like an error path:
   every change also **appends a `TrackingEvent`** (accept/decline), so the host's
   history is preserved and the dashboard can show "changed their mind 2× · now
   Coming." Nothing is overwritten silently.
-- The sender's dashboard reflects the change on next load (HTMX poll); the running
+- The sender's dashboard reflects the change on next page load; the running
   reminder logic already treats accept/decline as "engaged → stop," and a flip
   back to non-responded does **not** restart reminders (avoids nagging).
 
@@ -365,7 +365,7 @@ Reminder                 # one scheduled nudge for a non-responder (§8)
 |---------|--------|-----|
 | Language | **Python 3.12** | Your wheelhouse; great Google client libs; fast to ship. |
 | Web framework | **FastAPI** + Uvicorn | Async (good for the send-queue + I/O to Gmail), typed, clean DI, easy testing. |
-| Templating / UI | **Jinja2 + HTMX + minimal vanilla JS** | Server-rendered = simple, SEO-irrelevant, no SPA build complexity. HTMX gives snappy dashboard updates. Visual direction is **"Kitchen Table" — light & warm** (see `DESIGN-LANGUAGE.md`); this product deliberately overrides the usual dark-theme default to feel friendly and approachable for a non-technical audience. |
+| Templating / UI | **Jinja2 + minimal hand-written vanilla JS** | Server-rendered = simple, SEO-irrelevant, no SPA build complexity and no JS framework. Pages reflect state on load; the few interactive bits (envelope animation, group filter, steppers) are small vanilla scripts. Visual direction is **"Kitchen Table" — light & warm** (see `DESIGN-LANGUAGE.md`); this product deliberately overrides the usual dark-theme default to feel friendly and approachable for a non-technical audience. |
 | CSS | **Hand-written, token-based CSS** (no framework) | The design is bespoke (paper grain, rubber stamp, envelope, washi tape) — Tailwind wouldn't help and would add a Node build step + utility-class bloat + pull toward the "AI-slop" default look. A small `:root` token system + component classes is cleaner. *(Tailwind was considered and dropped for these reasons.)* |
 | Persistence | **SQLite** (WAL mode) via SQLAlchemy | Relational tracking data with queries/joins; single-file, zero-ops, trivially backed up. *(Deviates from the usual "JSON for state" preference — flat JSON can't express the recipient/event/tracking relations or query them; SQLite is the right tool here. Config still TOML.)* |
 | Config | **TOML** (`config.toml`) + env for secrets | House style; secrets via env so they never hit git. |

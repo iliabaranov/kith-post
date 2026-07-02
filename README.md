@@ -80,8 +80,9 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 
 ## Stack
 
-Python 3.12 · FastAPI · SQLite · Jinja2 + HTMX + hand-written token CSS (light/warm) · Pillow ·
-Google API client · Docker · Cloudflare Tunnel. Tested with pytest.
+Python 3.12 · FastAPI · SQLite · Jinja2 (server-rendered) + hand-written vanilla JS
++ token-based CSS (light/warm, no framework) · Pillow · Google API client · Docker ·
+Cloudflare Tunnel. Tested with pytest.
 
 ## License
 
