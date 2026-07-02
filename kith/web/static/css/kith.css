@@ -383,7 +383,8 @@ code {
 .chip-queued { background: rgba(110, 92, 99, .07); color: var(--ink-soft); }
 
 /* ---- compose form ---- */
-.form-wrap { max-width: 42rem; margin: 0 auto; }
+/* match the main dashboard / event pages, which fill .wrap (no tighter cap) */
+.form-wrap { max-width: 960px; margin: 0 auto; }
 .form-wrap .reassure { text-align: center; }
 .form-title {
   font-family: var(--display); font-weight: 600;
