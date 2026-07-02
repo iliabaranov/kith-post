@@ -80,7 +80,7 @@ These were decided up front and constrain everything downstream.
 | 4 | **Image storage** | Local container, auto-purged after the event **+** a resized "sane resolution" copy inlined into each email (CID) | Landing page shows full-res while it exists; email renders offline and survives the purge. |
 | 5 | **Tracking** | **No open pixel.** Signals = Sent · Opened (= visited invitation page) · Accepted · Declined | Zero hidden beacons → cleaner privacy story. "Opened" undercounts (inlined card is viewable in-email without clicking), stated honestly. |
 | 6 | **Run target** | Same container runs **locally on the laptop first**, then unchanged on the home server | One image, env-driven config, a `dry-run` send mode → full local test loop before exposing anything publicly. |
-| 7 | **Automated reminders** | **On by default** for dated events: nudge non-clickers at halfway · 1 wk · 3 days out; fully configurable | Drives RSVPs without nagging — stops the moment they engage, hard cap of 3, threaded as replies, Decline = opt-out, none for dateless events. See §8. |
+| 7 | **Automated reminders** | **On by default** for dated events: nudge non-clickers at halfway · 1 wk · 3 days out; fully configurable | Drives RSVPs without nagging — stops the moment they engage, hard cap of 3, sent as a "Re:" follow-up (sender-side threaded; see §8 caveat), Decline = opt-out, none for dateless events. See §8. |
 
 ---
 
@@ -245,8 +245,16 @@ answer feel expected, not like an error path:
 **Sane default: ON.** When an event has a date, Kith Post automatically nudges
 recipients who were sent an invite but **haven't clicked through yet**. A reminder
 reuses the recipient's existing token (so tracking stays continuous), is sent from
-the user's Gmail like the original, and is **threaded as a reply to the first
-message** so it reads as a natural follow-up — not a fresh blast.
+the user's Gmail like the original, and reads as a natural follow-up ("Re: …") —
+not a fresh blast.
+
+> **Threading caveat.** We set the Gmail `threadId` plus RFC `In-Reply-To`/
+> `References` headers, which groups the reminder with the original in the *sender's*
+> own Gmail. But Gmail **overwrites the outgoing `Message-ID`** (it doesn't honor a
+> custom one from a free/Workspace account), and the `gmail.send` scope can't read
+> the real ID back — so on the *recipient's* side the nudge may show as a separate
+> conversation. Grouping there isn't guaranteed without a broader (read) scope we
+> deliberately don't request.
 
 ### Default schedule (configurable; per-event override)
 Computed relative to `event_date`:
