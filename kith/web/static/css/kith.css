@@ -327,6 +327,7 @@ code {
 
 /* ---- compose form ---- */
 .form-wrap { max-width: 42rem; margin: 0 auto; }
+.form-wrap .reassure { text-align: center; }
 .form-title {
   font-family: var(--display); font-weight: 600;
   font-size: clamp(1.8rem, 5vw, 2.3rem); margin: .4rem 0 1rem; color: var(--ink);
