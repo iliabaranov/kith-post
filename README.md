@@ -12,6 +12,12 @@ Paperless Post.
 page is public; sign-in is invite-only (trusted circle), so it's a look at the real
 thing rather than an open sandbox.
 
+<p align="center">
+  <img src="design/invite-example.jpg" alt="An example Kith Post invitation: a hand-painted hot-air-balloon card for &quot;Joe's 3d Birthday!&quot; with date, time, location, a note, and RSVP buttons" width="380">
+  <br>
+  <em>What a recipient sees — the emailed invitation, opened in the browser.</em>
+</p>
+
 > **Status:** functional and self-hostable end to end — Google sign-in, card
 > compose, Gmail send with open/RSVP tracking, automated reminders, and a
 > contacts address book are all in place. See [`DESIGN.md`](./DESIGN.md) for the
