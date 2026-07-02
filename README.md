@@ -5,6 +5,10 @@ pick your people, and send a personal invite **from your own Gmail** — with
 open / accept / decline tracking. A non-commercial alternative to Punchbowl and
 Paperless Post.
 
+**Live instance:** [kithpo.st](https://kithpo.st) — a running example. The landing
+page is public; sign-in is invite-only (trusted circle), so it's a look at the real
+thing rather than an open sandbox.
+
 > **Status:** functional and self-hostable end to end — Google sign-in, card
 > compose, Gmail send with open/RSVP tracking, automated reminders, and a
 > contacts address book are all in place. See [`DESIGN.md`](./DESIGN.md) for the
