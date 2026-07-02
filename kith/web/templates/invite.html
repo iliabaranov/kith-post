@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>You're invited — {{ settings.app_name }}</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}" />
-<link rel="stylesheet" href="{{ url_for('static', path='css/fonts.css') }}?v={{ static_v() }}" />
-<link rel="stylesheet" href="{{ url_for('static', path='css/invite.css') }}?v={{ static_v() }}" />
+<style>{{ inline_css('fonts.css')|safe }}
+{{ inline_css('invite.css')|safe }}</style>
 </head>
 <body>
   {% if preview %}<div class="preview-flag">Preview</div>{% endif %}

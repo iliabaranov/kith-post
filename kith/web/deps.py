@@ -28,6 +28,26 @@ def static_version() -> str:
 templates.env.globals["static_v"] = static_version
 
 
+_css_cache: dict[str, tuple[float, str]] = {}
+
+
+def inline_css(name: str) -> str:
+    """Contents of static/css/<name>, for inlining into a <style> block so the
+    critical CSS (and @font-face rules) ship in the HTML — no render-blocking
+    stylesheet request and no extra hop before fonts start loading. Cached per
+    file mtime, so edits are picked up without a restart. Use with the |safe
+    filter (trusted, first-party files only)."""
+    path = WEB_DIR / "static" / "css" / name
+    mtime = path.stat().st_mtime
+    cached = _css_cache.get(name)
+    if cached is None or cached[0] != mtime:
+        _css_cache[name] = (mtime, path.read_text())
+    return _css_cache[name][1]
+
+
+templates.env.globals["inline_css"] = inline_css
+
+
 def get_db(request: Request):
     db: Session = request.app.state.session_factory()
     try:
