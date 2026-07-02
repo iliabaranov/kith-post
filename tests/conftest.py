@@ -23,6 +23,10 @@ os.environ.setdefault("KITH_REMINDERS__SWEEP_SECONDS", "0")
 # (dev-login) baseline; the configured-OAuth test monkeypatches these back.
 os.environ["KITH_GOOGLE_CLIENT_ID"] = ""
 os.environ["KITH_GOOGLE_CLIENT_SECRET"] = ""
+# Rate limiting is per-client and in-memory, so its counters would bleed across
+# the in-process suite and make unrelated tests flaky. Off by default here; the
+# dedicated test flips the limiter back on to prove it works.
+os.environ.setdefault("KITH_RATE_LIMIT_ENABLED", "false")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

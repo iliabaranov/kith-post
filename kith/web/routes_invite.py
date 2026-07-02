@@ -21,6 +21,7 @@ from kith.core import calendar as cal
 from kith.db.models import Asset, Event, Recipient, User
 from kith.services import scheduler
 from kith.web.deps import get_db, templates
+from kith.web.ratelimit import limiter
 
 log = logging.getLogger("kith")
 router = APIRouter()
@@ -36,6 +37,7 @@ def _is_locked(ev: Event) -> bool:
 
 
 @router.get("/i/{token}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 def view_invite(
     token: str, request: Request, db: Session = Depends(get_db), edit: int = 0
 ):
@@ -83,6 +85,7 @@ def _int(s: str, default: int) -> int:
 
 
 @router.post("/i/{token}/rsvp")
+@limiter.limit("20/minute")
 def submit_rsvp(
     token: str, request: Request, db: Session = Depends(get_db),
     response: str = Form(""), adults: str = Form(""), kids: str = Form(""),

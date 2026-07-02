@@ -20,6 +20,10 @@ data_dir = "data"
 # creation for dateless/orphaned cards); the small inline copy is kept. 0 disables.
 # asset_retention_days = 30
 
+# Per-client rate limiting on the public + auth endpoints (invite view, RSVP,
+# sign-in). On by default; behind Cloudflare it keys on CF-Connecting-IP.
+# rate_limit_enabled = true
+
 # --- Automated reminders (G5, §8) ---
 # Nudge non-responders on a schedule relative to the event date. On by default for
 # events that have a date AND an RSVP block. Per-event overrides live in the app.

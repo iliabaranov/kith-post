@@ -73,6 +73,10 @@ class Settings(BaseSettings):
 
     reminders: ReminderSettings = ReminderSettings()
 
+    # Per-client rate limiting on the public + auth endpoints. On by default;
+    # tests turn it off so limits don't bleed across the in-process suite.
+    rate_limit_enabled: bool = True
+
     # Heavy full-res card images are deleted this many days after the event (or,
     # for dateless/orphaned cards, after creation). The small inline copy is kept
     # so the card still renders. 0 disables auto-purge.

@@ -14,6 +14,24 @@ from datetime import UTC, date, datetime
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
+
+from kith.config import get_settings
+from kith.db.models import Contact, Event, Recipient, User
+from kith.db.session import init_db, make_engine, make_session_factory
+from kith.services import google_auth, scheduler, storage
+from kith.services.google_auth import GoogleIdentity
+from kith.web.deps import WEB_DIR, get_db, load_user, templates
+from kith.web.ratelimit import limiter
+from kith.web.routes_contacts import router as contacts_router
+from kith.web.routes_events import router as events_router
+from kith.web.routes_invite import router as invite_router
+
+log = logging.getLogger("kith")
 
 
 class CachedStaticFiles(StaticFiles):
@@ -29,21 +47,6 @@ class CachedStaticFiles(StaticFiles):
             else:
                 resp.headers["Cache-Control"] = "public, max-age=3600"
         return resp
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from starlette.middleware.sessions import SessionMiddleware
-
-from kith.config import get_settings
-from kith.db.models import Contact, Event, Recipient, User
-from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth, scheduler, storage
-from kith.services.google_auth import GoogleIdentity
-from kith.web.deps import WEB_DIR, get_db, load_user, templates
-from kith.web.routes_contacts import router as contacts_router
-from kith.web.routes_events import router as events_router
-from kith.web.routes_invite import router as invite_router
-
-log = logging.getLogger("kith")
 
 
 @asynccontextmanager
@@ -97,6 +100,8 @@ def upsert_user(db: Session, identity: GoogleIdentity) -> User:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.secret_key,
@@ -162,6 +167,7 @@ def create_app() -> FastAPI:
 
     # ---- auth ----
     @app.get("/auth/login")
+    @limiter.limit("15/minute")
     def login(request: Request):
         if settings.google_configured:
             url, state, code_verifier = google_auth.authorization_url(settings)
@@ -179,6 +185,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/auth/callback")
+    @limiter.limit("15/minute")
     def callback(
         request: Request,
         db: Session = Depends(get_db),
