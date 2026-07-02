@@ -5,8 +5,9 @@ pick your people, and send a personal invite **from your own Gmail** — with
 open / accept / decline tracking. A non-commercial alternative to Punchbowl and
 Paperless Post.
 
-> **Status:** G1 — Google sign-in (with a dev-login fallback), encrypted user
-> storage, account export/delete. See [`DESIGN.md`](./DESIGN.md) for the
+> **Status:** functional and self-hostable end to end — Google sign-in, card
+> compose, Gmail send with open/RSVP tracking, automated reminders, and a
+> contacts address book are all in place. See [`DESIGN.md`](./DESIGN.md) for the
 > architecture/roadmap and [`DESIGN-LANGUAGE.md`](./DESIGN-LANGUAGE.md) for the
 > visual system.
 
@@ -40,11 +41,17 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 - Build a list of family and friends.
 - Send a personal email **from your own Gmail account** (via the Gmail API), so
   it looks like it came directly from you.
+- Collect RSVPs with an optional headcount (adults + kids), an allergies/dietary
+  question, and a free-text note back.
 - Track who was sent an invite, who opened it (visited the invitation page), and
   who accepted or declined — on a simple dashboard.
 - Automatically follow up with non-responders on a sane, configurable schedule
   (halfway to the date, 1 week out, 3 days out) — reminders stop the moment
   someone engages.
+- Keep a reusable address book, organized into groups (family, work, …) so you
+  can add a whole circle to a card at once.
+- Re-send an updated card and re-collect RSVPs when the date, time, or location
+  changes.
 
 ## Principles
 

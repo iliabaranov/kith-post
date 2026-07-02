@@ -16,6 +16,10 @@ send_mode = "dry-run"
 # Where the SQLite db + uploaded images + dry-run outbox live.
 data_dir = "data"
 
+# Delete heavy full-res card images this many days after the event (or after
+# creation for dateless/orphaned cards); the small inline copy is kept. 0 disables.
+# asset_retention_days = 30
+
 # --- Automated reminders (G5, §8) ---
 # Nudge non-responders on a schedule relative to the event date. On by default for
 # events that have a date AND an RSVP block. Per-event overrides live in the app.

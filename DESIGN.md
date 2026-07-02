@@ -1,6 +1,6 @@
 # Kith Post — Design Document
 
-> **Status:** Draft v0.1 · **Date:** 2026-06-29 · **Owner:** ilia
+> **Status:** Draft v0.1 · **Date:** 2026-06-29 · **Owner:** iliabaranov
 >
 > **Kith Post** — from *kith* (n.): one's friends, acquaintances, and
 > neighbors, as in "kith and kin."
@@ -17,7 +17,8 @@
 ## 1. Summary & Vision
 
 A single small container, hosted on a home server and exposed to the internet
-via **Tailscale Funnel** (which also gives us free, auto-renewing HTTPS). A user
+via a **Cloudflare Tunnel** (free, auto-renewing HTTPS on a custom domain, no
+open router ports; Tailscale Funnel is a viable alternative). A user
 signs in with their Google account (Gmail SSO), uploads an image to use as a
 holiday/birthday/event card, builds a list of family and friends, and clicks
 send. Each recipient receives an email that **genuinely originates from the
@@ -47,7 +48,7 @@ export-and-delete. It is free, offered as-is with no warranty.
 - **Privacy by default.** Minimal data, encrypted PII at rest, user-owned
   export/delete, heavy assets auto-purged.
 - **Cheap & self-hostable.** One container, one volume, no paid dependencies.
-  Free TLS via Tailscale Funnel.
+  Free TLS via a Cloudflare Tunnel.
 - **Clean architecture.** Pure-logic core, thin framework glue, testable with
   pytest.
 
@@ -369,7 +370,7 @@ Reminder                 # one scheduled nudge for a non-responder (§8)
 | Env / deps | **`uv`** managing a standard **`.venv`** | Fast installs + lockfile; still real venv isolation. *(pip considered; uv chosen for speed.)* |
 | Lint / format | **Ruff** | One fast tool replacing black + isort + flake8. |
 | Container | **Docker** + `docker-compose` | One service + one volume. |
-| Ingress / TLS | **Tailscale Funnel** | Exposes the container to the internet **with automatic Let's Encrypt HTTPS** on `<machine>.<tailnet>.ts.net`. This *is* our "free open SSL." |
+| Ingress / TLS | **Cloudflare Tunnel** | Exposes the container over HTTPS on a custom domain with Cloudflare-managed TLS — no open router ports, works behind CGNAT. This *is* our "free open SSL." (Tailscale Funnel is a viable alternative; see `docs/deploy.md`.) |
 
 ---
 
@@ -426,7 +427,8 @@ with the "store little to no data" goal. We resolve it deliberately:
   messages is escaped/sanitized; Markdown rendered through a safe renderer.
 - **Container hardening:** non-root user, read-only FS except the data volume,
   minimal base image, pinned deps.
-- **Exposure:** Tailscale Funnel terminates TLS and forwards only chosen ports;
+- **Exposure:** the Cloudflare Tunnel terminates TLS at the edge and forwards to
+  the app over the container network — no inbound ports are opened on the host;
   the admin/dashboard requires auth; only `/i/...` and `/t/...` (recipient-facing,
   token-gated) are effectively public.
 - **Rate limiting** on tracking + RSVP endpoints to blunt token-guessing/abuse.
@@ -465,7 +467,7 @@ laptop
   HTTPS**, so SSO works on the laptop. Register *both* redirect URIs on the one
   OAuth client up front:
   `http://localhost:8000/auth/callback` **and**
-  `https://<machine>.<tailnet>.ts.net/auth/callback`.
+  `https://<your-domain>/auth/callback`.
   `BASE_URL` selects which one the app uses — no code change between environments.
 - **End-to-end recipient test locally (optional):** recipients can't reach
   `localhost`. Two easy options without touching the home server:
@@ -483,14 +485,14 @@ home server
     ├── kith        (FastAPI app + async send-worker, one image — same as laptop)
     │     volume: ./data  → sqlite db + uploaded/derived images
     │     env:    OAuth creds, FERNET_KEY, SESSION_SECRET,
-    │             BASE_URL=https://kithpo.st,
+    │             BASE_URL=https://example.com,
     │             KITH_SEND_MODE=live
     └── cloudflared — Cloudflare Tunnel, forwarding 443 → kith:8000
 ```
 
 - **Promotion = change env, not code.** Flip `BASE_URL` to the custom domain and
   `KITH_SEND_MODE` to `live`; everything else is identical to what you tested.
-- **TLS / domain:** a Cloudflare Tunnel publishes `https://kithpo.st` with
+- **TLS / domain:** a Cloudflare Tunnel publishes `https://example.com` with
   Cloudflare-managed TLS — free auto-HTTPS, no open router ports, works behind
   CGNAT. Recipient links and OAuth callback use `BASE_URL`. See
   [`docs/deploy.md`](./docs/deploy.md) for the full walkthrough.
@@ -609,11 +611,15 @@ Each gate is a working, committed, tested increment.
   toggle. Also **edit reconciliation** (edits no longer wipe RSVPs) and a
   **details-changed → re-send & re-collect** flow (date/time/location change prompts
   an opt-in re-send that clears prior RSVPs and reschedules). 148 tests.
-- **G6 — Polish & legal.** Privacy/ToS/disclaimer pages, contacts address book,
-  export/delete fully wired, **a subtle "buy me a coffee" donation link** (shown
-  only in the signed-in app after the user's first event — never to guests; links
-  out, no payment data stored), the recipient-footer growth link, deploy behind
-  Tailscale Funnel (`live` mode), backups.
+- **G6 — Polish, deploy & legal.** *(Partial.)* **✅ Done:** contacts address book,
+  export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups, and
+  auto-purge of heavy full-res images past a retention window. **Remaining:**
+  Privacy/ToS/disclaimer pages and a subtle "buy me a coffee" donation link
+  (signed-in only, after the first event; links out, no payment data stored).
+- **G7 — Richer RSVP & contacts.** **✅ Done** — optional reply note + allergies
+  toggle, adults/kids headcount split, address-book group tags (filter + add a
+  whole group at once), and non-destructive edit reconciliation with a
+  details-changed re-send/re-collect flow.
 
 ---
 
@@ -624,8 +630,9 @@ Each gate is a working, committed, tested increment.
    it bites.
 2. **Free-Gmail 500/day cap** — fine for family-scale lists; the UI must set
    expectations for big sends. Workspace users get 2,000.
-3. **`*.ts.net` link trust** (§14) — monitor whether recipients hesitate to click;
-   custom-domain path is ready if needed.
+3. **Link trust** — recipient links now live on a **custom domain via the
+   Cloudflare Tunnel** with valid TLS, resolving the earlier `*.ts.net`
+   unfamiliarity concern.
 4. **"Opened" undercounts** — since there's no pixel and the card is inlined,
    recipients who don't click through aren't counted as opened. Accepted by
    design; the UI states it. RSVP and Sent remain the load-bearing signals.
