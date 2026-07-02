@@ -57,3 +57,31 @@ def test_toggle_back_on_reschedules(client):
     assert _counts().get("pending", 0) == 0
     client.post(f"/events/{eid}/reminders", data={"enabled": "1"})  # on
     assert _counts().get("pending", 0) > 0
+
+
+def test_pre_send_explains_schedule(client):
+    eid = _make(client, block_date="on", event_date="2030-01-01")
+    page = client.get(f"/events/{eid}").text
+    assert "Once you send" in page
+    assert "1 week before" in page and "3 days before" in page
+
+
+def test_after_send_lists_all_planned(client):
+    eid = _make(client, block_date="on", event_date="2030-01-01")
+    client.post(f"/events/{eid}/send")
+    page = client.get(f"/events/{eid}").text
+    assert "Planned:" in page
+    assert 'class="reminders-list"' in page
+    assert "Once you send" not in page  # already sent
+
+
+def test_no_revert_after_all_replied(client):
+    # Regression: with the only recipient replied (reminders canceled), the card
+    # must NOT fall back to "Once you send" — the event has already gone out.
+    eid = _make(client, block_date="on", event_date="2030-01-01")
+    client.post(f"/events/{eid}/send")
+    tok = _db().execute("SELECT token FROM recipients LIMIT 1").fetchone()[0]
+    client.post(f"/i/{tok}/rsvp", data={"response": "coming"})
+    page = client.get(f"/events/{eid}").text
+    assert "Once you send" not in page
+    assert "Nothing pending" in page

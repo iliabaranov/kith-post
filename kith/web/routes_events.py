@@ -282,25 +282,56 @@ async def create_event(
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
-def _reminders_ui(db: Session, ev: Event, settings) -> dict:
+_OFFSET_PHRASE = {
+    "halfway": "about halfway to the date",
+    "7d": "1 week before",
+    "3d": "3 days before",
+}
+
+
+def _fmt_hour(h: int) -> str:
+    return f"{h % 12 or 12} {'am' if h < 12 else 'pm'}"
+
+
+def _describe_schedule(cfg) -> str:
+    parts = [_OFFSET_PHRASE.get(o, o) for o in cfg.offsets]
+    if len(parts) > 1:
+        joined = ", ".join(parts[:-1]) + ", and " + parts[-1]
+    else:
+        joined = parts[0] if parts else ""
+    return f"{joined}, around {_fmt_hour(cfg.send_hour_local)} in the event's timezone"
+
+
+def _reminders_ui(db: Session, ev: Event, settings, recipients: list[Recipient]) -> dict:
     """Host-facing reminder summary for the event page."""
     cfg = scheduler.resolved_cfg(settings, ev)
     rows = db.execute(select(Reminder).where(Reminder.event_id == ev.id)).scalars().all()
-    pending = [r for r in rows if r.status == "pending"]
-    next_label = None
-    if pending:
-        next_at = min(scheduler._as_utc(r.scheduled_for) for r in pending)
+    pending = sorted(rows, key=lambda r: scheduler._as_utc(r.scheduled_for))
+    pending = [r for r in pending if r.status == "pending"]
+    tz = None
+    if ev.timezone:
         try:
-            local = next_at.astimezone(ZoneInfo(ev.timezone)) if ev.timezone else next_at
+            tz = ZoneInfo(ev.timezone)
         except Exception:
-            local = next_at
-        next_label = local.strftime("%a, %b %d")
+            tz = None
+
+    def _fmt(dt) -> str:
+        d = scheduler._as_utc(dt)
+        if tz is not None:
+            d = d.astimezone(tz)
+        return d.strftime("%a, %b %d at %I:%M %p").replace(" 0", " ")
+
     return {
         "available": bool(ev.event_date) and bool((ev.blocks or {}).get("rsvp")),
         "enabled": cfg.enabled,
+        # "sent" here means the event has actually gone out (so we don't tell the
+        # host reminders will schedule "once you send" after they already have).
+        "sent_any": any(r.status in ("sent", "coming", "declined") for r in recipients),
         "scheduled": len(pending),
         "sent": sum(1 for r in rows if r.status == "sent"),
-        "next_label": next_label,
+        "planned": [_fmt(r.scheduled_for) for r in pending],
+        "schedule_desc": _describe_schedule(cfg),
+        "max_per_recipient": cfg.max_per_recipient,
     }
 
 
@@ -339,7 +370,7 @@ def event_detail(
         "sent": sent, "failed": failed,
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
-        "reminders": _reminders_ui(db, ev, settings),
+        "reminders": _reminders_ui(db, ev, settings, rows),
         "details_changed": bool(details_changed), "resendable": resendable,
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)

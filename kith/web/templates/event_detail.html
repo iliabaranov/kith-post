@@ -82,15 +82,26 @@
         {% endif %}
       </form>
     </div>
-    <p class="reminders-body">
-      {% if reminders.enabled %}
-        Nudging people who haven’t replied.
-        {% if reminders.scheduled %}{{ reminders.scheduled }} scheduled{% if reminders.next_label %} · next {{ reminders.next_label }}{% endif %}.{% elif reminders.sent %}All caught up.{% else %}They’ll be scheduled once you send.{% endif %}
-        {% if reminders.sent %} {{ reminders.sent }} reminder{{ '' if reminders.sent == 1 else 's' }} sent so far.{% endif %}
+    {% if reminders.enabled %}
+      {% if not reminders.sent_any %}
+      <p class="reminders-body">
+        Once you send, we’ll nudge anyone who hasn’t replied — {{ reminders.schedule_desc }}
+        (up to {{ reminders.max_per_recipient }}, and they stop the moment someone replies).
+      </p>
+      {% elif reminders.planned %}
+      <p class="reminders-body">Nudging people who haven’t replied. Planned:</p>
+      <ul class="reminders-list">
+        {% for p in reminders.planned %}<li>{{ p }}</li>{% endfor %}
+      </ul>
+      {% if reminders.sent %}<p class="reminders-body">{{ reminders.sent }} reminder{{ '' if reminders.sent == 1 else 's' }} sent so far.</p>{% endif %}
       {% else %}
-        Off — no automatic nudges for this {{ noun }}.
+      <p class="reminders-body">
+        {% if reminders.sent %}{{ reminders.sent }} reminder{{ '' if reminders.sent == 1 else 's' }} sent. {% endif %}Nothing pending — everyone’s replied, or the event is too soon for the schedule.
+      </p>
       {% endif %}
-    </p>
+    {% else %}
+      <p class="reminders-body">Off — no automatic nudges for this {{ noun }}.</p>
+    {% endif %}
   </div>
   {% elif event.blocks and event.blocks.rsvp %}
   <p class="reassure">Reminders need an event date — add one to auto-nudge people who haven’t replied.</p>
