@@ -3,6 +3,12 @@
 {% block content %}
 {% if user %}
 <section class="dash">
+  {% if user.reconnect_needed %}
+  <div class="ask-note reconnect">
+    <span>Your Google connection has expired, so sending is paused. Reconnect to keep sending invitations and reminders.</span>
+    <a class="btn btn-primary btn-sm" href="/auth/login">Reconnect Google</a>
+  </div>
+  {% endif %}
   <div class="dash-head">
     <div>
       <p class="eyebrow">your cards</p>

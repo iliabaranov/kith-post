@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from kith.config import SendMode, Settings
 from kith.core import mailbuild
 from kith.db.models import Asset, Event, Recipient, User
+from kith.services.gmail import GmailAuthError
 
 log = logging.getLogger("kith")
 
@@ -90,10 +91,19 @@ def send_event(
                 r.rfc822_message_id = this_id
             r.status = "sent"
             r.sent_at = datetime.now(UTC)
+            if user.reconnect_needed:
+                user.reconnect_needed = False  # the token works again
             sent += 1
+            db.commit()
+        except GmailAuthError:
+            user.reconnect_needed = True  # expired/revoked token — prompt a reconnect
+            log.warning("Google connection invalid for user %s — reconnect needed", user.id)
+            failed += 1
+            db.commit()
+            break  # a dead token fails every recipient; stop early
         except Exception:
             log.exception("send failed for recipient %s (event %s)", r.id, event.id)
             failed += 1  # leave as 'queued' so a retry can pick it up
-        db.commit()
+            db.commit()
 
     return SendResult(sent=sent, failed=failed, mode=settings.send_mode.value)

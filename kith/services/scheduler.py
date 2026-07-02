@@ -21,6 +21,7 @@ from kith.config import SendMode, Settings
 from kith.core import mailbuild
 from kith.core import reminders as rem
 from kith.db.models import Asset, Event, Recipient, Reminder, User
+from kith.services.gmail import GmailAuthError
 
 log = logging.getLogger("kith")
 
@@ -105,6 +106,12 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
             gmail.gmail_send(
                 settings, user.refresh_token, mailbuild.to_raw(msg), thread_id=r.thread_id
             )
+    except GmailAuthError:
+        user.reconnect_needed = True  # expired/revoked token — prompt a reconnect
+        reminder.status, reminder.sent_at = "pending", None
+        db.commit()
+        log.warning("reminder: Google connection invalid for user %s", user.id)
+        return False
     except Exception:
         log.exception("reminder send failed (reminder %s)", reminder.id)
         reminder.status, reminder.sent_at = "pending", None

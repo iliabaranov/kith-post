@@ -7,6 +7,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -37,6 +38,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(EncryptedString)
     refresh_token: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     display_name: Mapped[str] = mapped_column(String, default="")
+    # set when a Gmail send fails because the refresh token expired/was revoked;
+    # drives the "reconnect Google" prompt, cleared on the next successful auth/send.
+    reconnect_needed: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

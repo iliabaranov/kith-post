@@ -278,6 +278,7 @@ code {
   border-radius: 10px; padding: .7rem 1rem; margin: 0 0 1.2rem; color: var(--ink);
 }
 .ask-actions { display: flex; align-items: center; gap: .9rem; }
+.ask-note.reconnect { border-color: var(--berry); background: rgba(196, 69, 105, .1); }
 
 /* ---- automatic-reminders card (event page) ---- */
 .reminders {

@@ -8,6 +8,13 @@
     {{ recipient_count }} recipient{{ '' if recipient_count == 1 else 's' }} on the list{% if queued_count and queued_count != recipient_count %} · {{ queued_count }} not yet sent{% endif %}.
   </p>
 
+  {% if user.reconnect_needed %}
+  <div class="ask-note reconnect">
+    <span>Your Google connection has expired, so sending is paused. Reconnect to resume sending and reminders.</span>
+    <a class="btn btn-primary btn-sm" href="/auth/login">Reconnect Google</a>
+  </div>
+  {% endif %}
+
   {% if stats.total and event.blocks and event.blocks.rsvp %}
   <div class="stats">
     {% if stats.opened %}<span class="stat"><b>{{ stats.opened }}</b> opened</span>{% endif %}

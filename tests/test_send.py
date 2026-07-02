@@ -11,6 +11,7 @@ from kith.core.tracking import new_token
 from kith.db.models import Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
 from kith.services import send
+from kith.services.gmail import GmailAuthError
 
 
 def _session(tmp_path):
@@ -85,6 +86,38 @@ def test_live_sends_to_the_recipient(tmp_path, monkeypatch):
                  data_dir=tmp_path / "data", base_url="https://x")
     send.send_event(db, ev, u, s)
     assert "a@example.com" in captured["to"]
+
+
+def test_auth_error_flags_reconnect_and_keeps_queued(tmp_path, monkeypatch):
+    db = _session(tmp_path)
+    u, ev = _seed(db, rt="rt")
+
+    def boom(*a, **k):
+        raise GmailAuthError("invalid_grant")
+
+    monkeypatch.setattr("kith.services.gmail.gmail_send", boom)
+    s = Settings(send_mode=SendMode.live, google_client_id="c", google_client_secret="s",
+                 data_dir=tmp_path / "data", base_url="https://x")
+    res = send.send_event(db, ev, u, s)
+    assert (res.sent, res.failed) == (0, 1)
+    assert db.execute(select(Recipient)).scalar_one().status == "queued"  # retryable
+    assert u.reconnect_needed is True
+
+
+def test_successful_send_clears_reconnect_flag(tmp_path, monkeypatch):
+    db = _session(tmp_path)
+    u, ev = _seed(db, rt="rt")
+    u.reconnect_needed = True
+    db.commit()
+
+    def fake(settings, refresh_token, raw_b64, thread_id=None):
+        return {"id": "m", "threadId": "t"}
+
+    monkeypatch.setattr("kith.services.gmail.gmail_send", fake)
+    s = Settings(send_mode=SendMode.live, google_client_id="c", google_client_secret="s",
+                 data_dir=tmp_path / "data", base_url="https://x")
+    send.send_event(db, ev, u, s)
+    assert u.reconnect_needed is False
 
 
 def test_send_stamps_anchor_message_id_and_drops_host_line(tmp_path):

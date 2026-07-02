@@ -72,6 +72,7 @@ def upsert_user(db: Session, identity: GoogleIdentity) -> User:
             user.display_name = identity.name
     if identity.refresh_token:
         user.refresh_token = identity.refresh_token
+        user.reconnect_needed = False  # fresh consent restored a working token
     user.last_login_at = datetime.now(UTC)
     db.commit()
     db.refresh(user)
