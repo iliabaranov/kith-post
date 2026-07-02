@@ -166,6 +166,19 @@ code {
   vertical-align: middle;
 }
 .brand-link:hover { color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
+.footer-legal { display: block; margin-top: .5rem; font-size: .72rem; letter-spacing: .04em; }
+.footer-legal a { color: var(--ink-soft); text-decoration: none; }
+.footer-legal a:hover { color: var(--plum); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- legal pages (privacy / terms) ---- */
+.legal { max-width: 44rem; margin: 0 auto; }
+.legal-title { font-family: var(--display); font-weight: 600; font-size: clamp(1.9rem, 5vw, 2.6rem); margin: .3rem 0 .2rem; color: var(--ink); }
+.legal-meta { color: var(--ink-soft); font-size: .85rem; margin: 0 0 1.6rem; }
+.legal h2 { font-family: var(--display); font-weight: 600; font-size: 1.2rem; color: var(--ink); margin: 1.8rem 0 .4rem; }
+.legal p, .legal li { color: var(--ink); line-height: 1.65; }
+.legal ul { padding-left: 1.2rem; }
+.legal li { margin: .3rem 0; }
+.legal-foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 
 /* ---- dashboard ---- */
 .dash-head {

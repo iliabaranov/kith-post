@@ -96,6 +96,14 @@ def create_app() -> FastAPI:
     def healthz() -> str:
         return "ok"
 
+    @app.get("/privacy", response_class=HTMLResponse)
+    def privacy(request: Request):
+        return templates.TemplateResponse(request, "privacy.html", {"settings": settings})
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms(request: Request):
+        return templates.TemplateResponse(request, "terms.html", {"settings": settings})
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, db: Session = Depends(get_db)):
         user = load_user(request, db)

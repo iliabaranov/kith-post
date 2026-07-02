@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Terms of Service — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="legal">
+  <p class="detail-eyebrow"><a class="link" href="/">← home</a></p>
+  <h1 class="legal-title">Terms of Service</h1>
+  <p class="legal-meta">Last updated: July 2, 2026</p>
+
+  <p>{{ settings.app_name }} is a free, non-commercial, open-source project operated by
+  Ilia Baranov. By signing in and using it, you agree to these terms.</p>
+
+  <h2>The service</h2>
+  <p>{{ settings.app_name }} lets you send digital invitations and cards from your own
+  Gmail account and track responses. It is provided at no cost, with no ads and no paid
+  tiers. The source code is available under the MIT License.</p>
+
+  <h2>Acceptable use</h2>
+  <ul>
+    <li>You must have a genuine relationship with, and a reasonable basis to contact,
+      the people you email. Do <strong>not</strong> use {{ settings.app_name }} for spam,
+      bulk unsolicited mail, marketing to strangers, or purchased lists.</li>
+    <li>Do not send unlawful, harassing, deceptive, or infringing content.</li>
+    <li>Respect Gmail's sending limits and the
+      <a class="link" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>.</li>
+    <li>Do not attempt to disrupt, overload, or abuse the service.</li>
+  </ul>
+  <p>You are responsible for the content you send and for having any needed consent from
+  your recipients. You retain all rights to images and text you upload.</p>
+
+  <h2>Disclaimer of warranty</h2>
+  <p>{{ settings.app_name }} is provided <strong>"AS IS", without warranty of any
+  kind</strong>, express or implied, including merchantability, fitness for a particular
+  purpose, and non-infringement. We do not guarantee delivery, uptime, or that the
+  service will be error-free.</p>
+
+  <h2>Limitation of liability</h2>
+  <p>To the maximum extent permitted by law, the operator shall not be liable for any
+  indirect, incidental, or consequential damages, or any loss of data, arising from your
+  use of the service.</p>
+
+  <h2>No affiliation</h2>
+  <p>{{ settings.app_name }} is not affiliated with, endorsed by, or sponsored by Google,
+  Punchbowl, or Paperless Post. Google and Gmail are trademarks of Google LLC.</p>
+
+  <h2>Termination</h2>
+  <p>You may stop using {{ settings.app_name }} and delete your data at any time from your
+  account page, or revoke access via your Google account. The operator may suspend access
+  that violates these terms.</p>
+
+  <h2>Governing law</h2>
+  <p>These terms are governed by the laws of the State of California, USA, without regard
+  to its conflict-of-laws rules.</p>
+
+  <h2>Changes</h2>
+  <p>We may update these terms; material changes will be reflected by the "last updated"
+  date above.</p>
+
+  <h2>Contact</h2>
+  <p><a class="link" href="mailto:{{ settings.contact_email }}">{{ settings.contact_email }}</a></p>
+
+  <p class="legal-foot"><a class="link" href="/privacy">Privacy Policy</a></p>
+</section>
+{% endblock %}

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="legal">
+  <p class="detail-eyebrow"><a class="link" href="/">← home</a></p>
+  <h1 class="legal-title">Privacy Policy</h1>
+  <p class="legal-meta">Last updated: July 2, 2026</p>
+
+  <p>{{ settings.app_name }} is a free, non-commercial, open-source digital-invitation
+  service operated by Ilia Baranov as a personal project. It is self-hosted and
+  designed to collect as little data as possible and to encrypt the personal data
+  it does keep. This policy explains what we access, store, and do with your data —
+  and how you can remove it.</p>
+
+  <h2>Google user data we access</h2>
+  <ul>
+    <li><strong>Basic profile &amp; email</strong> (<code>openid</code>, <code>email</code>,
+      <code>profile</code>) — your name, email address, and Google account ID, used
+      solely to create and identify your account.</li>
+    <li><strong>Send email on your behalf</strong> (<code>gmail.send</code>) — used
+      <em>only</em> to send the invitations, cards, and reminders you create, from your
+      own Gmail account. We <strong>cannot read, search, modify, or delete</strong>
+      anything in your mailbox; the send-only scope does not grant that access.</li>
+  </ul>
+
+  <h2>What we store, and how we protect it</h2>
+  <ul>
+    <li>Your account name, email, and a Google OAuth <strong>refresh token</strong>
+      (so the app can send on your behalf) — <strong>encrypted at rest</strong>.</li>
+    <li>The cards/events you create, your recipient lists and their RSVPs, and your
+      address-book contacts — recipient and contact names/emails are
+      <strong>encrypted at rest</strong>.</li>
+    <li>Card images you upload — the heavy full-resolution copy is
+      <strong>automatically purged</strong> after the event's retention window.</li>
+  </ul>
+  <p>Data is encrypted at rest (Fernet) and served over HTTPS in transit. The service
+  runs as a single self-hosted container; there are no third-party analytics, ads, or
+  trackers.</p>
+
+  <h2>How we use it</h2>
+  <p>To authenticate you, send the emails you compose from your Gmail, show you honest
+  delivery/RSVP status, and send the follow-up reminders you enable. We do not use your
+  data for advertising or profiling.</p>
+
+  <h2>Sharing</h2>
+  <p>We do not sell or share your data. The only outbound flow is the email
+  <em>you</em> choose to send, delivered to the recipients you specify via Google's
+  Gmail API from your own account.</p>
+
+  <h2>Limited Use</h2>
+  <p>{{ settings.app_name }}'s use and transfer of information received from Google APIs
+  adheres to the
+  <a class="link" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+  including the Limited Use requirements.</p>
+
+  <h2>Retention &amp; deletion</h2>
+  <ul>
+    <li>Your account page offers a <strong>one-click export</strong> and a
+      <strong>permanent delete</strong> that removes your account and cascades to your
+      events, recipients, and contacts.</li>
+    <li>Full-resolution images are auto-purged after the retention window.</li>
+    <li>You can revoke {{ settings.app_name }}'s access at any time at
+      <a class="link" href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.</li>
+  </ul>
+
+  <h2>Recipients of your invitations</h2>
+  <p>Recipients get no account and no cookies, and there is <strong>no tracking
+  pixel</strong>. "Opened" simply means someone visited the invitation page. Their
+  email and name are stored encrypted so the invitation can be delivered and RSVPs
+  recorded.</p>
+
+  <h2>Cookies</h2>
+  <p>One signed session cookie keeps you logged in. No third-party or advertising
+  cookies are used.</p>
+
+  <h2>Children</h2>
+  <p>{{ settings.app_name }} is not directed to children under 13 and we do not
+  knowingly collect their data.</p>
+
+  <h2>Changes</h2>
+  <p>We may update this policy; material changes will be reflected by the "last updated"
+  date above.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about privacy or your data:
+  <a class="link" href="mailto:{{ settings.contact_email }}">{{ settings.contact_email }}</a>.</p>
+
+  <p class="legal-foot"><a class="link" href="/terms">Terms of Service</a></p>
+</section>
+{% endblock %}
