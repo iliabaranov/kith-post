@@ -17,6 +17,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+/* [hidden] must win even over flex/grid display (used by JS filters) */
+[hidden] { display: none !important; }
 
 body {
   font-family: "Hanken Grotesk", system-ui, sans-serif;
