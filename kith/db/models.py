@@ -56,6 +56,8 @@ class Contact(Base):
     email: Mapped[str] = mapped_column(EncryptedString)
     name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     email_hash: Mapped[str] = mapped_column(String, index=True)
+    # free-form group tags, e.g. ["family", "local"]; None on legacy rows == no tags
+    groups: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

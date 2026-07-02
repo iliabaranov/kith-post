@@ -22,6 +22,28 @@ def _norm(email: str) -> str:
     return email.strip().lower()
 
 
+def parse_groups(text: str) -> list[str]:
+    """Comma-separated tags → clean, de-duplicated list (case-insensitive dedup,
+    original casing kept)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for chunk in (text or "").split(","):
+        g = chunk.strip()
+        if g and g.lower() not in seen:
+            seen.add(g.lower())
+            out.append(g)
+    return out
+
+
+def all_groups(db: Session, user_id: str) -> list[str]:
+    """Every distinct group tag across a user's contacts, sorted (case-insensitive)."""
+    seen: dict[str, str] = {}
+    for c in db.execute(select(Contact).where(Contact.user_id == user_id)).scalars():
+        for g in (c.groups or []):
+            seen.setdefault(g.lower(), g)
+    return [seen[k] for k in sorted(seen)]
+
+
 def _hash(email: str) -> str:
     return default_cipher().blind_index(_norm(email))
 
@@ -39,7 +61,8 @@ def find_by_email(db: Session, user_id: str, email: str) -> Contact | None:
 
 
 def add_contact(
-    db: Session, user_id: str, email: str, name: str | None = None
+    db: Session, user_id: str, email: str, name: str | None = None,
+    groups: list[str] | None = None,
 ) -> tuple[Contact | None, bool]:
     """Add a contact; if one with this email already exists, return it instead.
     Returns (contact, created?). A blank/invalid email yields (None, False)."""
@@ -49,11 +72,26 @@ def add_contact(
     p = parsed[0]
     existing = find_by_email(db, user_id, p.email)
     if existing is not None:
+        changed = False
         if p.name and not existing.name:  # fill in a missing name, don't overwrite
             existing.name = p.name
+            changed = True
+        if groups:  # union any new tags into the existing set
+            merged = list(existing.groups or [])
+            have = {g.lower() for g in merged}
+            for g in groups:
+                if g.lower() not in have:
+                    merged.append(g)
+                    have.add(g.lower())
+            existing.groups = merged
+            changed = True
+        if changed:
             db.commit()
         return existing, False
-    c = Contact(user_id=user_id, email=p.email, name=p.name, email_hash=_hash(p.email))
+    c = Contact(
+        user_id=user_id, email=p.email, name=p.name, email_hash=_hash(p.email),
+        groups=groups or [],
+    )
     db.add(c)
     db.commit()
     db.refresh(c)
@@ -74,10 +112,12 @@ def import_text(db: Session, user_id: str, text: str) -> tuple[int, int, list[st
 
 
 def update_contact(
-    db: Session, user_id: str, contact_id: str, email: str, name: str | None
+    db: Session, user_id: str, contact_id: str, email: str, name: str | None,
+    groups: list[str] | None = None,
 ) -> Contact | None:
     """Edit a contact. Returns None if not found/owned, or if the new email
-    would collide with a different existing contact."""
+    would collide with a different existing contact. When groups is not None it
+    replaces the contact's tags."""
     c = db.get(Contact, contact_id)
     if c is None or c.user_id != user_id:
         return None
@@ -91,6 +131,8 @@ def update_contact(
     c.email = p.email
     c.email_hash = _hash(p.email)
     c.name = p.name
+    if groups is not None:
+        c.groups = groups
     db.commit()
     return c
 

@@ -239,6 +239,21 @@ code {
   margin-bottom: .7rem;
 }
 .book-email { color: var(--ink-soft); font-size: .85em; }
+.book-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.book-group, .contact-groups {
+  font: inherit; padding: .3rem .5rem; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+}
+.contact-groups { flex: 1 1 7rem; min-width: 5rem; }
+
+/* address-book group filter chips */
+.group-filter { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; }
+.group-chip {
+  font: inherit; font-size: .82rem; cursor: pointer; padding: .25rem .7rem;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink-soft);
+}
+.group-chip:hover { border-color: var(--honey); color: var(--ink); }
+.group-chip.active { background: var(--honey); color: var(--ink); border-color: var(--honey); font-weight: 600; }
 
 /* "add these new people to your book?" prompt on the event page */
 .ask-note {

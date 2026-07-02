@@ -105,10 +105,15 @@
     <details class="faq import-book">
       <summary>Import from your address book ({{ contacts|length }})</summary>
       <div class="book-picker">
-        <label class="chk book-all"><input type="checkbox" id="bookAll"> Select all</label>
+        <div class="book-toolbar">
+          <label class="chk book-all"><input type="checkbox" id="bookAll"> Select all</label>
+          <select id="bookGroup" class="book-group" aria-label="Filter by group" hidden>
+            <option value="">All groups</option>
+          </select>
+        </div>
         <div class="book-items">
           {% for c in contacts %}
-          <label class="chk"><input type="checkbox" class="book-item" data-email="{{ c.email }}" data-name="{{ c.name or '' }}">
+          <label class="chk book-row" data-groups="{{ (c.groups or [])|join('|')|lower }}"><input type="checkbox" class="book-item" data-email="{{ c.email }}" data-name="{{ c.name or '' }}">
             {{ c.name or c.email }}{% if c.name %} <span class="book-email">&lt;{{ c.email }}&gt;</span>{% endif %}</label>
           {% endfor %}
         </div>
@@ -155,8 +160,39 @@
   var recips = document.getElementById("recipients");
   var bookAll = document.getElementById("bookAll");
   var bookAdd = document.getElementById("bookAdd");
+
+  // Group filter: build the dropdown from the contacts' tags; filtering + "Select
+  // all" (which only picks visible rows) together let you add a whole group.
+  var bookGroup = document.getElementById("bookGroup");
+  var bookRows = Array.prototype.slice.call(document.querySelectorAll(".book-row"));
+  if (bookGroup) {
+    var groups = {};
+    bookRows.forEach(function (row) {
+      (row.dataset.groups || "").split("|").filter(Boolean).forEach(function (g) { groups[g] = 1; });
+    });
+    var names = Object.keys(groups).sort();
+    names.forEach(function (g) {
+      var opt = document.createElement("option");
+      opt.value = g; opt.textContent = g;
+      bookGroup.appendChild(opt);
+    });
+    if (names.length) bookGroup.hidden = false;
+    bookGroup.addEventListener("change", function () {
+      var g = bookGroup.value;
+      bookRows.forEach(function (row) {
+        var rg = (row.dataset.groups || "").split("|").filter(Boolean);
+        row.hidden = g !== "" && rg.indexOf(g) === -1;
+      });
+      if (bookAll) bookAll.checked = false;
+    });
+  }
+
   if (bookAll) bookAll.addEventListener("change", function () {
-    document.querySelectorAll(".book-item").forEach(function (cb) { cb.checked = bookAll.checked; });
+    document.querySelectorAll(".book-item").forEach(function (cb) {
+      var row = cb.closest(".book-row");
+      if (row && row.hidden) return;  // only toggle currently-visible contacts
+      cb.checked = bookAll.checked;
+    });
   });
   if (bookAdd && recips) bookAdd.addEventListener("click", function () {
     var have = new Set(recips.value.split(/[\n,;]/).map(function (s) {

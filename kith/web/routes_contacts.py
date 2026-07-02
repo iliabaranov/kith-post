@@ -26,6 +26,7 @@ def contacts_page(
     ctx = {
         "settings": get_settings(), "user": user,
         "contacts": book.list_contacts(db, user.id),
+        "all_groups": book.all_groups(db, user.id),
         "added": added, "skipped": skipped,
     }
     return templates.TemplateResponse(request, "contacts.html", ctx)
@@ -34,12 +35,14 @@ def contacts_page(
 @router.post("/contacts/add")
 def add_one(
     request: Request, db: Session = Depends(get_db),
-    name: str = Form(""), email: str = Form(""),
+    name: str = Form(""), email: str = Form(""), groups: str = Form(""),
 ):
     user = load_user(request, db)
     if user is None:
         return RedirectResponse("/", status_code=303)
-    contact, created = book.add_contact(db, user.id, email, name.strip() or None)
+    contact, created = book.add_contact(
+        db, user.id, email, name.strip() or None, groups=book.parse_groups(groups)
+    )
     added = 1 if created else 0
     skipped = 1 if (contact is not None and not created) else 0
     return RedirectResponse(f"/contacts?added={added}&skipped={skipped}", status_code=303)
@@ -57,12 +60,14 @@ def import_bulk(request: Request, db: Session = Depends(get_db), people: str = F
 @router.post("/contacts/{contact_id}/edit")
 def edit_one(
     contact_id: str, request: Request, db: Session = Depends(get_db),
-    name: str = Form(""), email: str = Form(""),
+    name: str = Form(""), email: str = Form(""), groups: str = Form(""),
 ):
     user = load_user(request, db)
     if user is None:
         return RedirectResponse("/", status_code=303)
-    book.update_contact(db, user.id, contact_id, email, name.strip() or None)
+    book.update_contact(
+        db, user.id, contact_id, email, name.strip() or None, groups=book.parse_groups(groups)
+    )
     return RedirectResponse("/contacts", status_code=303)
 
 
@@ -82,9 +87,9 @@ def export_csv(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["name", "email"])
+    writer.writerow(["name", "email", "groups"])
     for c in book.list_contacts(db, user.id):
-        writer.writerow([c.name or "", c.email])
+        writer.writerow([c.name or "", c.email, ", ".join(c.groups or [])])
     return Response(
         buf.getvalue(),
         media_type="text/csv",
