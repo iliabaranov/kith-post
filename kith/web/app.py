@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import mimetypes
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 
@@ -33,6 +34,11 @@ from kith.web.routes_invite import router as invite_router
 
 log = logging.getLogger("kith")
 
+# Python's default mimetypes doesn't know woff2/woff; register so self-hosted
+# fonts are served as font/woff2 rather than application/octet-stream.
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+
 
 class CachedStaticFiles(StaticFiles):
     """StaticFiles that sets long-lived cache headers. URLs carrying a ``?v=``
@@ -42,7 +48,10 @@ class CachedStaticFiles(StaticFiles):
     async def get_response(self, path, scope):
         resp = await super().get_response(path, scope)
         if resp.status_code == 200:
-            if b"v=" in scope.get("query_string", b""):
+            versioned = b"v=" in scope.get("query_string", b"")
+            # font files have content-unique names and never change in place
+            is_font = path.endswith((".woff2", ".woff", ".ttf", ".otf"))
+            if versioned or is_font:
                 resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 resp.headers["Cache-Control"] = "public, max-age=3600"
@@ -119,8 +128,8 @@ def create_app() -> FastAPI:
         resp.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
             "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
         )
