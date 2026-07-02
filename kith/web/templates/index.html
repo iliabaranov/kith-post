@@ -41,11 +41,11 @@
   <p class="empty">No cards yet. <a class="link" href="/events/new">Make your first one.</a></p>
   {% endif %}
 
-  <p class="reassure">
+  <div class="reassure">
     <a class="link" href="/contacts">Address book</a> ·
     <a class="link" href="/account">Manage account</a> ·
     <form method="post" action="/auth/logout" class="inline-form"><button class="link-btn" type="submit">Sign out</button></form>
-  </p>
+  </div>
 </section>
 {% else %}
 <section class="hero">
@@ -83,8 +83,9 @@
       <dd>Anytime. Your account page has a one-click export and a permanent delete.</dd>
 
       <dt>Is it really free?</dt>
-      <dd>Yes, this is a free, open-source project, self-hosted by a friend. No ads, no
-        fees, no catch.</dd>
+      <dd>Yes, this is a free,
+        <a class="link" href="https://github.com/iliabaranov/kith-post" target="_blank" rel="noopener">open-source project</a>,
+        self-hosted by a friend. No ads, no fees, no catch.</dd>
     </dl>
   </details>
 </section>
