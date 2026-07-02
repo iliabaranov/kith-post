@@ -73,7 +73,7 @@ def test_preview_is_the_interactive_invite(client):
     assert "envelope" in p.text            # envelope intro present
     assert "5:00 pm" in p.text             # end time renders (start – end)
     assert "love, Mara" in p.text          # custom signoff (& escaped)
-    assert "How many of you" in p.text     # headcount step present
+    assert "How many are coming" in p.text  # headcount step present
 
 
 def test_form_has_disclosure_wiring(client):
@@ -191,11 +191,12 @@ def test_event_page_shows_rsvp_stats_and_list(client):
     client.post("/auth/dev-login")
     client.post(
         "/events",
-        data={"title": "Party", "recipients": "a@example.com\nb@example.com", "block_rsvp": "on"},
+        data={"title": "Party", "recipients": "a@example.com\nb@example.com",
+              "block_rsvp": "on", "block_headcount": "on"},
         follow_redirects=True,
     )
     toks = [r[0] for r in _db().execute("SELECT token FROM recipients").fetchall()]
-    client.post(f"/i/{toks[0]}/rsvp", data={"response": "coming", "party_size": "2"})
+    client.post(f"/i/{toks[0]}/rsvp", data={"response": "coming", "adults": "2"})
     client.post(f"/i/{toks[1]}/rsvp", data={"response": "declined"})
     page = client.get(f"/events/{_event_id()}").text
     assert "chip-coming" in page and "chip-declined" in page  # per-recipient chips

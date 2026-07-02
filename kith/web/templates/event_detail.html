@@ -108,7 +108,7 @@
       </span>
       <span class="rsvp-state">
         {% if r.when %}<span class="rsvp-when">{{ r.when }}</span>{% endif %}
-        <span class="chip chip-{{ r.state }}">{{ r.label }}{% if r.state == 'coming' and r.party_size and r.party_size > 1 %} · {{ r.party_size }}{% endif %}</span>
+        <span class="chip chip-{{ r.state }}">{{ r.label }}{% if r.state == 'coming' %}{% if r.adults or r.kids %} · {{ r.adults or 0 }} adult{{ '' if (r.adults or 0) == 1 else 's' }}{% if r.kids %}, {{ r.kids }} kid{{ '' if r.kids == 1 else 's' }}{% endif %}{% elif r.party_size and r.party_size > 1 %} · {{ r.party_size }}{% endif %}{% endif %}</span>
       </span>
     </li>
     {% endfor %}

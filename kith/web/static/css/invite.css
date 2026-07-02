@@ -87,6 +87,9 @@ body::before{ /* real paper grain */
 
 .headcount{margin-top:1.3rem; animation:rise .3s ease;}
 .headcount .q{margin:0 0 .8rem; font-weight:600; color:var(--ink);}
+.hc-steppers{display:flex; flex-wrap:wrap; gap:1.2rem; justify-content:center; margin:0 0 .3rem;}
+.hc-stepper{display:flex; flex-direction:column; align-items:center; gap:.4rem;}
+.hc-label{font-size:.85rem; color:var(--ink-soft);}
 .hc-max{color:var(--ink-soft); font-weight:400; font-size:.9rem;}
 .stepper{display:inline-flex; align-items:center; gap:1rem; border:1px solid var(--line);
   background:var(--paper); border-radius:14px; padding:.4rem .55rem;}

@@ -103,7 +103,7 @@ def test_rsvp_declined_persists(client):
 
 def test_party_size_clamped_to_headcount_max(client):
     tok = _make_event(client, block_headcount="on", headcount_max="2")
-    client.post(f"/i/{tok}/rsvp", data={"response": "coming", "party_size": "9"})
+    client.post(f"/i/{tok}/rsvp", data={"response": "coming", "adults": "9"})
     assert _recip("party_size") == 2  # server clamps, doesn't trust the stepper
 
 

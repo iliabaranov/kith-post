@@ -127,6 +127,7 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
             "name": r.name or r.email, "email": r.email,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
+            "adults": r.adults, "kids": r.kids,
             "note": r.note, "allergies": r.allergies,
         })
     return stats, recipients
@@ -408,6 +409,8 @@ def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db
         r.first_open_at = None
         r.rsvp_at = None
         r.party_size = None
+        r.adults = None
+        r.kids = None
         r.note = None
         r.allergies = None
     scheduler.cancel_all_pending_for_event(db, ev.id, reason="resend")

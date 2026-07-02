@@ -64,6 +64,8 @@ def view_invite(
         "token": token,
         "rsvp_status": r.status if r.status in ("coming", "declined") else None,
         "party_size": r.party_size,
+        "adults": r.adults,
+        "kids": r.kids,
         "note": r.note,
         "allergies": r.allergies,
         "locked": locked,
@@ -72,10 +74,17 @@ def view_invite(
     return templates.TemplateResponse(request, "invite.html", ctx)
 
 
+def _int(s: str, default: int) -> int:
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return default
+
+
 @router.post("/i/{token}/rsvp")
 def submit_rsvp(
     token: str, request: Request, db: Session = Depends(get_db),
-    response: str = Form(""), party_size: str = Form(""),
+    response: str = Form(""), adults: str = Form(""), kids: str = Form(""),
     note: str = Form(""), allergies: str = Form(""),
 ):
     r = _recipient(db, token)
@@ -85,15 +94,17 @@ def submit_rsvp(
     if _is_locked(ev):  # replies closed — ignore, just show the page
         return RedirectResponse(f"/i/{token}", status_code=303)
     if response == "coming":
-        cap = ev.headcount_max or 30
-        try:
-            n = int(party_size)
-        except (TypeError, ValueError):
-            n = 1
-        r.party_size = max(1, min(n, cap))  # never trust the client stepper
         r.status = "coming"
+        if (ev.blocks or {}).get("headcount"):
+            cap = ev.headcount_max or 30
+            a = min(max(1, _int(adults, 1)), cap)            # never trust the client
+            k = max(0, min(_int(kids, 0), cap - a))          # cap adults + kids together
+            r.adults, r.kids, r.party_size = a, k, a + k
+        else:  # no headcount asked → a single guest
+            r.adults = r.kids = None
+            r.party_size = 1
     elif response == "declined":
-        r.party_size = None
+        r.adults = r.kids = r.party_size = None
         r.status = "declined"
     else:
         return RedirectResponse(f"/i/{token}", status_code=303)

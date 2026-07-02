@@ -35,25 +35,31 @@
     const actions = document.getElementById("actions");
     const extra = document.getElementById("rsvpExtra"); // optional note/allergies fields
     const headcount = document.getElementById("headcount"); // may be absent
-    const inc = document.getElementById("inc");
-    const dec = document.getElementById("dec");
-    const countEl = document.getElementById("count");
     const confirmYes = document.getElementById("confirmYes");
     const back = document.getElementById("backToChoices");
-    const partySize = document.getElementById("partySize");
     const confirmEl = document.getElementById("confirm");
     const change = document.getElementById("change");
     const sComing = document.getElementById("stampComing");
     const sDeclined = document.getElementById("stampDeclined");
     const addcal = document.getElementById("addcal");
-    let count = parseInt((partySize && partySize.value) || "1", 10) || 1;
+    const $ = (id) => document.getElementById(id);
+    const aInc = $("incAdults"), aDec = $("decAdults"), aCount = $("countAdults"), aField = $("adultsField");
+    const kInc = $("incKids"), kDec = $("decKids"), kCount = $("countKids"), kField = $("kidsField");
+    let adults = parseInt((aField && aField.value) || "1", 10) || 1;
+    let kids = parseInt((kField && kField.value) || "0", 10) || 0;
     const maxGuests = (headcount && parseInt(headcount.dataset.max, 10)) || 30;
+    const total = () => adults + kids;
 
     const renderCount = () => {
-      if (countEl) countEl.textContent = count;
-      if (partySize) partySize.value = count;
-      if (dec) dec.disabled = count <= 1;
-      if (inc) inc.disabled = count >= maxGuests;
+      if (aCount) aCount.textContent = adults;
+      if (kCount) kCount.textContent = kids;
+      if (aField) aField.value = adults;
+      if (kField) kField.value = kids;
+      if (aDec) aDec.disabled = adults <= 1;   // at least one adult
+      if (kDec) kDec.disabled = kids <= 0;
+      const full = total() >= maxGuests;
+      if (aInc) aInc.disabled = full;
+      if (kInc) kInc.disabled = full;
     };
     const setPhase = (p) => {
       if (actions) actions.hidden = p !== "choose";
@@ -61,16 +67,18 @@
       if (extra) extra.hidden = p === "none";  // keep note/allergies visible while choosing
     };
 
-    // stepper (shared by both modes)
-    if (inc) inc.addEventListener("click", () => { count = Math.min(count + 1, maxGuests); renderCount(); });
-    if (dec) dec.addEventListener("click", () => { count = Math.max(count - 1, 1); renderCount(); });
+    // steppers (shared by both modes); the cap applies to adults + kids together
+    if (aInc) aInc.addEventListener("click", () => { if (total() < maxGuests) { adults++; renderCount(); } });
+    if (aDec) aDec.addEventListener("click", () => { adults = Math.max(1, adults - 1); renderCount(); });
+    if (kInc) kInc.addEventListener("click", () => { if (total() < maxGuests) { kids++; renderCount(); } });
+    if (kDec) kDec.addEventListener("click", () => { kids = Math.max(0, kids - 1); renderCount(); });
     if (back) back.addEventListener("click", () => setPhase("choose"));
-    // "I'll be there" reveals the stepper first (when a headcount is asked)
+    // "I'll be there" reveals the steppers first (when a headcount is asked)
     if (headcount) {
       yes.addEventListener("click", (e) => {
         e.preventDefault();
-        count = 1; renderCount(); setPhase("headcount");
-        if (inc) inc.focus();
+        adults = 1; kids = 0; renderCount(); setPhase("headcount");
+        if (aInc) aInc.focus();
       });
     }
 
@@ -81,7 +89,7 @@
         setPhase("none");
         if (sComing) sComing.classList.toggle("show", coming);
         if (sDeclined) sDeclined.classList.toggle("show", !coming);
-        if (confirmEl) confirmEl.textContent = coming ? comingMsg(count) : "Thanks for letting us know — you'll be missed.";
+        if (confirmEl) confirmEl.textContent = coming ? comingMsg(total()) : "Thanks for letting us know — you'll be missed.";
         if (change) change.hidden = false;
         if (addcal) addcal.hidden = !coming;
       };
@@ -99,10 +107,9 @@
       no.addEventListener("click", () => finalize(false));
       if (confirmYes) confirmYes.addEventListener("click", () => finalize(true));
       if (change) change.addEventListener("click", reopen);
-    } else if (confirmYes) {
-      // live: keep party size current, then let the form submit (PRG reload)
-      confirmYes.addEventListener("click", () => { if (partySize) partySize.value = count; });
     }
+    // live mode needs no extra JS here: the steppers keep the hidden adults/kids
+    // fields current, and the form submits normally (PRG reload renders the stamp).
   }
 
   // ---- image lightbox ----

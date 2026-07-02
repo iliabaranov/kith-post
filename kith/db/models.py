@@ -121,7 +121,9 @@ class Recipient(Base):
     name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     token: Mapped[str] = mapped_column(String, unique=True, index=True)
     status: Mapped[str] = mapped_column(String, default="queued")
-    party_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    party_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # total = adults + kids
+    adults: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kids: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)  # optional reply note
     # allergy / dietary note (only when the event asks)
     allergies: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)

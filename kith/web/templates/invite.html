@@ -87,13 +87,27 @@
 
           {% if blocks.headcount %}
           <div class="headcount" id="headcount" hidden data-max="{{ event.headcount_max or '' }}">
-            <p class="q">Lovely! How many of you are coming?{% if event.headcount_max %} <span class="hc-max">(up to {{ event.headcount_max }})</span>{% endif %}</p>
-            <div class="stepper" role="group" aria-label="Number of guests">
-              <button class="step" id="dec" type="button" aria-label="One fewer">&minus;</button>
-              <span class="count" id="count" aria-live="polite">1</span>
-              <button class="step" id="inc" type="button" aria-label="One more">+</button>
+            <p class="q">Lovely! How many are coming?{% if event.headcount_max %} <span class="hc-max">(up to {{ event.headcount_max }})</span>{% endif %}</p>
+            <div class="hc-steppers">
+              <div class="hc-stepper">
+                <span class="hc-label">Adults</span>
+                <div class="stepper" role="group" aria-label="Number of adults">
+                  <button class="step" id="decAdults" type="button" aria-label="One fewer adult">&minus;</button>
+                  <span class="count" id="countAdults" aria-live="polite">1</span>
+                  <button class="step" id="incAdults" type="button" aria-label="One more adult">+</button>
+                </div>
+              </div>
+              <div class="hc-stepper">
+                <span class="hc-label">Kids</span>
+                <div class="stepper" role="group" aria-label="Number of kids">
+                  <button class="step" id="decKids" type="button" aria-label="One fewer kid">&minus;</button>
+                  <span class="count" id="countKids" aria-live="polite">0</span>
+                  <button class="step" id="incKids" type="button" aria-label="One more kid">+</button>
+                </div>
+              </div>
             </div>
-            <input type="hidden" name="party_size" id="partySize" value="{{ party_size or 1 }}">
+            <input type="hidden" name="adults" id="adultsField" value="{{ adults or 1 }}">
+            <input type="hidden" name="kids" id="kidsField" value="{{ kids or 0 }}">
             <div class="hc-row">
               <button class="btn btn-primary" type="submit" name="response" value="coming" id="confirmYes">We'll be there</button>
               <button class="linklike" id="backToChoices" type="button">back</button>
