@@ -67,6 +67,11 @@
   {% else %}
   <p class="empty">No contacts yet. Add someone above, or they'll offer to be saved when you send a card.</p>
   {% endif %}
+
+  <div class="reassure">
+    <form method="post" action="/auth/logout" class="inline-form"><button class="link-btn" type="submit">Sign out</button></form> ·
+    <a class="link" href="/">Back home</a>
+  </div>
 </section>
 <script>
   // Filter the list by group tag (client-side; all contacts are already rendered).
