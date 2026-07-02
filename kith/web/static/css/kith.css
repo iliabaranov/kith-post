@@ -68,7 +68,7 @@ body::before {
   font-weight: 600;
   font-size: clamp(2.4rem, 8vw, 3.6rem);
   line-height: 1.05;
-  margin: 0 0 1rem;
+  margin: 0 0 1.2rem;
   color: var(--ink);
 }
 
@@ -76,7 +76,7 @@ body::before {
   font-size: 1.1rem;
   color: var(--ink-soft);
   max-width: 34rem;
-  margin: 0 auto 1.8rem;
+  margin: 0 auto 1.5rem;
 }
 
 .reassure {
@@ -91,7 +91,7 @@ body::before {
 .invite-note + .reassure { margin-top: .3rem; }
 
 /* privacy/usage FAQ — a quiet native <details> disclosure */
-.faq { max-width: 34rem; margin: 1.4rem auto 0; text-align: left; }
+.faq { max-width: 34rem; margin: 2.4rem auto 0; text-align: left; }
 .faq > summary {
   list-style: none;
   cursor: pointer;
