@@ -64,6 +64,8 @@ def view_invite(
         "token": token,
         "rsvp_status": r.status if r.status in ("coming", "declined") else None,
         "party_size": r.party_size,
+        "note": r.note,
+        "allergies": r.allergies,
         "locked": locked,
         "editing": bool(edit) and not locked,
     }
@@ -74,6 +76,7 @@ def view_invite(
 def submit_rsvp(
     token: str, request: Request, db: Session = Depends(get_db),
     response: str = Form(""), party_size: str = Form(""),
+    note: str = Form(""), allergies: str = Form(""),
 ):
     r = _recipient(db, token)
     ev = db.get(Event, r.event_id) if r else None
@@ -94,6 +97,8 @@ def submit_rsvp(
         r.status = "declined"
     else:
         return RedirectResponse(f"/i/{token}", status_code=303)
+    r.note = note.strip() or None
+    r.allergies = (allergies.strip() or None) if (ev.blocks or {}).get("allergies") else None
     r.rsvp_at = datetime.now(UTC)
     if r.first_open_at is None:
         r.first_open_at = r.rsvp_at

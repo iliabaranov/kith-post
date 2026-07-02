@@ -29,7 +29,7 @@ router = APIRouter()
 # holiday card depending only on what they choose to add.
 DEFAULT_BLOCKS = {
     "message": False, "date": False, "time": False,
-    "location": False, "rsvp": False, "headcount": False,
+    "location": False, "rsvp": False, "headcount": False, "allergies": False,
 }
 
 
@@ -53,7 +53,7 @@ def _parse_int(s: str, lo: int = 1, hi: int = 30) -> int | None:
         return None
 
 
-def _blocks_from_form(message, date_, time_, location_, rsvp, headcount) -> dict:
+def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergies) -> dict:
     """What shows on the card. Each block is on when its checkbox is ticked
     (arrives "on" / None). The form reveals each field only while its box is
     checked, so you can't fill a hidden field and have it silently vanish. Time
@@ -65,6 +65,7 @@ def _blocks_from_form(message, date_, time_, location_, rsvp, headcount) -> dict
         "location": location_ is not None,
         "rsvp": rsvp is not None,
         "headcount": headcount is not None,
+        "allergies": allergies is not None,
     }
 
 
@@ -126,6 +127,7 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
             "name": r.name or r.email, "email": r.email,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
+            "note": r.note, "allergies": r.allergies,
         })
     return stats, recipients
 
@@ -235,13 +237,15 @@ async def create_event(
     block_location: str | None = Form(None),
     block_rsvp: str | None = Form(None),
     block_headcount: str | None = Form(None),
+    block_allergies: str | None = Form(None),
     image: UploadFile | None = File(None),
 ):
     user = load_user(request, db)
     if user is None:
         return RedirectResponse("/", status_code=303)
     blocks = _blocks_from_form(
-        block_message, block_date, block_time, block_location, block_rsvp, block_headcount
+        block_message, block_date, block_time, block_location, block_rsvp,
+        block_headcount, block_allergies
     )
     try:
         derived = await _read_image(image)
@@ -404,6 +408,8 @@ def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db
         r.first_open_at = None
         r.rsvp_at = None
         r.party_size = None
+        r.note = None
+        r.allergies = None
     scheduler.cancel_all_pending_for_event(db, ev.id, reason="resend")
     db.commit()
     result = send.send_event(
@@ -487,6 +493,7 @@ async def update_event(
     block_location: str | None = Form(None),
     block_rsvp: str | None = Form(None),
     block_headcount: str | None = Form(None),
+    block_allergies: str | None = Form(None),
     image: UploadFile | None = File(None),
 ):
     user = load_user(request, db)
@@ -496,7 +503,8 @@ async def update_event(
     if ev is None:
         return RedirectResponse("/", status_code=303)
     blocks = _blocks_from_form(
-        block_message, block_date, block_time, block_location, block_rsvp, block_headcount
+        block_message, block_date, block_time, block_location, block_rsvp,
+        block_headcount, block_allergies
     )
     try:
         derived = await _read_image(image)

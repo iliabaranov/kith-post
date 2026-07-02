@@ -67,6 +67,16 @@ body::before{ /* real paper grain */
 
 .actions{display:flex; flex-wrap:wrap; gap:.7rem; margin-top:1.3rem;}
 .actions[hidden],.headcount[hidden]{display:none;}
+
+/* optional reply fields (allergies + note) */
+.rsvp-extra{display:flex; flex-direction:column; gap:.8rem; margin-top:1.3rem; text-align:left;}
+.rsvp-extra[hidden]{display:none;}
+.rsvp-field{display:flex; flex-direction:column; gap:.35rem;}
+.rsvp-field-label{font-size:.9rem; font-weight:600; color:var(--ink);}
+.rsvp-field .opt{font-weight:400; color:var(--ink-soft); font-size:.82rem;}
+.rsvp-field textarea{font:inherit; width:100%; resize:vertical; border:1px solid var(--line);
+  border-radius:12px; padding:.6rem .7rem; background:var(--card); color:var(--ink);}
+.rsvp-field textarea:focus-visible{outline:2px solid var(--honey); outline-offset:1px; border-color:var(--honey);}
 .btn{font:inherit; font-weight:600; cursor:pointer; border-radius:12px; padding:.8rem 1.3rem;
   border:1px solid transparent; transition:transform .12s ease, box-shadow .12s ease, background .12s ease;}
 .btn:focus-visible{outline:3px solid var(--honey); outline-offset:2px;}

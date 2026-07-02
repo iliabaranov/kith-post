@@ -275,6 +275,8 @@ code {
 .rsvp-who { display: flex; flex-direction: column; min-width: 0; }
 .rsvp-name { color: var(--ink); font-weight: 500; }
 .rsvp-email { color: var(--ink-soft); font-size: .82rem; }
+.rsvp-note { color: var(--ink-soft); font-size: .82rem; margin-top: .15rem; }
+.rsvp-note b { color: var(--ink); font-weight: 600; }
 .rsvp-state { display: flex; align-items: center; gap: .7rem; flex: 0 0 auto; }
 .rsvp-when { color: var(--ink-soft); font-size: .8rem; }
 .chip {

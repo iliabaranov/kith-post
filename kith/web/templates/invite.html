@@ -68,6 +68,18 @@
         <form class="rsvp-form" id="rsvpForm" method="post"
               action="{{ ('/i/' ~ token ~ '/rsvp') if not preview else '' }}"
               data-preview="{{ '1' if preview else '' }}">
+          <div class="rsvp-extra" id="rsvpExtra"{% if responded and not editing %} hidden{% endif %}>
+            {% if blocks.allergies %}
+            <label class="rsvp-field">
+              <span class="rsvp-field-label">Any allergies or dietary needs? <span class="opt">optional</span></span>
+              <textarea name="allergies" rows="2" maxlength="500" placeholder="e.g. nut allergy, vegetarian">{{ allergies or '' }}</textarea>
+            </label>
+            {% endif %}
+            <label class="rsvp-field">
+              <span class="rsvp-field-label">Add a note back <span class="opt">optional</span></span>
+              <textarea name="note" rows="2" maxlength="1000" placeholder="Say hello, or let them know…">{{ note or '' }}</textarea>
+            </label>
+          </div>
           <div class="actions" id="actions"{% if responded and not editing %} hidden{% endif %}>
             <button class="btn btn-primary" type="submit" name="response" value="coming" id="yes">I'll be there</button>
             <button class="btn btn-quiet" type="submit" name="response" value="declined" id="no">Can't make it</button>

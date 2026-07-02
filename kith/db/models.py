@@ -122,7 +122,9 @@ class Recipient(Base):
     token: Mapped[str] = mapped_column(String, unique=True, index=True)
     status: Mapped[str] = mapped_column(String, default="queued")
     party_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    note: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    note: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)  # optional reply note
+    # allergy / dietary note (only when the event asks)
+    allergies: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rsvp_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

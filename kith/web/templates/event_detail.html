@@ -103,6 +103,8 @@
       <span class="rsvp-who">
         <span class="rsvp-name">{{ r.name }}</span>
         {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}</span>{% endif %}
+        {% if r.allergies %}<span class="rsvp-note"><b>Allergies:</b> {{ r.allergies }}</span>{% endif %}
+        {% if r.note %}<span class="rsvp-note"><b>Note:</b> {{ r.note }}</span>{% endif %}
       </span>
       <span class="rsvp-state">
         {% if r.when %}<span class="rsvp-when">{{ r.when }}</span>{% endif %}

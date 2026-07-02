@@ -33,6 +33,7 @@
     const preview = !!(form && form.dataset.preview === "1");
     const no = document.getElementById("no");
     const actions = document.getElementById("actions");
+    const extra = document.getElementById("rsvpExtra"); // optional note/allergies fields
     const headcount = document.getElementById("headcount"); // may be absent
     const inc = document.getElementById("inc");
     const dec = document.getElementById("dec");
@@ -57,6 +58,7 @@
     const setPhase = (p) => {
       if (actions) actions.hidden = p !== "choose";
       if (headcount) headcount.hidden = p !== "headcount";
+      if (extra) extra.hidden = p === "none";  // keep note/allergies visible while choosing
     };
 
     // stepper (shared by both modes)
