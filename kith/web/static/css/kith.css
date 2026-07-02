@@ -29,6 +29,25 @@ body {
   display: flex;
   flex-direction: column;
   -webkit-font-smoothing: antialiased;
+  /* Native form controls (checkboxes, and the highlight inside the date/time
+     picker popups) pick up our honey accent; force light so an OS dark theme
+     doesn't render a black calendar against the cream page. The popup's body
+     is browser chrome and can't be styled further via CSS. */
+  color-scheme: light;
+  accent-color: var(--honey);
+}
+
+/* the little calendar/clock icon that opens the native picker */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: .55;
+}
+input[type="date"]:hover::-webkit-calendar-picker-indicator,
+input[type="time"]:hover::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator {
+  opacity: .9;
 }
 
 /* real paper grain, not a flat fill */
