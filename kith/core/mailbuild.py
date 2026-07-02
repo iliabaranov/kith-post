@@ -8,11 +8,17 @@ through to their invitation page. Email HTML must use inline styles.
 from __future__ import annotations
 
 import base64
+import uuid
 from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
 
 IMAGE_CID = "cardimage"
+
+
+def make_message_id(domain: str = "kith.post") -> str:
+    """A fresh RFC822 Message-ID we control, so replies can reference it."""
+    return f"<{uuid.uuid4().hex}@{domain}>"
 
 
 def subject_for(title: str, rsvp: bool) -> str:
@@ -51,8 +57,6 @@ def invite_html(
   {img}
   <h1 style="margin:0 0 12px;font-size:28px;line-height:1.15;color:#3B2A33;">{title_html}</h1>
   {msg_html}
-  <p style="margin:0 0 24px;font-size:15px;color:#6E5C63;{sans}">
-    {escape(host_name)} sent you {"an invitation" if rsvp else "a card"} with Kith Post.</p>
   <a href="{escape(view_url)}" style="display:inline-block;background:#E2972B;color:#3B2A33;
     text-decoration:none;font-weight:bold;{sans}
     padding:14px 24px;border-radius:12px;">{cta}</a>
@@ -73,8 +77,6 @@ def invite_text(
         lines += ["", message]
     lines += [
         "",
-        f"{host_name} sent you {'an invitation' if rsvp else 'a card'} with Kith Post.",
-        "",
         f"{'View it and RSVP' if rsvp else 'View your card'}: {view_url}",
     ]
     return "\n".join(lines) + "\n"
@@ -84,13 +86,16 @@ def build_email(
     *, subject: str, from_name: str, from_email: str, to_email: str,
     to_name: str | None = None, html: str, text: str,
     image_bytes: bytes | None = None, image_subtype: str = "jpeg",
+    message_id: str | None = None,
     in_reply_to: str | None = None, references: str | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
     msg["To"] = formataddr((to_name, to_email)) if to_name else to_email
-    if in_reply_to:  # best-effort RFC822 threading; Gmail also threads via threadId
+    if message_id:
+        msg["Message-ID"] = message_id
+    if in_reply_to:  # RFC822 threading; Gmail also needs the threadId at send time
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = references or in_reply_to
     msg.set_content(text)
@@ -113,15 +118,14 @@ def reminder_html(*, title: str, host_name: str, view_url: str, rsvp: bool) -> s
     sans = "font-family:Helvetica,Arial,sans-serif;"
     cta = "View invitation &amp; RSVP" if rsvp else "View your card"
     lead = (
-        "Just a gentle nudge — we'd still love to know if you can make it."
+        "Just a gentle nudge, we'd still love to know if you can make it."
         if rsvp else "Just a gentle nudge, in case you missed this."
     )
     title_html = escape(title or "your invitation")
     return f"""\
 <!doctype html><html><body style="margin:0;background:#F4ECDD;">
 <div style="max-width:560px;margin:0 auto;padding:28px 20px;{sans}">
-  <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#3B2A33;">
-    Hi — {escape(host_name)} here. {lead}</p>
+  <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#3B2A33;">{lead}</p>
   <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#3B2A33;">
     <strong>{title_html}</strong></p>
   <a href="{escape(view_url)}" style="display:inline-block;background:#E2972B;color:#3B2A33;
@@ -133,11 +137,11 @@ def reminder_html(*, title: str, host_name: str, view_url: str, rsvp: bool) -> s
 
 def reminder_text(*, title: str, host_name: str, view_url: str, rsvp: bool) -> str:
     lead = (
-        "Just a gentle nudge — we'd still love to know if you can make it."
+        "Just a gentle nudge, we'd still love to know if you can make it."
         if rsvp else "Just a gentle nudge, in case you missed this."
     )
     lines = [
-        f"Hi — {host_name} here. {lead}",
+        lead,
         "",
         title or "your invitation",
         "",

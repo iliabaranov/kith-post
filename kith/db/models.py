@@ -132,8 +132,11 @@ class Recipient(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rsvp_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # reply-threading (G5)
-    thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # Gmail resource id
+    thread_id: Mapped[str | None] = mapped_column(String, nullable=True)   # Gmail threadId
+    # RFC822 Message-ID we stamp on the first send; reminders/re-sends reference it
+    # (In-Reply-To/References) so Gmail threads them as one conversation.
+    rfc822_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -87,6 +87,18 @@ def test_live_sends_to_the_recipient(tmp_path, monkeypatch):
     assert "a@example.com" in captured["to"]
 
 
+def test_send_stamps_anchor_message_id_and_drops_host_line(tmp_path):
+    db = _session(tmp_path)
+    u, ev = _seed(db)
+    s = Settings(send_mode=SendMode.dry_run, data_dir=tmp_path / "data", base_url="https://x")
+    send.send_event(db, ev, u, s)
+    r = db.execute(select(Recipient)).scalar_one()
+    assert r.rfc822_message_id and r.rfc822_message_id.startswith("<")  # anchor stored
+    raw = next((tmp_path / "data" / "outbox" / ev.id).glob("*.eml")).read_text()
+    assert "Message-ID:" in raw
+    assert "sent you an invitation" not in raw  # the extra host line is gone
+
+
 def test_failed_send_leaves_recipient_queued(tmp_path, monkeypatch):
     db = _session(tmp_path)
     u, ev = _seed(db, rt="rt")

@@ -64,11 +64,16 @@ def send_event(
         html = mailbuild.invite_html(has_image=bool(image_bytes), rsvp=rsvp, note=note, **common)
         text = mailbuild.invite_text(rsvp=rsvp, note=note, **common)
         to_email = user.email if settings.send_mode == SendMode.self_only else r.email
+        # Threading: the first send stamps an anchor Message-ID we keep; a re-send
+        # (recipient already has one) references that anchor so Gmail threads it.
+        anchor = r.rfc822_message_id
+        this_id = mailbuild.make_message_id()
         msg = mailbuild.build_email(
             subject=mailbuild.subject_for(event.title, rsvp),
             from_name=user.display_name, from_email=user.email,
             to_email=to_email, to_name=r.name, html=html, text=text,
             image_bytes=image_bytes, image_subtype=image_subtype,
+            message_id=this_id, in_reply_to=anchor, references=anchor,
         )
         try:
             if settings.send_mode == SendMode.dry_run:
@@ -81,6 +86,8 @@ def send_event(
                 )
                 r.msg_id_hdr = res.get("id")
                 r.thread_id = res.get("threadId")
+            if not anchor:  # remember the first message as the thread anchor
+                r.rfc822_message_id = this_id
             r.status = "sent"
             r.sent_at = datetime.now(UTC)
             sent += 1

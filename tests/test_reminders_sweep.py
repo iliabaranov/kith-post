@@ -157,6 +157,28 @@ def test_self_only_threads_to_host(tmp_path, monkeypatch):
     assert cap["thread"] == "TID"
 
 
+def test_reminder_references_anchor_for_threading(tmp_path, monkeypatch):
+    f = _factory(tmp_path)
+    db = f()
+    _, ev, r = _seed(db, thread="T")
+    r.rfc822_message_id = "<anchor@kith.post>"
+    db.commit()
+    _reminder(db, ev, r, PAST)
+    db.close()
+    cap = {}
+
+    def fake(settings, refresh_token, raw_b64, thread_id=None):
+        cap["raw"] = base64.urlsafe_b64decode(raw_b64).decode(errors="ignore")
+        cap["thread"] = thread_id
+        return {"id": "m", "threadId": "T"}
+
+    monkeypatch.setattr("kith.services.gmail.gmail_send", fake)
+    assert scheduler.sweep_tick(f, _settings(tmp_path, SendMode.self_only), now=NOW).sent == 1
+    assert "In-Reply-To: <anchor@kith.post>" in cap["raw"]
+    assert "References: <anchor@kith.post>" in cap["raw"]
+    assert cap["thread"] == "T"
+
+
 def test_idempotent_across_ticks(tmp_path):
     f = _factory(tmp_path)
     db = f()
