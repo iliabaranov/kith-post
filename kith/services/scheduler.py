@@ -89,7 +89,7 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
         text=mailbuild.reminder_text(
             title=ev.title, host_name=host_name, view_url=view_url, rsvp=rsvp
         ),
-        message_id=mailbuild.make_message_id(),
+        message_id=mailbuild.make_message_id(user.email.rsplit("@", 1)[-1] or "kith.post"),
         in_reply_to=r.rfc822_message_id,   # thread under the original (with threadId)
         references=r.rfc822_message_id,
     )

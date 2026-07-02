@@ -68,7 +68,11 @@ def send_event(
         # Threading: the first send stamps an anchor Message-ID we keep; a re-send
         # (recipient already has one) references that anchor so Gmail threads it.
         anchor = r.rfc822_message_id
-        this_id = mailbuild.make_message_id()
+        # Use the sender's own domain so Gmail is more likely to preserve the
+        # Message-ID (it overwrites IDs whose domain doesn't match the account),
+        # which is what lets reminders/re-sends thread via References.
+        mid_domain = user.email.rsplit("@", 1)[-1] or "kith.post"
+        this_id = mailbuild.make_message_id(mid_domain)
         msg = mailbuild.build_email(
             subject=mailbuild.subject_for(event.title, rsvp),
             from_name=user.display_name, from_email=user.email,
