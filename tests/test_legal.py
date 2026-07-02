@@ -8,7 +8,7 @@ def test_privacy_page(client):
     assert "gmail.send" in r.text
     assert "Limited Use" in r.text                       # required Google disclosure
     assert "api-services-user-data-policy" in r.text     # linked policy
-    assert "hello@example.com" in r.text           # contact
+    assert "hello@example.com" in r.text                  # contact (KITH_CONTACT_EMAIL)
 
 
 def test_terms_page(client):
