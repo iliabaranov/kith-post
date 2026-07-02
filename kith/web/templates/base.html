@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>document.documentElement.classList.add("js");</script>
   <title>{% block title %}{{ settings.app_name }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}Send free, private digital invitations and holiday cards from your own Gmail — with RSVP tracking and reminders. Self-hosted, privacy-first, no ads or trackers.{% endblock %}">
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}">
   <style>{{ inline_css('fonts.css')|safe }}
 {{ inline_css('kith.css')|safe }}</style>
