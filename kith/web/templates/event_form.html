@@ -25,6 +25,20 @@
       <span class="field-hint">Shown on the card and used as the email's subject line.</span>
     </label>
 
+    <fieldset class="field cardstyle">
+      <legend class="field-label">Card style</legend>
+      <div class="style-picker">
+        {% for value, meta in card_styles.items() %}
+        <label class="style-swatch" title="{{ meta[1] }}">
+          <input type="radio" name="card_style" value="{{ value }}"{% if value == selected_style %} checked{% endif %}>
+          <span class="swatch-mini m-{{ value }}" aria-hidden="true"></span>
+          <span class="swatch-name">{{ meta[0] }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <span class="field-hint">How your invitation is framed — it doesn't change your photo or words.</span>
+    </fieldset>
+
     <fieldset class="blocks">
       <legend class="field-label">What to include</legend>
       <label class="chk"><input type="checkbox" id="cb-message" data-reveal="t-message"

@@ -103,6 +103,8 @@ class Event(Base):
     timezone: Mapped[str | None] = mapped_column(String, nullable=True)  # IANA tz for calendar
     location: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)  # PII
     signoff: Mapped[str | None] = mapped_column(String, nullable=True)  # signature line
+    # frame/background treatment of the invitation card; NULL = "washi" (the default)
+    card_style: Mapped[str | None] = mapped_column(String, nullable=True)
     # blocks = which sections the recipient sees: date/time/location/message/rsvp/headcount
     blocks: Mapped[dict] = mapped_column(JSON, default=dict)
     headcount_max: Mapped[int | None] = mapped_column(Integer, nullable=True)  # cap per invite

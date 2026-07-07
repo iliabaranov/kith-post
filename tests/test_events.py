@@ -1,6 +1,7 @@
 """Compose-a-card flow (G2), via the dev-login session."""
 
 import io
+import re
 import sqlite3
 
 from PIL import Image
@@ -83,7 +84,9 @@ def test_form_has_disclosure_wiring(client):
     assert "What to include" in f
     for tid in ("t-message", "t-date", "t-time", "t-location", "t-headcount"):
         assert f'id="{tid}"' in f and f'data-reveal="{tid}"' in f
-    assert "checked>" not in f  # a new card starts blank — no box pre-selected
+    # a new card starts blank — no "What to include" checkbox pre-selected.
+    # (The card-style radio legitimately defaults to washi, so scope this to checkboxes.)
+    assert not re.search(r'type="checkbox"[^>]*\bchecked\b', f)
     assert 'classList.add("js")' in client.get("/").text  # no-JS keeps fields visible
 
 

@@ -16,6 +16,7 @@ from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
 from kith.core import images
 from kith.core import recipients as rcpt
+from kith.core.cardstyles import CARD_STYLES, normalize_card_style
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
@@ -215,6 +216,7 @@ def new_event(request: Request, db: Session = Depends(get_db)):
         "settings": get_settings(), "user": user, "event": None,
         "blocks": DEFAULT_BLOCKS, "recipients_text": "", "error": None,
         "contacts": book.list_contacts(db, user.id),
+        "card_styles": CARD_STYLES, "selected_style": normalize_card_style(None),
     }
     return templates.TemplateResponse(request, "event_form.html", ctx)
 
@@ -230,6 +232,7 @@ async def create_event(
     event_end_time: str = Form(""),
     location: str = Form(""),
     signoff: str = Form(""),
+    card_style: str = Form("washi"),
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
@@ -256,6 +259,7 @@ async def create_event(
             "settings": get_settings(), "user": user, "event": None, "blocks": blocks,
             "recipients_text": recipients, "error": str(e),
             "contacts": book.list_contacts(db, user.id),
+            "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
         return templates.TemplateResponse(request, "event_form.html", ctx, status_code=400)
 
@@ -269,6 +273,7 @@ async def create_event(
         event_end_time=(event_end_time.strip() or None),
         location=(location.strip() or None),
         signoff=(signoff.strip() or None),
+        card_style=normalize_card_style(card_style),
         blocks=blocks,
         headcount_max=_parse_int(headcount_max),
         timezone=(timezone.strip() or None),
@@ -503,6 +508,7 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
         "settings": get_settings(), "user": user, "event": ev,
         "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text, "error": None,
         "contacts": book.list_contacts(db, user.id),
+        "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
     }
     return templates.TemplateResponse(request, "event_form.html", ctx)
 
@@ -519,6 +525,7 @@ async def update_event(
     event_end_time: str = Form(""),
     location: str = Form(""),
     signoff: str = Form(""),
+    card_style: str = Form("washi"),
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
@@ -548,6 +555,7 @@ async def update_event(
             "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
             "recipients_text": recipients, "error": str(e),
             "contacts": book.list_contacts(db, user.id),
+            "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
         return templates.TemplateResponse(request, "event_form.html", ctx, status_code=400)
 
@@ -561,6 +569,7 @@ async def update_event(
     ev.event_end_time = (event_end_time.strip() or None)
     ev.location = (location.strip() or None)
     ev.signoff = (signoff.strip() or None)
+    ev.card_style = normalize_card_style(card_style)
     ev.headcount_max = _parse_int(headcount_max)
     ev.timezone = (timezone.strip() or None)
     ev.blocks = blocks
@@ -602,6 +611,7 @@ def preview_event(event_id: str, request: Request, db: Session = Depends(get_db)
         "preview": True,
         "token": None, "rsvp_status": None, "party_size": None,
         "locked": False, "editing": False,
+        "card_style": normalize_card_style(ev.card_style),
     }
     return templates.TemplateResponse(request, "invite.html", ctx)
 

@@ -17,9 +17,14 @@
     {% if blocks.rsvp %}<p class="eyebrow">you're invited</p>{% endif %}
 
     <div class="stage">
-      <article class="card" id="card">
+      <article class="card f-{{ card_style|default('washi') }}" id="card">
         <span class="tape l" aria-hidden="true"></span>
         <span class="tape r" aria-hidden="true"></span>
+        <span class="pcorner tl" aria-hidden="true"></span>
+        <span class="pcorner tr" aria-hidden="true"></span>
+        <span class="pcorner bl" aria-hidden="true"></span>
+        <span class="pcorner br" aria-hidden="true"></span>
+        <span class="postmark" aria-hidden="true"><span>Kith<br>Post</span></span>
 
         <div class="card-figure">
           {% if image_url %}

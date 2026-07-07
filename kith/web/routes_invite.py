@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from kith.config import get_settings
 from kith.core import calendar as cal
+from kith.core.cardstyles import normalize_card_style
 from kith.db.models import Asset, Event, Recipient, User
 from kith.services import scheduler
 from kith.web.deps import get_db, templates
@@ -64,6 +65,7 @@ def view_invite(
         "gcal_url": gcal_url,
         "ics_url": (f"/i/{token}/calendar.ics" if gcal_url else None),
         "preview": False,
+        "card_style": normalize_card_style(ev.card_style),
         "token": token,
         "rsvp_status": r.status if r.status in ("coming", "declined") else None,
         "party_size": r.party_size,
