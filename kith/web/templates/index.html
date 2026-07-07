@@ -21,15 +21,17 @@
   <ul class="event-list">
     {% for e in events %}
     {% set passed = e.event_date and e.event_date < today %}
-    <li class="event-row{% if passed %} is-past{% endif %}">
+    {% set sent_on = sent_at.get(e.id) %}
+    {% set dateless_sent = (not e.event_date) and sent_on %}
+    <li class="event-row{% if passed or dateless_sent %} is-past{% endif %}">
       <a class="event-link" href="/events/{{ e.id }}">
         <span class="event-title">{{ e.title or "Untitled card" }}</span>
         <span class="event-meta">
-          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% endif %}
+          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% elif dateless_sent %}Sent {{ sent_on.strftime('%b %d, %Y') }} · {% endif %}
           {% set n = counts.get(e.id, 0) %}{{ n }} recipient{{ '' if n == 1 else 's' }}
         </span>
       </a>
-      {% if passed %}<span class="event-flag">event passed</span>{% endif %}
+      {% if passed %}<span class="event-flag">event passed</span>{% elif dateless_sent %}<span class="event-flag">sent</span>{% endif %}
       <form class="event-del" method="post" action="/events/{{ e.id }}/delete"
             onsubmit="return confirm('Delete “{{ (e.title or 'this card')|e }}” and its recipients? This can’t be undone.')">
         <button class="row-del" type="submit" title="Delete this card" aria-label="Delete {{ e.title or 'this card' }}">✕</button>

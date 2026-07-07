@@ -304,3 +304,29 @@ def test_delete_account_cascades_events_and_recipients(client):
     assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
     assert db.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
     assert db.execute("SELECT COUNT(*) FROM recipients").fetchone()[0] == 0
+
+
+def test_dateless_sent_card_is_dimmed_with_sent_date(client):
+    """A card with no date, once sent, greys out like a passed event and shows
+    when it went out."""
+    client.post("/auth/dev-login")
+    client.post("/events", data={"title": "Holiday card", "recipients": "a@example.com"})
+    eid = _event_id()
+    db = _db()
+    db.execute("UPDATE recipients SET status='sent', sent_at='2026-01-15 10:00:00' "
+               "WHERE event_id=?", (eid,))
+    db.commit()
+    page = client.get("/").text
+    # assert on the element's class attribute, not the substring (kith.css is
+    # inlined, so ".event-row.is-past" would always match)
+    assert "event-row is-past" in page       # greyed, same as a passed event
+    assert "Sent Jan 15, 2026" in page       # shows the send date
+    assert 'event-flag">sent' in page
+
+
+def test_dateless_unsent_card_is_not_dimmed(client):
+    client.post("/auth/dev-login")
+    client.post("/events", data={"title": "Draft card", "recipients": "a@example.com"})
+    page = client.get("/").text
+    assert "event-row is-past" not in page
+    assert "Sent " not in page

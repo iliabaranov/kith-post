@@ -156,21 +156,30 @@ def create_app() -> FastAPI:
         user = load_user(request, db)
         events = []
         counts: dict[str, int] = {}
+        sent_at: dict[str, datetime] = {}
         if user is not None:
             events = db.execute(
                 select(Event).where(Event.user_id == user.id).order_by(Event.created_at.desc())
             ).scalars().all()
             if events:
+                ids = [e.id for e in events]
                 counts = dict(
                     db.execute(
                         select(Recipient.event_id, func.count())
-                        .where(Recipient.event_id.in_([e.id for e in events]))
+                        .where(Recipient.event_id.in_(ids))
                         .group_by(Recipient.event_id)
                     ).all()
                 )
+                # earliest send time per event → "Sent <date>" for dateless cards
+                for eid, ts in db.execute(
+                    select(Recipient.event_id, Recipient.sent_at)
+                    .where(Recipient.event_id.in_(ids), Recipient.sent_at.is_not(None))
+                ).all():
+                    if ts is not None and (eid not in sent_at or ts < sent_at[eid]):
+                        sent_at[eid] = ts
         ctx = {
             "settings": settings, "user": user, "events": events,
-            "counts": counts, "today": date.today(),
+            "counts": counts, "today": date.today(), "sent_at": sent_at,
         }
         return templates.TemplateResponse(request, "index.html", ctx)
 
