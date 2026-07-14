@@ -11,6 +11,7 @@ import logging
 import mimetypes
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
         events = []
         counts: dict[str, int] = {}
         sent_at: dict[str, datetime] = {}
+        scheduled_disp: dict[str, str] = {}
         if user is not None:
             events = db.execute(
                 select(Event).where(Event.user_id == user.id).order_by(Event.created_at.desc())
@@ -177,9 +179,26 @@ def create_app() -> FastAPI:
                 ).all():
                     if ts is not None and (eid not in sent_at or ts < sent_at[eid]):
                         sent_at[eid] = ts
+                # scheduled send time as MM/DD/YY, in the card's own timezone
+                for e in events:
+                    if not e.scheduled_send_at:
+                        continue
+                    d = e.scheduled_send_at
+                    if d.tzinfo is None:
+                        d = d.replace(tzinfo=UTC)
+                    tz = None
+                    if e.timezone:
+                        try:
+                            tz = ZoneInfo(e.timezone)
+                        except Exception:
+                            tz = None
+                    if tz is not None:
+                        d = d.astimezone(tz)
+                    scheduled_disp[e.id] = d.strftime("%m/%d/%y")
         ctx = {
             "settings": settings, "user": user, "events": events,
             "counts": counts, "today": date.today(), "sent_at": sent_at,
+            "scheduled_disp": scheduled_disp,
         }
         return templates.TemplateResponse(request, "index.html", ctx)
 

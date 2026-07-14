@@ -165,3 +165,4 @@ def test_dashboard_flags_scheduled_card(client):
     page = client.get("/").text
     assert 'event-flag">scheduled' in page
     assert "event-row is-scheduled" in page
+    assert "Scheduled to send 12/31/99" in page   # shortform MM/DD/YY, in the card's tz

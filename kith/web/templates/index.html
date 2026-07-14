@@ -28,7 +28,7 @@
       <a class="event-link" href="/events/{{ e.id }}">
         <span class="event-title">{{ e.title or "Untitled card" }}</span>
         <span class="event-meta">
-          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% elif scheduled %}Scheduled {{ e.scheduled_send_at.strftime('%b %d') }} · {% elif dateless_sent %}Sent {{ sent_on.strftime('%b %d, %Y') }} · {% endif %}
+          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% elif scheduled %}Scheduled to send {{ scheduled_disp.get(e.id, '') }} · {% elif dateless_sent %}Sent {{ sent_on.strftime('%b %d, %Y') }} · {% endif %}
           {% set n = counts.get(e.id, 0) %}{{ n }} recipient{{ '' if n == 1 else 's' }}
         </span>
       </a>
