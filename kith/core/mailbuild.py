@@ -88,11 +88,14 @@ def build_email(
     image_bytes: bytes | None = None, image_subtype: str = "jpeg",
     message_id: str | None = None,
     in_reply_to: str | None = None, references: str | None = None,
+    cc: list[tuple[str | None, str]] | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
     msg["To"] = formataddr((to_name, to_email)) if to_name else to_email
+    if cc:
+        msg["Cc"] = ", ".join(formataddr((n, e)) if n else e for n, e in cc)
     if message_id:
         msg["Message-ID"] = message_id
     if in_reply_to:  # RFC822 threading; Gmail also needs the threadId at send time

@@ -10,6 +10,7 @@ failures are logged and left 'queued' so they can be retried.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -56,6 +57,15 @@ def send_event(
     host_name = user.display_name or "A friend"
     sent = failed = 0
 
+    # Cc riders: only for cards without RSVP, and never during a self-only test
+    # (that would email the family while you're just testing your own inbox).
+    cc_list = None
+    if event.cc and not rsvp and settings.send_mode != SendMode.self_only:
+        try:
+            cc_list = [(c.get("name") or None, c["email"]) for c in json.loads(event.cc)]
+        except (ValueError, KeyError, TypeError):
+            cc_list = None
+
     for r in recipients:
         view_url = f"{base}/i/{r.token}"
         common = dict(
@@ -79,6 +89,7 @@ def send_event(
             to_email=to_email, to_name=r.name, html=html, text=text,
             image_bytes=image_bytes, image_subtype=image_subtype,
             message_id=this_id, in_reply_to=anchor, references=anchor,
+            cc=cc_list,
         )
         try:
             if settings.send_mode == SendMode.dry_run:

@@ -104,6 +104,10 @@
   </details>
   {% endif %}
 
+  {% if cc_list %}
+  <p class="reassure">CC'd on the email: {{ cc_list|join(', ') }}</p>
+  {% endif %}
+
   <p class="reassure">
     “Preview {{ noun }}” opens exactly what your people will see.
   </p>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -53,6 +54,33 @@ def _parse_int(s: str, lo: int = 1, hi: int = 30) -> int | None:
         return max(lo, min(int(s), hi))
     except ValueError:
         return None
+
+
+def _cc_json(cc_text: str, rsvp: bool) -> str | None:
+    """Parse the CC field into encrypted-JSON storage. CC is only for cards without
+    RSVP, so it's dropped when RSVP is on (defense in depth alongside the UI)."""
+    if rsvp:
+        return None
+    parsed, _ = rcpt.parse_recipients(cc_text or "")
+    if not parsed:
+        return None
+    return json.dumps([{"name": p.name, "email": p.email} for p in parsed])
+
+
+def _cc_entries(ev: Event | None) -> list[dict]:
+    if ev is None or not ev.cc:
+        return []
+    try:
+        return json.loads(ev.cc)
+    except (ValueError, TypeError):
+        return []
+
+
+def _cc_text(ev: Event | None) -> str:
+    return "\n".join(
+        (f"{c['name']} <{c['email']}>" if c.get("name") else c["email"])
+        for c in _cc_entries(ev)
+    )
 
 
 def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergies) -> dict:
@@ -214,7 +242,7 @@ def new_event(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     ctx = {
         "settings": get_settings(), "user": user, "event": None,
-        "blocks": DEFAULT_BLOCKS, "recipients_text": "", "error": None,
+        "blocks": DEFAULT_BLOCKS, "recipients_text": "", "cc_text": "", "error": None,
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(None),
     }
@@ -236,6 +264,7 @@ async def create_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
+    cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
     block_time: str | None = Form(None),
@@ -257,7 +286,7 @@ async def create_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": None, "blocks": blocks,
-            "recipients_text": recipients, "error": str(e),
+            "recipients_text": recipients, "cc_text": cc, "error": str(e),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -274,6 +303,7 @@ async def create_event(
         location=(location.strip() or None),
         signoff=(signoff.strip() or None),
         card_style=normalize_card_style(card_style),
+        cc=_cc_json(cc, bool(blocks.get("rsvp"))),
         blocks=blocks,
         headcount_max=_parse_int(headcount_max),
         timezone=(timezone.strip() or None),
@@ -391,6 +421,7 @@ def event_detail(
         "details_changed": bool(details_changed), "resendable": resendable,
         "scheduled_display": scheduled_display,
         "scheduled": bool(scheduled), "schedule_error": bool(schedule_error),
+        "cc_list": [c.get("name") or c["email"] for c in _cc_entries(ev)],
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
 
@@ -571,7 +602,8 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     )
     ctx = {
         "settings": get_settings(), "user": user, "event": ev,
-        "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text, "error": None,
+        "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text,
+        "cc_text": _cc_text(ev), "error": None,
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
     }
@@ -594,6 +626,7 @@ async def update_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
+    cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
     block_time: str | None = Form(None),
@@ -618,7 +651,7 @@ async def update_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
-            "recipients_text": recipients, "error": str(e),
+            "recipients_text": recipients, "cc_text": cc, "error": str(e),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -635,6 +668,7 @@ async def update_event(
     ev.location = (location.strip() or None)
     ev.signoff = (signoff.strip() or None)
     ev.card_style = normalize_card_style(card_style)
+    ev.cc = _cc_json(cc, bool(blocks.get("rsvp")))
     ev.headcount_max = _parse_int(headcount_max)
     ev.timezone = (timezone.strip() or None)
     ev.blocks = blocks

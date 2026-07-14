@@ -109,6 +109,9 @@ class Event(Base):
     scheduled_send_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # optional Cc list (encrypted JSON [{name,email}]) added to the email; only for
+    # cards without RSVP. CC'd people get no personal invite/link/tracking.
+    cc: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     # blocks = which sections the recipient sees: date/time/location/message/rsvp/headcount
     blocks: Mapped[dict] = mapped_column(JSON, default=dict)
     headcount_max: Mapped[int | None] = mapped_column(Integer, nullable=True)  # cap per invite

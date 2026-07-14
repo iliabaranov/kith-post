@@ -137,6 +137,16 @@
     </details>
     {% endif %}
 
+    <details class="faq cc-block" id="ccBlock"{% if cc_text %} open{% endif %}>
+      <summary>CC others (optional)</summary>
+      <label class="field">
+        <span class="field-label">CC these people</span>
+        <textarea name="cc" rows="2" placeholder="one email per line, or  Name &lt;email&gt;">{{ cc_text }}</textarea>
+        <span class="field-hint">They're copied on the same email (visible to each other) but get
+          no personal invite, RSVP, or tracking. Not available on cards with RSVP.</span>
+      </label>
+    </details>
+
     <input type="hidden" name="timezone" id="tzfield" value="{{ event.timezone if event and event.timezone else '' }}">
 
     <div class="form-actions">
@@ -157,6 +167,14 @@
     box.addEventListener("change", sync);
     sync();  // reflect pre-checked boxes on an existing card
   });
+
+  // CC is only for cards without RSVP (CC'd people would otherwise share the
+  // primary's RSVP link). Hide the CC block whenever RSVP is ticked.
+  var rsvpBox = document.getElementById("cb-rsvp");
+  var ccBlock = document.getElementById("ccBlock");
+  function syncCc() { if (ccBlock) ccBlock.hidden = !!(rsvpBox && rsvpBox.checked); }
+  if (rsvpBox) rsvpBox.addEventListener("change", syncCc);
+  syncCc();
 
   // A time is only meaningful with a date, so keep the two in step.
   var dateBox = document.getElementById("cb-date");
