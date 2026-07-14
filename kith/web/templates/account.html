@@ -2,6 +2,7 @@
 {% block title %}Your account — {{ settings.app_name }}{% endblock %}
 {% block content %}
 <section class="hero">
+  <p class="detail-eyebrow"><a class="link" href="/">← your cards</a></p>
   <p class="eyebrow">your account</p>
   <h1 class="hero-title">{{ user.display_name or "Your account" }}</h1>
   <p class="hero-sub">{{ user.email }}</p>

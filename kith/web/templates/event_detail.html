@@ -73,6 +73,37 @@
     {% endif %}
   </div>
 
+  {% if schedule_error %}
+  <p class="form-error">Pick a future date and time, and make sure there's someone still to send to.</p>
+  {% endif %}
+
+  {% if scheduled_display %}
+  <div class="ask-note schedule-set">
+    <span>⏰ Scheduled to send <b>{{ scheduled_display }}</b>{% if send_mode == 'dry-run' %} (dry run){% endif %} —
+      it'll go out automatically, or use “{{ send_label }}” above to send now.</span>
+    <form method="post" action="/events/{{ event.id }}/unschedule" class="inline-form">
+      <button class="btn btn-quiet btn-sm" type="submit">Cancel schedule</button>
+    </form>
+  </div>
+  {% elif queued_count and queued_count > 0 %}
+  <details class="faq schedule-later">
+    <summary>Schedule send for later</summary>
+    <form method="post" action="/events/{{ event.id }}/schedule" class="schedule-form">
+      <div class="field-row">
+        <label class="field"><span class="field-label">Date</span>
+          <input type="date" name="send_date" required></label>
+        <label class="field"><span class="field-label">Time</span>
+          <input type="time" name="send_time" required></label>
+      </div>
+      <input type="hidden" name="timezone" id="schedtz">
+      <div class="schedule-actions">
+        <button class="btn btn-primary btn-sm" type="submit">Schedule send</button>
+        <span class="field-hint">Sends around the chosen time (within ~5&nbsp;min), in your timezone.</span>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+
   <p class="reassure">
     “Preview {{ noun }}” opens exactly what your people will see.
   </p>
@@ -133,4 +164,9 @@
   </ul>
   {% endif %}
 </section>
+<script>
+  // Capture the host's timezone so a scheduled time means their local time.
+  var stz = document.getElementById("schedtz");
+  if (stz) stz.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+</script>
 {% endblock %}

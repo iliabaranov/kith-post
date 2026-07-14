@@ -105,6 +105,10 @@ class Event(Base):
     signoff: Mapped[str | None] = mapped_column(String, nullable=True)  # signature line
     # frame/background treatment of the invitation card; NULL = "washi" (the default)
     card_style: Mapped[str | None] = mapped_column(String, nullable=True)
+    # if set, the sweep worker auto-sends the card at this UTC time; cleared once sent
+    scheduled_send_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # blocks = which sections the recipient sees: date/time/location/message/rsvp/headcount
     blocks: Mapped[dict] = mapped_column(JSON, default=dict)
     headcount_max: Mapped[int | None] = mapped_column(Integer, nullable=True)  # cap per invite

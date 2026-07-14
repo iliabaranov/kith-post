@@ -238,6 +238,8 @@ code {
 .event-row.is-past .event-link { opacity: .55; }
 .event-row.is-past .event-link:hover { opacity: .8; }
 .event-row.is-past .event-link { padding-right: 9.5rem; }  /* clear the flag + ✕ */
+/* scheduled rows aren't dimmed, but still need room for the flag */
+.event-row.is-scheduled .event-link { padding-right: 9.5rem; }
 .event-flag {
   position: absolute; top: 50%; right: 3.3rem; transform: translateY(-50%);
   z-index: 2; white-space: nowrap;
@@ -245,6 +247,16 @@ code {
   color: var(--ink-soft); background: rgba(110, 92, 99, .12);
   border-radius: 6px; padding: .08rem .42rem;
 }
+
+/* keep the "← your cards" back-link top-left even on the centered hero (account) */
+.hero > .detail-eyebrow { text-align: left; }
+
+/* ---- schedule-send disclosure (event page) ---- */
+.schedule-later { margin: .3rem 0 0; }
+.schedule-later > summary { color: var(--plum); cursor: pointer; }
+.schedule-form { margin-top: .7rem; }
+.schedule-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-top: .8rem; }
+.schedule-set { margin-top: .3rem; }
 
 /* ---- card-style picker (compose form) ---- */
 .cardstyle { border: 0; padding: 0; margin: 0; }

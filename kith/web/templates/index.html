@@ -23,15 +23,16 @@
     {% set passed = e.event_date and e.event_date < today %}
     {% set sent_on = sent_at.get(e.id) %}
     {% set dateless_sent = (not e.event_date) and sent_on %}
-    <li class="event-row{% if passed or dateless_sent %} is-past{% endif %}">
+    {% set scheduled = e.scheduled_send_at and not passed %}
+    <li class="event-row{% if passed or dateless_sent %} is-past{% endif %}{% if scheduled %} is-scheduled{% endif %}">
       <a class="event-link" href="/events/{{ e.id }}">
         <span class="event-title">{{ e.title or "Untitled card" }}</span>
         <span class="event-meta">
-          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% elif dateless_sent %}Sent {{ sent_on.strftime('%b %d, %Y') }} · {% endif %}
+          {% if e.event_date %}{{ e.event_date.strftime('%a, %b %d') }}{% if e.event_time %} · {{ e.event_time | fmt_time }}{% endif %} · {% elif scheduled %}Scheduled {{ e.scheduled_send_at.strftime('%b %d') }} · {% elif dateless_sent %}Sent {{ sent_on.strftime('%b %d, %Y') }} · {% endif %}
           {% set n = counts.get(e.id, 0) %}{{ n }} recipient{{ '' if n == 1 else 's' }}
         </span>
       </a>
-      {% if passed %}<span class="event-flag">event passed</span>{% elif dateless_sent %}<span class="event-flag">sent</span>{% endif %}
+      {% if passed %}<span class="event-flag">event passed</span>{% elif scheduled %}<span class="event-flag">scheduled</span>{% elif dateless_sent %}<span class="event-flag">sent</span>{% endif %}
       <form class="event-del" method="post" action="/events/{{ e.id }}/delete"
             onsubmit="return confirm('Delete “{{ (e.title or 'this card')|e }}” and its recipients? This can’t be undone.')">
         <button class="row-del" type="submit" title="Delete this card" aria-label="Delete {{ e.title or 'this card' }}">✕</button>

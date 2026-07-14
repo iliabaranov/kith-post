@@ -158,13 +158,61 @@ class SweepResult:
     sent: int
     skipped: int
     purged: int = 0
+    scheduled: int = 0
+
+
+def send_due_scheduled(db: Session, settings: Settings, *, now: datetime | None = None) -> int:
+    """Fire any card whose scheduled_send_at has passed. send_event only touches
+    still-queued recipients and is idempotent, so a partial/failed send just
+    keeps the schedule and retries next tick (e.g. after a Google reconnect).
+    The schedule is cleared once every recipient has gone out."""
+    from kith.services import send  # local import avoids an import cycle
+
+    now = now or datetime.now(UTC)
+    fired = 0
+    events = db.execute(
+        select(Event).where(Event.scheduled_send_at.is_not(None))
+    ).scalars().all()
+    for ev in events:
+        if _as_utc(ev.scheduled_send_at) > now:
+            continue
+        user = db.get(User, ev.user_id)
+        if user is None:
+            ev.scheduled_send_at = None
+            db.commit()
+            continue
+        # can't send live without a token — keep the schedule and retry later
+        if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+            continue
+        queued = db.execute(
+            select(func.count()).select_from(Recipient).where(
+                Recipient.event_id == ev.id, Recipient.status == "queued"
+            )
+        ).scalar_one()
+        if queued == 0:
+            ev.scheduled_send_at = None
+            db.commit()
+            continue
+        send.send_event(db, ev, user, settings)
+        schedule_event_reminders(db, ev, settings)
+        remaining = db.execute(
+            select(func.count()).select_from(Recipient).where(
+                Recipient.event_id == ev.id, Recipient.status == "queued"
+            )
+        ).scalar_one()
+        if remaining == 0:
+            ev.scheduled_send_at = None
+        db.commit()
+        fired += 1
+    return fired
 
 
 def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = None) -> SweepResult:
-    """Periodic maintenance: fire due reminders, then purge expired assets. Own session."""
+    """Periodic maintenance: fire due scheduled sends + reminders, then purge assets."""
     now = now or datetime.now(UTC)
     db: Session = session_factory()
     try:
+        scheduled = send_due_scheduled(db, settings, now=now)
         pending = db.execute(
             select(Reminder).where(Reminder.status == "pending").order_by(Reminder.scheduled_for)
         ).scalars().all()
@@ -176,7 +224,9 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
             else:
                 skipped += 1
         purged = purge_expired_assets(db, settings, now=now)
-        return SweepResult(considered=len(due), sent=sent, skipped=skipped, purged=purged)
+        return SweepResult(
+            considered=len(due), sent=sent, skipped=skipped, purged=purged, scheduled=scheduled
+        )
     finally:
         db.close()
 

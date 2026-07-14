@@ -344,7 +344,7 @@ def _reminders_ui(db: Session, ev: Event, settings, recipients: list[Recipient])
 def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
     sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
-    details_changed: int = 0,
+    details_changed: int = 0, scheduled: int = 0, schedule_error: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -353,6 +353,18 @@ def event_detail(
     if ev is None:
         return RedirectResponse("/", status_code=303)
     settings = get_settings()
+    scheduled_display = None
+    if ev.scheduled_send_at:
+        d = scheduler._as_utc(ev.scheduled_send_at)
+        tz = None
+        if ev.timezone:
+            try:
+                tz = ZoneInfo(ev.timezone)
+            except Exception:
+                tz = None
+        if tz is not None:
+            d = d.astimezone(tz)
+        scheduled_display = d.strftime("%a, %b %d at %I:%M %p").replace(" 0", " ")
     rows = db.execute(
         select(Recipient).where(Recipient.event_id == ev.id).order_by(Recipient.created_at)
     ).scalars().all()
@@ -377,6 +389,8 @@ def event_detail(
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
         "details_changed": bool(details_changed), "resendable": resendable,
+        "scheduled_display": scheduled_display,
+        "scheduled": bool(scheduled), "schedule_error": bool(schedule_error),
     }
     return templates.TemplateResponse(request, "event_detail.html", ctx)
 
@@ -394,9 +408,60 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
     result = send.send_event(db, ev, user, settings)
     scheduler.schedule_event_reminders(db, ev, settings)  # nudge non-responders (G5)
+    ev.scheduled_send_at = None  # sending now supersedes any pending schedule
+    db.commit()
     return RedirectResponse(
         f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
     )
+
+
+def _schedule_to_utc(d: date | None, hhmm: str, tzname: str | None) -> datetime | None:
+    """Combine a date + 'HH:MM' in the host's tz into an aware UTC datetime."""
+    t = cal.parse_hhmm(hhmm)
+    if d is None or t is None:
+        return None
+    naive = datetime(d.year, d.month, d.day, t.hour, t.minute)
+    return cal.to_utc(naive, tzname) if tzname else naive.replace(tzinfo=UTC)
+
+
+@router.post("/events/{event_id}/schedule")
+def schedule_send(
+    event_id: str, request: Request, db: Session = Depends(get_db),
+    send_date: str = Form(""), send_time: str = Form(""), timezone: str = Form(""),
+):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    tzname = (timezone.strip() or ev.timezone or None)
+    when = _schedule_to_utc(_parse_date(send_date), send_time.strip(), tzname)
+    queued = db.execute(
+        select(func.count()).select_from(Recipient).where(
+            Recipient.event_id == ev.id, Recipient.status == "queued"
+        )
+    ).scalar_one()
+    if when is None or when <= datetime.now(UTC) or queued == 0:
+        return RedirectResponse(f"/events/{ev.id}?schedule_error=1", status_code=303)
+    ev.scheduled_send_at = when
+    if timezone.strip():
+        ev.timezone = timezone.strip()  # keep tz for the calendar links too
+    db.commit()
+    return RedirectResponse(f"/events/{ev.id}?scheduled=1", status_code=303)
+
+
+@router.post("/events/{event_id}/unschedule")
+def unschedule_send(event_id: str, request: Request, db: Session = Depends(get_db)):
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    ev = _owned_event(db, user.id, event_id)
+    if ev is None:
+        return RedirectResponse("/", status_code=303)
+    ev.scheduled_send_at = None
+    db.commit()
+    return RedirectResponse(f"/events/{ev.id}", status_code=303)
 
 
 @router.post("/events/{event_id}/reminders")
