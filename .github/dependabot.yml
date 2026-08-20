@@ -17,3 +17,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+
+  # Container images in docker-compose.yml. Absent until now, which is how
+  # cloudflared sat two months stale behind a :latest tag nobody re-pulled.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
