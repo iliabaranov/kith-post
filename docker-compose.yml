@@ -35,7 +35,15 @@ services:
   # Requires CLOUDFLARE_TUNNEL_TOKEN in .env (from the Zero Trust dashboard),
   # and a public hostname there routing your domain -> http://kith:8000.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned, NOT :latest. `docker compose up -d` does not re-pull, so a
+    # floating tag silently freezes at whatever was first cached — this host
+    # ran 2026.6.1 for two months while the tag moved twice. Pinning makes the
+    # running version visible and lets Dependabot open the bump PR.
+    # Cloudflare eventually refuses very old connectors, so this is not
+    # cosmetic. To upgrade by hand:
+    #   docker pull cloudflare/cloudflared:<new>   # edit the tag below
+    #   docker compose --profile public up -d
+    image: cloudflare/cloudflared:2026.8.2
     profiles: ["public"]
     command: tunnel --no-autoupdate run
     environment:
