@@ -55,11 +55,22 @@ def invite_text(
     when: str | None = None,
     rsvp: bool = True,
     note: str | None = None,
+    invitation: bool = True,
 ) -> str:
-    """The first message: who it's from, what it is, when, and the link."""
+    """The first message: who it's from, what it is, when, and the link.
+
+    ``invitation`` decides the phrasing (see ``core.eventkind``) and ``rsvp``
+    decides whether we ask for an answer — a dated card can be an invitation
+    without collecting RSVPs.
+    """
     what = (title or "").strip()
     lines = [_greeting(recipient_name, host_name)]
-    lines.append(f"You're invited to {what}." if what else "I've sent you a card.")
+    if invitation:
+        lines.append(f"You're invited to {what}." if what else "You're invited.")
+    else:
+        # A card, not an event. "You're invited to Love you." is how you sound
+        # when you've mistaken a note for a party.
+        lines.append(f"I've sent you a card: {what}." if what else "I've sent you a card.")
     if when:
         lines.append(when)
     if note:
@@ -80,9 +91,10 @@ def reminder_text(
     recipient_name: str | None = None,
     when: str | None = None,
     rsvp: bool = True,
+    invitation: bool = True,
 ) -> str:
     """A follow-up in the same chat. Softer, shorter, and never a second pitch."""
-    what = (title or "").strip() or "my invitation"
+    what = (title or "").strip() or ("my invitation" if invitation else "the card I sent")
     who = (recipient_name or "").strip()
     opener = f"Hi {who} — " if who else "Hi — "
     lines = [

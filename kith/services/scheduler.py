@@ -18,7 +18,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
-from kith.core import mailbuild, wamessage
+from kith.core import eventkind, mailbuild, wamessage
 from kith.core import reminders as rem
 from kith.db.models import Asset, Event, Recipient, Reminder, User
 from kith.services import wa_session as wa_link
@@ -46,6 +46,7 @@ def _send_wa_reminder(
         recipient_name=r.name,
         when=wamessage.when_line(ev.event_date, ev.event_time),
         rsvp=rsvp,
+        invitation=eventkind.is_invitation(ev.blocks, ev.event_date),
     )
     reminder.status, reminder.sent_at = "sent", datetime.now(UTC)
     db.commit()

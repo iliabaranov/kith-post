@@ -20,7 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kith.core.crypto import default_cipher
-from kith.core.recipients import Parsed, identity_of, parse_phones, parse_recipients
+from kith.core.recipients import (
+    Parsed,
+    identity_of,
+    parse_mixed,
+    parse_phones,
+    parse_recipients,
+)
 from kith.db.models import Contact
 
 
@@ -174,11 +180,12 @@ def add_contact(
 
 
 def import_text(db: Session, user_id: str, text: str) -> tuple[int, int, list[str]]:
-    """Bulk-add from pasted text / CSV lines. Returns (added, skipped, invalid)."""
-    parsed, invalid = parse_recipients(text)
+    """Bulk-add from pasted text. Emails, WhatsApp numbers, or a mix of both.
+    Returns (added, skipped, invalid)."""
+    parsed, invalid = parse_mixed(text)
     added = skipped = 0
     for p in parsed:
-        _, created = add_contact(db, user_id, p.email, p.name)
+        _, created = add_contact(db, user_id, p.email, p.name, phone=p.phone)
         if created:
             added += 1
         else:
@@ -187,32 +194,87 @@ def import_text(db: Session, user_id: str, text: str) -> tuple[int, int, list[st
 
 
 CSV_TEMPLATE = (
-    "name,email,groups\n"
-    'Alex Rivera,alex@example.com,"family, local"\n'
-    "Sam Chen,sam@example.com,work\n"
-    "Jordan Lee,jordan@example.com,\n"
+    "name,email,phone,groups\n"
+    'Alex Rivera,alex@example.com,,"family, local"\n'
+    "Sam Chen,sam@example.com,+15551234567,work\n"
+    "Jordan Lee,,+14085559090,\n"
+    "Robin Ng,robin@example.com,,\n"
 )
+
+# Column names we understand in a CSV header, mapped to their meaning. Anything
+# else in the header is ignored.
+_CSV_ALIASES = {
+    "name": "name", "full name": "name", "contact": "name",
+    "email": "email", "e-mail": "email", "email address": "email", "mail": "email",
+    "phone": "phone", "whatsapp": "phone", "number": "phone",
+    "phone number": "phone", "whatsapp number": "phone", "mobile": "phone",
+    "groups": "groups", "group": "groups", "tags": "groups", "tag": "groups",
+}
+
+
+def _csv_header_map(cells: list[str]) -> dict[str, int] | None:
+    """Map a header row to column indexes, or None if this isn't a header.
+
+    Header-driven mapping is what lets a phone column exist at all: positionally,
+    a third column has always meant *groups*, so reading it as a phone would
+    silently mangle every CSV anyone already has.
+    """
+    mapping: dict[str, int] = {}
+    for i, cell in enumerate(cells):
+        key = _CSV_ALIASES.get(cell.strip().lower())
+        if key and key not in mapping:
+            mapping[key] = i
+    # A real header names at least one address column; a data row starting with a
+    # name would not.
+    return mapping if ("email" in mapping or "phone" in mapping) else None
+
+
+def _csv_row(
+    cells: list[str], header: dict[str, int] | None
+) -> tuple[str, str, str, list[str]]:
+    """One CSV row -> (name, email, phone, groups), by header or by position."""
+    if header is not None:
+        def col(key: str) -> str:
+            idx = header.get(key, -1)
+            return cells[idx] if 0 <= idx < len(cells) else ""
+
+        return col("name"), col("email"), col("phone"), parse_groups(col("groups"))
+    if len(cells) >= 2:
+        return cells[0], cells[1], "", parse_groups(",".join(cells[2:]))
+    return "", cells[0], "", []
 
 
 def import_csv(db: Session, user_id: str, text: str) -> tuple[int, int, list[str]]:
-    """Bulk-add from a CSV with columns: name, email, groups. The groups cell may
-    hold several comma-separated tags (quote it in the file), and any extra trailing
-    columns are also treated as tags. Returns (added, skipped, invalid)."""
+    """Bulk-add from a CSV. Returns (added, skipped, invalid).
+
+    Two shapes are accepted:
+
+    * **with a header** — columns are matched by name, in any order, and may
+      include ``phone``: ``name, email, phone, groups``. This is what the
+      downloadable template uses.
+    * **without one** — the original positional shape, ``name, email`` plus any
+      further columns as group tags. Kept exactly as it was, because a third
+      column has always meant groups and reinterpreting it as a phone would
+      quietly mangle files people already have.
+
+    A groups cell may hold several comma-separated tags (quote it in the file).
+    """
     added = skipped = 0
     invalid: list[str] = []
+    header: dict[str, int] | None = None
     for i, row in enumerate(csv.reader(io.StringIO(text))):
         cells = [c.strip() for c in row]
         if not any(cells):
             continue
-        # skip a header row
-        is_header = cells[0].lower() == "name" or (len(cells) > 1 and cells[1].lower() == "email")
-        if i == 0 and is_header:
-            continue
-        if len(cells) >= 2:
-            name, email, groups = cells[0], cells[1], parse_groups(",".join(cells[2:]))
-        else:
-            name, email, groups = "", cells[0], []
-        contact, created = add_contact(db, user_id, email, name or None, groups=groups)
+        if i == 0:
+            header = _csv_header_map(cells)
+            if header is not None:
+                continue
+
+        name, email, phone, groups = _csv_row(cells, header)
+        contact, created = add_contact(
+            db, user_id, email, name or None, groups=groups, phone=phone or None
+        )
         if contact is None:
             invalid.append(",".join(cells) or "(blank)")
         elif created:

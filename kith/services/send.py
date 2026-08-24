@@ -33,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
-from kith.core import mailbuild, wamessage
+from kith.core import eventkind, mailbuild, wamessage
 from kith.db.models import Asset, Event, Recipient, User
 from kith.services import wa_session as wa_link
 from kith.services import waha
@@ -193,6 +193,7 @@ def _send_whatsapp(
     base = settings.base_url.rstrip("/")
     host_name = user.display_name or "A friend"
     when = wamessage.when_line(event.event_date, event.event_time)
+    invitation = eventkind.is_invitation(event.blocks, event.event_date)
     dry = settings.send_mode == SendMode.dry_run
 
     client = None
@@ -228,6 +229,7 @@ def _send_whatsapp(
             when=when,
             rsvp=rsvp,
             note=note,
+            invitation=invitation,
         )
         to = user.wa_number if settings.send_mode == SendMode.self_only else r.phone
         if not to:

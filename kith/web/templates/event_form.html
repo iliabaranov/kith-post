@@ -22,7 +22,8 @@
     <label class="field">
       <span class="field-label">Title</span>
       <input type="text" name="title" value="{{ event.title if event else '' }}" placeholder="Maya turns five!">
-      <span class="field-hint">Shown on the card and used as the email's subject line.</span>
+      <span class="field-hint">Shown on the card{% if wa_ready %}, and as the subject line
+        when it goes by email{% else %} and used as the email's subject line{% endif %}.</span>
     </label>
 
     <fieldset class="blocks">
@@ -142,8 +143,23 @@
         </div>
         <div class="book-items">
           {% for c in contacts %}
-          <label class="chk book-row" data-groups="{{ (c.groups or [])|join('|')|lower }}"><input type="checkbox" class="book-item" data-email="{{ c.email }}" data-name="{{ c.name or '' }}">
-            {{ c.name or c.email }}{% if c.name %} <span class="book-email">&lt;{{ c.email }}&gt;</span>{% endif %}</label>
+          {% set has_phone = wa_ready and c.phone %}
+          <div class="book-row" data-groups="{{ (c.groups or [])|join('|')|lower }}">
+            <label class="chk"><input type="checkbox" class="book-item"
+                   data-email="{{ c.email }}" data-phone="{{ c.phone or '' if wa_ready else '' }}"
+                   data-name="{{ c.name or '' }}">
+              {{ c.name or c.email or c.phone }}{% if c.name or not c.email %}
+              <span class="book-email">&lt;{{ c.email or c.phone }}&gt;</span>{% endif %}</label>
+            {% if has_phone and c.email %}
+            {# Both addresses: the host says which one, rather than us guessing. #}
+            <select class="book-ch" aria-label="Channel for {{ c.name or c.email }}">
+              <option value="email">email</option>
+              <option value="whatsapp">WhatsApp</option>
+            </select>
+            {% elif has_phone %}
+            <span class="book-ch-fixed">WhatsApp</span>
+            {% endif %}
+          </div>
           {% endfor %}
         </div>
         <button type="button" class="btn btn-quiet btn-sm" id="bookAdd">Add selected</button>
@@ -156,6 +172,8 @@
       <label class="field">
         <span class="field-label">CC these people</span>
         <textarea name="cc" rows="2" placeholder="one email per line, or  Name &lt;email&gt;">{{ cc_text }}</textarea>
+        {% if wa_ready %}<span class="field-hint">Email only — anyone you invite over
+        WhatsApp can't be Cc'd, and Cc'd people are never messaged there.</span>{% endif %}
         <span class="field-hint">They're copied on the same email (visible to each other) but get
           no personal invite, RSVP, or tracking. Not available on cards with RSVP.</span>
       </label>
@@ -241,23 +259,51 @@
       cb.checked = bookAll.checked;
     });
   });
-  if (bookAdd && recips) bookAdd.addEventListener("click", function () {
-    var have = new Set(recips.value.split(/[\n,;]/).map(function (s) {
-      var m = s.match(/<([^>]+)>/); return (m ? m[1] : s).trim().toLowerCase();
+  // Add the ticked contacts to whichever box matches their channel. A contact with
+  // only a number goes to the WhatsApp box; with both, the row's picker decides.
+  var waRecips = document.getElementById("wa_recipients");
+
+  function alreadyIn(box) {
+    // Existing entries, as bare addresses, so re-adding someone is a no-op.
+    if (!box) return new Set();
+    return new Set(box.value.split(/[\n,;]/).map(function (s) {
+      var m = s.match(/<([^>]+)>/);
+      return (m ? m[1] : s).trim().toLowerCase();
     }).filter(Boolean));
-    var added = [];
+  }
+
+  function appendTo(box, lines) {
+    if (!box || !lines.length) return;
+    var cur = box.value.replace(/\s+$/, "");
+    box.value = (cur ? cur + "\n" : "") + lines.join("\n") + "\n";
+  }
+
+  if (bookAdd && recips) bookAdd.addEventListener("click", function () {
+    var haveEmail = alreadyIn(recips);
+    var havePhone = alreadyIn(waRecips);
+    var addedEmail = [];
+    var addedPhone = [];
     document.querySelectorAll(".book-item:checked").forEach(function (cb) {
       var email = (cb.dataset.email || "").toLowerCase();
-      if (!email || have.has(email)) return;
-      have.add(email);
+      var phone = (cb.dataset.phone || "").trim();
       var name = cb.dataset.name || "";
-      added.push(name ? name + " <" + email + ">" : email);
+      // Which channel? Only a number -> WhatsApp. Both -> whatever the row says.
+      var row = cb.closest(".book-row");
+      var picker = row ? row.querySelector(".book-ch") : null;
+      var useWa = phone && (!email || (picker && picker.value === "whatsapp"));
+      if (useWa) {
+        if (!waRecips || havePhone.has(phone.toLowerCase())) return;
+        havePhone.add(phone.toLowerCase());
+        addedPhone.push(name ? name + " <" + phone + ">" : phone);
+      } else {
+        if (!email || haveEmail.has(email)) return;
+        haveEmail.add(email);
+        addedEmail.push(name ? name + " <" + email + ">" : email);
+      }
       cb.checked = false;
     });
-    if (added.length) {
-      var cur = recips.value.replace(/\s+$/, "");
-      recips.value = (cur ? cur + "\n" : "") + added.join("\n") + "\n";
-    }
+    appendTo(recips, addedEmail);
+    appendTo(waRecips, addedPhone);
     if (bookAll) bookAll.checked = false;
   });
 </script>

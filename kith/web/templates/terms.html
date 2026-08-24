@@ -20,6 +20,14 @@
       the people you email. Do <strong>not</strong> use {{ settings.app_name }} for spam,
       bulk unsolicited mail, marketing to strangers, or purchased lists.</li>
     <li>Do not send unlawful, harassing, deceptive, or infringing content.</li>
+    {% if settings.whatsapp_configured %}
+    <li>If you link WhatsApp, you accept that {{ settings.app_name }} sends through an
+      <strong>unofficial</strong> WhatsApp client; that this is against WhatsApp's
+      terms of service; and that your WhatsApp account may be restricted or banned
+      as a result. That risk is yours alone, the feature is optional, and you are
+      warned before linking. Only message people who would expect to hear from
+      you.</li>
+    {% endif %}
     <li>Respect Gmail's sending limits and the
       <a class="link" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>.</li>
     <li>Do not attempt to disrupt, overload, or abuse the service.</li>
@@ -40,7 +48,9 @@
 
   <h2>No affiliation</h2>
   <p>{{ settings.app_name }} is not affiliated with, endorsed by, or sponsored by Google,
-  Punchbowl, or Paperless Post. Google and Gmail are trademarks of Google LLC.</p>
+  Punchbowl, or Paperless Post. Google and Gmail are trademarks of Google LLC{% if settings.whatsapp_configured %};
+  WhatsApp is a trademark of Meta Platforms, Inc. {{ settings.app_name }} is not
+  affiliated with, endorsed by, or connected to either{% endif %}.</p>
 
   <h2>Termination</h2>
   <p>You may stop using {{ settings.app_name }} and delete your data at any time from your

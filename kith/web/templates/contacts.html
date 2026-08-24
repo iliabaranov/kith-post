@@ -41,7 +41,7 @@
       <div class="import-col">
         <p class="import-title">Paste a list</p>
         <form method="post" action="/contacts/import">
-          <textarea name="people" rows="4" placeholder="One email per line, or comma-separated. Optionally: Name &lt;email&gt;"></textarea>
+          <textarea name="people" rows="4" placeholder="{% if settings.whatsapp_configured %}One email or WhatsApp number per line. Optionally: Name &lt;address&gt;{% else %}One email per line, or comma-separated. Optionally: Name &lt;email&gt;{% endif %}"></textarea>
           <button class="btn btn-quiet btn-sm" type="submit">Import list</button>
         </form>
       </div>
@@ -51,8 +51,11 @@
           <input type="file" name="file" accept=".csv,text/csv" required>
           <button class="btn btn-quiet btn-sm" type="submit">Import CSV</button>
         </form>
-        <p class="field-hint">Columns: <code>name, email, groups</code> (groups optional;
-          quote multiples, e.g. <code>"family, local"</code>).</p>
+        <p class="field-hint">Columns: <code>name, email{% if settings.whatsapp_configured %}, phone{% endif %}, groups</code>
+          (all but one address optional; quote multiple groups, e.g.
+          <code>"family, local"</code>).{% if settings.whatsapp_configured %} With a header row the
+          columns can be in any order; without one they're read as
+          <code>name, email, groups</code>.{% endif %}</p>
         <p class="field-hint"><a class="link" href="/contacts/template.csv">Download a template</a></p>
       </div>
     </div>

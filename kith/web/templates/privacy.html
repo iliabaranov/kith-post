@@ -28,8 +28,16 @@
     <li>Your account name, email, and a Google OAuth <strong>refresh token</strong>
       (so the app can send on your behalf) — <strong>encrypted at rest</strong>.</li>
     <li>The cards/events you create, your recipient lists and their RSVPs, and your
-      address-book contacts — recipient and contact names/emails are
+      address-book contacts — recipient and contact names, email addresses
+      {%- if settings.whatsapp_configured %} <em>and phone numbers</em>{% endif %} are
       <strong>encrypted at rest</strong>.</li>
+    {% if settings.whatsapp_configured %}
+    <li>If you link WhatsApp (see below): the fact that you have, the connection's
+      last known status, and your own WhatsApp number —
+      <strong>encrypted at rest</strong>. Your WhatsApp login itself is
+      <strong>never</strong> stored by {{ settings.app_name }}; it stays in the
+      WhatsApp service's own storage on this server.</li>
+    {% endif %}
     <li>Card images you upload — the heavy full-resolution copy is
       <strong>automatically purged</strong> after the event's retention window.</li>
   </ul>
@@ -38,14 +46,38 @@
   trackers.</p>
 
   <h2>How we use it</h2>
-  <p>To authenticate you, send the emails you compose from your Gmail, show you honest
+  <p>To authenticate you, send the messages you compose — from your Gmail{% if settings.whatsapp_configured %},
+  or from your WhatsApp if you have linked it{% endif %} — show you honest
   delivery/RSVP status, and send the follow-up reminders you enable. We do not use your
   data for advertising or profiling.</p>
 
   <h2>Sharing</h2>
-  <p>We do not sell or share your data. The only outbound flow is the email
-  <em>you</em> choose to send, delivered to the recipients you specify via Google's
-  Gmail API from your own account.</p>
+  <p>We do not sell or share your data. The only outbound flow is the message
+  <em>you</em> choose to send, to the recipients you specify — by email through
+  Google's Gmail API from your own account{% if settings.whatsapp_configured %}, or,
+  if you have linked it, through WhatsApp from your own account{% endif %}.</p>
+
+{% if settings.whatsapp_configured %}
+  <h2>WhatsApp (optional)</h2>
+  <p>You may optionally link your own WhatsApp account so invitations and reminders
+  can be sent through it instead of by email. This is entirely opt-in: nothing is
+  connected until you accept a warning explaining the risks, and you can unlink at
+  any time.</p>
+  <ul>
+    <li>Messages are sent <strong>from your own account</strong>, by a WhatsApp
+      service running on this same server. Message content and recipient numbers
+      go to <strong>WhatsApp (Meta)</strong> as they would if you typed the message
+      yourself, and are then subject to WhatsApp's own privacy policy.</li>
+    <li>A WhatsApp message contains a short line of text and the recipient's
+      invitation link — <strong>nothing is added to track them</strong>. As with
+      email, the only signals we record are the ones the invitation page sees.</li>
+    <li>This uses an <strong>unofficial</strong> WhatsApp client, which is against
+      WhatsApp's terms of service and can get an account restricted or banned.
+      That risk is yours, and is why the feature is opt-in and clearly warned.</li>
+    <li><strong>Unlinking</strong>, and deleting your account, remove the stored
+      WhatsApp connection from this server.</li>
+  </ul>
+{% endif %}
 
   <h2>Limited Use</h2>
   <p>{{ settings.app_name }}'s use and transfer of information received from Google APIs

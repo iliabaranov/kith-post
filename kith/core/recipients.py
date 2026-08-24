@@ -116,3 +116,36 @@ def parse_phones(text: str) -> tuple[list[Parsed], list[str]]:
         seen.add(e164)
         valid.append(Parsed(name=name, email="", phone=e164))
     return valid, invalid
+
+
+def parse_mixed(text: str) -> tuple[list[Parsed], list[str]]:
+    """Parse a list that may hold emails and phone numbers together.
+
+    For the **address book**, where a channel is a property of the person rather
+    than of the box they were typed into — unlike compose, which keeps the two
+    lists separate so the host states the channel explicitly.
+
+    Each entry is tried as an email first, then as a number, so "Name <address>"
+    works either way. Anything that is neither comes back as invalid.
+    """
+    valid: list[Parsed] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for chunk in _split(text):
+        name, raw = _named(chunk)
+        email = normalize(raw)
+        person: Parsed | None = None
+        if _EMAIL_RE.match(email):
+            person = Parsed(name=name, email=email)
+        else:
+            e164 = phones.normalize(raw)
+            if e164 is not None:
+                person = Parsed(name=name, email="", phone=e164)
+        if person is None:
+            invalid.append(chunk)
+            continue
+        if person.identity in seen:
+            continue
+        seen.add(person.identity)
+        valid.append(person)
+    return valid, invalid

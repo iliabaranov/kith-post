@@ -396,6 +396,18 @@ code {
   margin-bottom: .7rem;
 }
 .book-email { color: var(--ink-soft); font-size: .85em; }
+/* a picker row: the tickbox + who they are, with the channel choice on the right */
+.book-row { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.book-row > .chk { flex: 1 1 auto; min-width: 0; }
+.book-ch {
+  font: inherit; font-size: .78rem; padding: .15rem .35rem; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-soft);
+  flex: 0 0 auto;
+}
+.book-ch-fixed {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-soft); flex: 0 0 auto;
+}
 .book-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .book-group, .contact-groups {
   font: inherit; padding: .3rem .5rem; border-radius: 8px;
@@ -572,3 +584,5 @@ textarea { resize: vertical; }
 .wa-bynumber { max-width: 24rem; margin: 0 auto; text-align: left; }
 .wa-bynumber .panel-title { margin: 0 0 .3rem; }
 .wa-bynumber .btn { margin-top: .9rem; width: 100%; }
+/* which channel a recipient was reached on, next to their address */
+.via-wa { color: var(--sage); font-size: .95em; }

@@ -31,7 +31,7 @@
   {% if sent or failed %}
   <p class="sent-note">
     {% if sent %}✓ Sent {{ sent }} {{ noun }}{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}
-    {% if failed %} {{ failed }} couldn't be sent{% if send_mode != 'dry-run' and not user.refresh_token %} — sign in with Google first.{% else %} — check the server logs.{% endif %}{% endif %}
+    {% if failed %} {{ failed }} couldn't be sent{% if send_mode != 'dry-run' and not user.refresh_token and needs_google %} — sign in with Google first.{% else %} — check the server logs.{% endif %}{% endif %}
   </p>
   {% endif %}
 
@@ -159,7 +159,8 @@
     <li class="rsvp-row">
       <span class="rsvp-who">
         <span class="rsvp-name">{{ r.name }}</span>
-        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}</span>{% endif %}
+        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}{% if r.channel == 'whatsapp' %} <span class="via-wa" title="Sent over WhatsApp">· WhatsApp</span>{% endif %}</span>
+        {% elif r.channel == 'whatsapp' %}<span class="rsvp-email"><span class="via-wa">· WhatsApp</span></span>{% endif %}
         {% if r.allergies %}<span class="rsvp-note"><b>Allergies:</b> {{ r.allergies }}</span>{% endif %}
         {% if r.note %}<span class="rsvp-note"><b>Note:</b> {{ r.note }}</span>{% endif %}
       </span>

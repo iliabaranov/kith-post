@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>You're invited — {{ settings.app_name }}</title>
-<meta name="description" content="You've been personally invited. Open your invitation to see the details and RSVP." />
+{# This title and description are what a chat app shows in the link preview, so
+   they have to agree with what was actually sent — a card that asks nothing
+   shouldn't be previewed as "You're invited". #}
+{% set is_invite = blocks.rsvp or (blocks.date and event.event_date) %}
+<title>{% if is_invite %}You're invited{% else %}A card for you{% endif %} — {{ settings.app_name }}</title>
+<meta name="description" content="{% if is_invite %}You've been personally invited. Open your invitation to see the details and RSVP.{% else %}Someone has sent you a card. Open it to see it.{% endif %}" />
 <meta name="robots" content="noindex, nofollow" />
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}" />
 <style>{{ inline_css('fonts.css')|safe }}

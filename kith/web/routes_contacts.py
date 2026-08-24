@@ -119,9 +119,11 @@ def export_csv(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["name", "email", "groups"])
+    # Same column order the template and the importer use, so an export can be
+    # edited and imported straight back without losing anyone's number.
+    writer.writerow(["name", "email", "phone", "groups"])
     for c in book.list_contacts(db, user.id):
-        writer.writerow([c.name or "", c.email, ", ".join(c.groups or [])])
+        writer.writerow([c.name or "", c.email, c.phone or "", ", ".join(c.groups or [])])
     return Response(
         buf.getvalue(),
         media_type="text/csv",

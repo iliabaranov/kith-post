@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
-from kith.core import images
+from kith.core import eventkind, images
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
 from kith.core.tracking import new_token
@@ -204,8 +204,13 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
             when = r.rsvp_at.strftime("%b %d")
         elif state == "opened" and r.first_open_at:
             when = r.first_open_at.strftime("%b %d")
+        # A WhatsApp recipient carries email == "" (the NOT NULL sentinel), so the
+        # address to show is whichever they actually have — otherwise an unnamed
+        # WhatsApp guest rendered as a blank row.
+        address = r.phone or r.email
         recipients.append({
-            "name": r.name or r.email, "email": r.email,
+            "name": r.name or address, "email": address,
+            "channel": rcpt.CHANNEL_WHATSAPP if r.phone else rcpt.CHANNEL_EMAIL,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
             "adults": r.adults, "kids": r.kids,
@@ -214,22 +219,50 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
     return stats, recipients
 
 
-_SEND_UI = {
-    "dry-run": ("Send (dry run)", "Writes .eml files to data/outbox — no real email is sent.",
-                "Write {n} dry-run email(s) to the outbox?"),
-    "self-only": ("Send a test to yourself", "Sends only to your own inbox, for testing.",
-                  "Send {n} test email(s) to your own inbox?"),
-    "live": ("Send to {n} now", "Sends from your Gmail to everyone still queued.",
-             "Send {n} real {noun}(s) from your Gmail now?"),
-}
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _send_ui(mode: str, queued_rows: list[Recipient], noun: str) -> tuple[str, str, str]:
+    """Label, hint and confirmation for the send button.
+
+    The wording names the channels this particular card will actually use. Saying
+    "from your Gmail" over a card addressed entirely by WhatsApp is the kind of
+    detail that makes a host distrust the button they're about to press.
+    """
+    n = len(queued_rows)
+    wa = sum(1 for r in queued_rows if r.phone)
+    em = n - wa
+    if em and wa:
+        via, dest = "by email and WhatsApp", "your Gmail and WhatsApp"
+    elif wa:
+        via, dest = "over WhatsApp", "your WhatsApp"
+    else:
+        via, dest = "by email", "your Gmail"
+    thing = _plural(n, noun)
+
+    if mode == "self-only":
+        return (
+            "Send a test to yourself",
+            f"Sends only to you ({via}), for testing.",
+            f"Send {thing} to yourself as a test?",
+        )
+    if mode == "live":
+        return (
+            f"Send to {n} now",
+            f"Sends from {dest} to everyone still queued.",
+            f"Send {thing} from {dest} now?",
+        )
+    return (
+        "Send (dry run)",
+        "Writes each message to data/outbox — nothing is really sent.",
+        f"Write {thing} to the outbox as a dry run?",
+    )
 
 
 def _event_noun(ev) -> str:  # noqa: ANN001 — a DB Event
-    """Host-facing noun. Something that asks for a reply or is pinned to a date is
-    an 'invitation'; a plain image/title/message greeting is a 'card'."""
-    blocks = ev.blocks or {}
-    is_invite = bool(blocks.get("rsvp") or (blocks.get("date") and ev.event_date))
-    return "invitation" if is_invite else "card"
+    """Host-facing noun: 'invitation' or 'card' (see core.eventkind)."""
+    return eventkind.noun(ev.blocks, ev.event_date)
 
 
 @dataclass
@@ -467,8 +500,10 @@ def event_detail(
         select(Recipient).where(Recipient.event_id == ev.id).order_by(Recipient.created_at)
     ).scalars().all()
     queued = sum(1 for r in rows if r.status == "queued")
-    label, hint, confirm = _SEND_UI.get(settings.send_mode.value, _SEND_UI["dry-run"])
     noun = _event_noun(ev)
+    label, hint, confirm = _send_ui(
+        settings.send_mode.value, [r for r in rows if r.status == "queued"], noun
+    )
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
     if ask_contacts:
@@ -480,8 +515,11 @@ def event_detail(
         "settings": settings, "user": user, "event": ev,
         "recipient_count": len(rows), "queued_count": queued,
         "send_mode": settings.send_mode.value,
-        "send_label": label.format(n=queued), "send_hint": hint,
-        "send_confirm": confirm.format(n=queued, noun=noun), "noun": noun,
+        # Only suggest fixing Google when email is actually involved — a WhatsApp
+        # card failing has nothing to do with a Gmail connection.
+        "needs_google": any(not r.phone for r in rows if r.status == "queued"),
+        "send_label": label, "send_hint": hint,
+        "send_confirm": confirm, "noun": noun,
         "sent": sent, "failed": failed,
         "wa_blocked_msg": _WA_BLOCKED.get(wa_blocked),
         "new_contacts": new_contacts, "saved": saved,

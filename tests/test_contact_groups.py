@@ -80,7 +80,7 @@ def test_csv_template_download(client):
     r = client.get("/contacts/template.csv")
     assert r.status_code == 200
     assert "text/csv" in r.headers["content-type"]
-    assert r.text.splitlines()[0] == "name,email,groups"
+    assert r.text.splitlines()[0] == "name,email,phone,groups"
 
 
 def test_csv_export_includes_groups(client):
