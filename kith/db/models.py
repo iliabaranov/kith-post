@@ -189,6 +189,18 @@ class Recipient(Base):
     rsvp_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # WAHA's message id for a WhatsApp send, so a reminder can thread under it.
     wa_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # WhatsApp's own receipts for that message, pushed back by WAHA. These are
+    # the channel's delivery facts — the same ticks the host sees in their own
+    # WhatsApp — and are deliberately kept separate from `first_open_at`, which
+    # means a person opened the invitation page.
+    wa_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    wa_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Highest ack seen: -1 error, 0 pending, 1 server, 2 device, 3 read, 4 played.
+    wa_ack: Mapped[int | None] = mapped_column(Integer, nullable=True)
     msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # Gmail resource id
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True)   # Gmail threadId
     # RFC822 Message-ID we stamp on the first send; reminders/re-sends reference it

@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # so a timeout is the only thing standing between a stuck session and a
     # wedged request handler (or a wedged reminder sweep).
     waha_timeout_seconds: float = 20.0
+    # Where WAHA should POST delivery/read receipts and session-status changes.
+    # The compose-network address, not base_url: a public URL would leave the box
+    # and come back through the tunnel for no reason. Empty secret = no webhooks
+    # configured at all, and the endpoint refuses everything.
+    waha_webhook_url: str = "http://kith:8000/wa/webhook"
+    waha_webhook_secret: str = ""
+
     # Pause between consecutive WhatsApp sends. Messaging many unknown contacts
     # in a burst is what triggers WhatsApp's reachout timelock (error 463).
     waha_send_gap_seconds: float = 2.0
@@ -97,6 +104,12 @@ class Settings(BaseSettings):
     # for dateless/orphaned cards, after creation). The small inline copy is kept
     # so the card still renders. 0 disables auto-purge.
     asset_retention_days: int = 30
+
+    @property
+    def waha_webhooks_configured(self) -> bool:
+        """Receipts are opt-in: they need a shared secret to be trustworthy."""
+        return bool(self.whatsapp_enabled and self.waha_webhook_url
+                    and self.waha_webhook_secret)
 
     @property
     def whatsapp_configured(self) -> bool:

@@ -586,3 +586,6 @@ textarea { resize: vertical; }
 .wa-bynumber .btn { margin-top: .9rem; width: 100%; }
 /* which channel a recipient was reached on, next to their address */
 .via-wa { color: var(--sage); font-size: .95em; }
+/* WhatsApp's own delivery receipt — quieter than the status chip, because it
+   says what the channel knows, not whether anyone opened the invitation. */
+.rsvp-receipt { display: block; font-size: .8rem; color: var(--ink-soft); }

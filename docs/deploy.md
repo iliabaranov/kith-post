@@ -200,6 +200,20 @@ misbehaves — but payload shapes differ between engines **and the session store
 per-engine** (`/app/.sessions/<engine>/<name>`), so switching engines makes every
 host re-pair, and the send path needs re-testing.
 
+**Delivery + read receipts (optional).** Add a secret and WAHA will report back:
+
+```bash
+# in .env
+KITH_WAHA_WEBHOOK_SECRET=<a long random string>
+```
+
+Each recipient then shows "Delivered on WhatsApp" / "Read on WhatsApp", and a
+session that dies is noticed straight away rather than at the next page load.
+WAHA POSTs to `http://kith:8000/wa/webhook` over the compose network, signing each
+body with that secret; without it no webhook is configured and the endpoint
+refuses everything. Receipts are **not** treated as "Opened" — that still means a
+person loaded the invitation page.
+
 **Monitoring.** `/healthz` stays deliberately dependency-free — the uptime cron
 pings it every five minutes and a WhatsApp outage must not read as the site being
 down. Add a second check on **`/healthz?deep=1`** if you want to be told about the

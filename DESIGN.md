@@ -243,6 +243,21 @@ the session, so:
   costs one recipient instead of the host's ability to send;
 - sends are spaced out (`KITH_WAHA_SEND_GAP_SECONDS`).
 
+### Receipts (opt-in)
+
+Set `KITH_WAHA_WEBHOOK_SECRET` and WAHA will POST `message.ack` and
+`session.status` back to `http://kith:8000/wa/webhook` — the compose-network
+address, since a public URL would leave the box and return through the tunnel for
+nothing. Each POST carries `X-Webhook-Hmac`, a hex HMAC-SHA512 of the exact body
+keyed with that secret (verified against a live container by pointing a real
+session's webhook at a listener). It is the only endpoint in the app a machine
+talks to, so it is the only one authenticated by a secret rather than a cookie;
+without the secret no webhook is configured and the endpoint 404s.
+
+Two things it buys: delivery/read receipts per recipient, and knowing a session
+died *between* page visits, which is what makes the dashboard's "your WhatsApp
+connection has dropped" banner timely rather than incidental.
+
 ### Engine choice
 
 Pinned to the **GOWS** build (browserless Go engine, ~850 MB vs ~1.15 GB for the
@@ -281,6 +296,14 @@ rather than surfacing WAHA's developer-facing 422.
 
 **No tracking pixel.** All signals come from explicit, first-party HTTP requests
 the recipient's browser makes to *our* server — nothing hidden in the email body.
+
+**WhatsApp receipts are not opens.** With receipts enabled (§6a), WAHA pushes
+WhatsApp's own delivery and read acks back to us. Those are the channel's facts
+about the message — the same ticks the host can already see on their phone — so
+they live in their own columns (`wa_delivered_at`, `wa_read_at`, `wa_ack`) and
+appear as their own line, never folded into Opened and never able to cancel a
+reminder. Opened stays "a person loaded the invitation page". A read receipt is
+also worth nothing as an absence, since recipients can switch them off.
 
 **Automated fetches don't count as opens.** When a chat app is handed a URL it
 fetches the page itself to build a preview card, so *sending* an invitation

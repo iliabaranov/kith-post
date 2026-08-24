@@ -208,9 +208,21 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
         # address to show is whichever they actually have — otherwise an unnamed
         # WhatsApp guest rendered as a blank row.
         address = r.phone or r.email
+        # WhatsApp's own receipts, kept as their own line rather than folded into
+        # the status chip: "read" is the channel telling the host what it knows,
+        # not evidence anyone opened the invitation.
+        receipt = ""
+        if r.phone:
+            if r.wa_ack == -1:
+                receipt = "WhatsApp couldn't deliver it"
+            elif r.wa_read_at:
+                receipt = "Read on WhatsApp"
+            elif r.wa_delivered_at:
+                receipt = "Delivered on WhatsApp"
         recipients.append({
             "name": r.name or address, "email": address,
             "channel": rcpt.CHANNEL_WHATSAPP if r.phone else rcpt.CHANNEL_EMAIL,
+            "receipt": receipt,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
             "adults": r.adults, "kids": r.kids,

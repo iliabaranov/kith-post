@@ -54,6 +54,27 @@ STATUS_FAILED = "FAILED"
 PAIRING_STATUSES = frozenset({STATUS_SCAN_QR, STATUS_PASSKEY, STATUS_PASSKEY_CONFIRM})
 
 
+# WhatsApp's own receipts for a message we sent, as WAHA reports them.
+ACK_ERROR, ACK_PENDING, ACK_SERVER, ACK_DEVICE, ACK_READ, ACK_PLAYED = -1, 0, 1, 2, 3, 4
+
+# How WAHA signs its webhook POSTs. Verified against 2026.8.1 by pointing a real
+# session's webhook at a listener: the header carries a hex HMAC-SHA512 of the
+# exact raw body, keyed with the secret from the session's webhook config.
+WEBHOOK_HMAC_HEADER = "x-webhook-hmac"
+WEBHOOK_ALGO_HEADER = "x-webhook-hmac-algorithm"
+
+
+def verify_webhook(secret: str, raw_body: bytes, signature: str | None) -> bool:
+    """Constant-time check that this POST really came from our WAHA."""
+    import hashlib
+    import hmac as _hmac
+
+    if not secret or not signature:
+        return False
+    expected = _hmac.new(secret.encode(), raw_body, hashlib.sha512).hexdigest()
+    return _hmac.compare_digest(expected, signature.strip().lower())
+
+
 class WahaError(Exception):
     """WAHA couldn't be reached, or answered with something we can't use."""
 
@@ -179,6 +200,7 @@ class SessionState:
     push_name: str | None = None   # the account's display name
     timelock: Timelock | None = None
     capping: Capping | None = None
+    webhook_urls: tuple[str, ...] = ()
 
     @property
     def is_working(self) -> bool:
@@ -217,6 +239,11 @@ class SessionState:
             push_name=me.get("pushName"),
             timelock=Timelock.parse(me.get("reachoutTimelock")),
             capping=Capping.parse(me.get("messageCapping")),
+            webhook_urls=tuple(
+                str(h.get("url"))
+                for h in ((data.get("config") or {}).get("webhooks") or [])
+                if isinstance(h, dict) and h.get("url")
+            ),
         )
 
 
@@ -230,6 +257,8 @@ class WahaClient:
         timeout: float = 20.0,
         *,
         transport: httpx.BaseTransport | None = None,
+        webhook_url: str = "",
+        webhook_secret: str = "",
     ) -> None:
         self._base = (base_url or "").rstrip("/")
         self._key = api_key
@@ -239,10 +268,18 @@ class WahaClient:
         self._timeout = httpx.Timeout(timeout, connect=5.0)
         # Tests inject an httpx.MockTransport here; production leaves it None.
         self._transport = transport
+        self._webhook_url = webhook_url
+        self._webhook_secret = webhook_secret
 
     @classmethod
     def from_settings(cls, settings: Settings) -> WahaClient:
-        return cls(settings.waha_url, settings.waha_api_key, settings.waha_timeout_seconds)
+        return cls(
+            settings.waha_url, settings.waha_api_key, settings.waha_timeout_seconds,
+            webhook_url=(settings.waha_webhook_url
+                         if settings.waha_webhooks_configured else ""),
+            webhook_secret=(settings.waha_webhook_secret
+                            if settings.waha_webhooks_configured else ""),
+        )
 
     # --- plumbing ---------------------------------------------------------
 
@@ -324,10 +361,40 @@ class WahaClient:
         except WahaNotFound:
             return None
 
+    def _webhook_config(self) -> list[dict] | None:
+        if not self._webhook_url or not self._webhook_secret:
+            return None
+        return [{
+            "url": self._webhook_url,
+            # Only what we act on: delivery/read receipts, and the session dying.
+            "events": ["message.ack", "session.status"],
+            "hmac": {"key": self._webhook_secret},
+        }]
+
     def create_session(self, name: str, *, start: bool = True) -> SessionState:
-        return SessionState.parse(
-            self._json("POST", "/api/sessions", json={"name": name, "start": start})
-        )
+        body: dict = {"name": name, "start": start}
+        hooks = self._webhook_config()
+        if hooks:
+            body["config"] = {"webhooks": hooks}
+        return SessionState.parse(self._json("POST", "/api/sessions", json=body))
+
+    def ensure_webhooks(self, name: str) -> bool:
+        """Point an existing session's webhooks at us. True if it was changed.
+
+        Sessions created before receipts were configured (or before the feature
+        existed) have no webhooks, and WAHA won't guess. Idempotent.
+        """
+        hooks = self._webhook_config()
+        if not hooks:
+            return False
+        state = self.find_session(name)
+        if state is None:
+            return False
+        if state.webhook_urls == (self._webhook_url,):
+            return False
+        self._json("PUT", f"/api/sessions/{name}", json={"config": {"webhooks": hooks}})
+        log.info("waha: pointed session %s webhooks at %s", name, self._webhook_url)
+        return True
 
     def ensure_session(self, name: str) -> SessionState:
         """Get this session ready for the host to pair with.

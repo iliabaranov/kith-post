@@ -49,6 +49,9 @@ class FakeWaha:
     def find_session(self, name):
         return self._state()
 
+    def ensure_webhooks(self, name):
+        return False
+
     def check_exists(self, name, phone):
         self.checked.append(phone)
         if self.raise_on_check:

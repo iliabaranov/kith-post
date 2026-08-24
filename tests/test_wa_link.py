@@ -54,6 +54,10 @@ class FakeWaha:
             return self.restart_session(name)   # start would be a no-op
         return self._state()
 
+    def ensure_webhooks(self, name):
+        self.calls.append(("webhooks", name))
+        return False          # already pointed at us
+
     def qr_png(self, name):
         self.calls.append(("qr", name))
         return b"\x89PNG\r\n\x1a\nfake-qr"

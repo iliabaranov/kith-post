@@ -119,7 +119,15 @@ def start_link(db: Session, user: User, settings: Settings) -> waha.SessionState
     if not acknowledged(user):
         raise waha.WahaError("the risk warning has not been acknowledged")
     name = session_name(user)
-    state = client(settings).ensure_session(name)
+    c = client(settings)
+    state = c.ensure_session(name)
+    # A session made before receipts were configured has no webhooks, and WAHA
+    # won't guess. Cheap and idempotent, so do it on every link attempt.
+    try:
+        if c.ensure_webhooks(name):
+            state = c.get_session(name)
+    except waha.WahaError:
+        log.exception("waha: could not configure webhooks for %s", name)
     user.wa_session = name
     _remember(db, user, state)
     return state

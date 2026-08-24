@@ -33,6 +33,7 @@ from kith.web.ratelimit import limiter
 from kith.web.routes_contacts import router as contacts_router
 from kith.web.routes_events import router as events_router
 from kith.web.routes_invite import router as invite_router
+from kith.web.routes_wa_webhook import router as wa_webhook_router
 from kith.web.routes_whatsapp import router as whatsapp_router
 
 log = logging.getLogger("kith")
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(invite_router)
     app.include_router(contacts_router)
     app.include_router(whatsapp_router)
+    app.include_router(wa_webhook_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
     def healthz(deep: int = 0) -> PlainTextResponse:
