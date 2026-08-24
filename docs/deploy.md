@@ -171,8 +171,10 @@ warning, press Link, scan the QR with WhatsApp → Settings → Linked devices.
 - **No published ports.** The app reaches it at `waha:3000` over the compose
   network; nothing is exposed to the LAN or the tunnel. Note that *every* WAHA
   route sits behind the API key, including `/health`.
-- **The dashboard and Swagger are off**, with credentials pinned anyway — left
-  enabled without a password, WAHA generates one and **prints it to its log**. To
+- **The dashboard and Swagger are off**, but set `WAHA_DASHBOARD_USERNAME` /
+  `WAHA_DASHBOARD_PASSWORD` in `.env` anyway: with them unset WAHA generates its
+  own and **prints them to its log**, and it does that even with the UI disabled.
+  To
   poke at a misbehaving pairing, bring it up temporarily on localhost:
   ```bash
   WAHA_DASHBOARD_PASSWORD=<something long> \
