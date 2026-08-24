@@ -29,6 +29,7 @@ class FakeWaha:
         self.phone = "+15550009999"    # the host's own linked number
         self.sent = []            # (session, to, text, chat_id)
         self.images = []          # (session, to, {caption, mimetype, bytes})
+        self.replies = []         # reply_to per send_text call
         self.checked = []
         self.exists = True
         self.timelock = None
@@ -71,11 +72,13 @@ class FakeWaha:
         }))
         return {"id": f"false_{to.lstrip('+')}@c.us_IMG{len(self.images)}"}
 
-    def send_text(self, name, to, text, *, link_preview=True, chat_id=None):
+    def send_text(self, name, to, text, *, link_preview=True, chat_id=None,
+                  reply_to=None):
         if self.raise_on_send is not None and len(self.sent) >= self.raise_after:
             err, self.raise_on_send = self.raise_on_send, None
             raise err
         self.sent.append((name, to, text, chat_id))
+        self.replies.append(reply_to)
         return {"id": f"false_{to.lstrip('+')}@c.us_MSG{len(self.sent)}"}
 
 
@@ -552,3 +555,17 @@ def test_a_missing_image_file_does_not_break_the_send(wa):
     _, res = _send(ev)
     assert res.wa_sent == 1, "the words and the link still go out"
     assert len(fake.sent) == 1 and fake.images == []
+
+
+def test_a_reminder_quotes_the_invitation_it_is_nudging_about(wa):
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    client.post(f"/events/{ev}/send", follow_redirects=False)
+    db, _ = _db_and_user()
+    rows = _recipients(db, ev)
+    original_id = rows[0].wa_message_id
+    assert original_id
+    fake.sent.clear()
+    fake.replies.clear()
+    _due_reminder(db, ev)
+    assert fake.replies == [original_id], "the nudge should reply to the invitation"

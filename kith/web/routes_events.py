@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
-from kith.core import eventkind, images
+from kith.core import eventkind, images, wamessage
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
 from kith.core.tracking import new_token
@@ -121,6 +122,64 @@ _WA_BLOCKED = {
         "They're still queued — check the server logs."
     ),
 }
+
+
+def _wa_send_preview(
+    db: Session, ev: Event, user, rows: Sequence[Recipient]  # noqa: ANN001
+) -> dict:
+    """The message a WhatsApp guest will receive, and any quota caution."""
+    settings = get_settings()
+    queued_wa = [r for r in rows if r.phone and r.status == "queued"]
+    if not settings.whatsapp_configured or not queued_wa:
+        return {"wa_preview": None, "wa_quota_note": None}
+    r = queued_wa[0]
+    preview = wamessage.invite_text(
+        title=ev.title,
+        host_name=user.display_name or "A friend",
+        view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
+        recipient_name=r.name,
+        when=wamessage.when_line(ev.event_date, ev.event_time),
+        rsvp=bool((ev.blocks or {}).get("rsvp")),
+        invitation=eventkind.is_invitation(ev.blocks, ev.event_date),
+    )
+    # Warn before a big send, not after: WhatsApp caps how many *new* chats an
+    # account may start per cycle, and the cap is what a party-sized list runs into.
+    note = None
+    cap = user.wa_capping or {}
+    left = None
+    if (
+        isinstance(cap.get("total"), int)
+        and isinstance(cap.get("used"), int)
+        and cap["total"] >= 0          # -1 means the account has no cap
+    ):
+        left = max(0, cap["total"] - cap["used"])
+    if cap.get("status") == "CAPPED":
+        note = "WhatsApp won't let this account start new conversations this cycle."
+    elif left is not None and left < len(queued_wa):
+        note = (
+            f"WhatsApp will only let you start {left} more conversation"
+            f"{'' if left == 1 else 's'} this cycle, and {len(queued_wa)} are queued."
+        )
+    elif cap.get("status") in ("FIRST_WARNING", "SECOND_WARNING"):
+        note = "You're near WhatsApp's limit on starting new conversations."
+    return {"wa_preview": preview, "wa_quota_note": note}
+
+
+def _touch_book(db: Session, user_id: str, event_id: str) -> None:
+    """Bump last_used_at for contacts this card just used.
+
+    services.contacts.mark_used had no callers at all, so last_used_at was never
+    set and the address book's "most recently used first" ordering silently
+    sorted by creation date instead.
+    """
+    rows = db.execute(
+        select(Recipient).where(Recipient.event_id == event_id)
+    ).scalars().all()
+    book.mark_used(
+        db, user_id,
+        [r.email for r in rows if r.email],
+        [r.phone for r in rows if r.phone],
+    )
 
 
 def _needs_google(db: Session, event_id: str, statuses: tuple[str, ...]) -> bool:
@@ -426,6 +485,7 @@ async def create_event(
     db.commit()
     db.refresh(ev)
     _reconcile_recipients(db, ev.id, recipients, wa_recipients)
+    _touch_book(db, user.id, ev.id)
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
@@ -527,6 +587,10 @@ def event_detail(
         "settings": settings, "user": user, "event": ev,
         "recipient_count": len(rows), "queued_count": queued,
         "send_mode": settings.send_mode.value,
+        # The exact words a WhatsApp guest will get. Composed from a real
+        # recipient, because a fake one would hide the personalisation — and the
+        # host should be able to read it before it goes to their family.
+        **_wa_send_preview(db, ev, user, rows),
         # Only suggest fixing Google when email is actually involved — a WhatsApp
         # card failing has nothing to do with a Gmail connection.
         "needs_google": any(not r.phone for r in rows if r.status == "queued"),
@@ -815,6 +879,7 @@ async def update_event(
     details_changed = before != (ev.event_date, ev.event_time, ev.event_end_time, ev.location)
     db.commit()
     _reconcile_recipients(db, ev.id, recipients, wa_recipients)
+    _touch_book(db, user.id, ev.id)
     already_sent = db.execute(
         select(func.count()).select_from(Recipient).where(
             Recipient.event_id == ev.id, Recipient.status.in_(("sent", "coming", "declined"))

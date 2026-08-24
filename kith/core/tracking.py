@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -89,7 +90,9 @@ _PREFETCH_HEADERS = (
 )
 
 
-def is_automated_fetch(user_agent: str | None, headers: dict | None = None) -> bool:
+def is_automated_fetch(
+    user_agent: str | None, headers: Mapping[str, str] | None = None
+) -> bool:
     """True when a request is a machine looking, not a person reading.
 
     Used to keep the "Opened" signal honest. The page is still served normally —

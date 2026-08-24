@@ -561,3 +561,70 @@ def test_healthz_deep_reports_the_channel(wa, monkeypatch):
 def test_healthz_deep_is_a_no_op_when_the_channel_is_off(wa_off):
     r = wa_off.get("/healthz?deep=1")
     assert r.status_code == 200 and r.text.strip() == "ok"
+
+
+# --- polish -------------------------------------------------------------------
+
+def test_the_host_can_read_the_message_before_sending_it(wa):
+    ev = _event(wa, phones="Mara <+15551110000>", title="Joe's 3rd Birthday", rsvp=True)
+    body = wa.get(f"/events/{ev}").text
+    assert "What the WhatsApp message will say" in body
+    assert "Hi Mara" in body                      # composed from a real recipient
+    assert "/i/" in body                          # ...including their own link
+
+
+def test_no_message_preview_without_whatsapp_recipients(wa):
+    ev = _event(wa, emails="ali@example.com")
+    assert "What the WhatsApp message will say" not in wa.get(f"/events/{ev}").text
+
+
+def test_the_quota_is_flagged_before_a_big_send_not_after(wa):
+    ev = _event(wa, phones="+15551110000\n+15552220000\n+15553330000")
+    db, user = _db_and_user()
+    user.wa_capping = {"status": "FIRST_WARNING", "total": 1000, "used": 999,
+                       "cycle_end": None}
+    db.commit()
+    body = wa.get(f"/events/{ev}").text
+    assert "only let you start 1 more conversation" in body
+    assert "3 are queued" in body
+    assert "Email invitations are unaffected" in body
+
+
+def test_a_capped_account_is_told_plainly(wa):
+    ev = _event(wa, phones="+15551110000")
+    db, user = _db_and_user()
+    user.wa_capping = {"status": "CAPPED", "total": 10, "used": 10, "cycle_end": None}
+    db.commit()
+    assert "start new conversations this cycle" in wa.get(f"/events/{ev}").text
+
+
+def test_an_uncapped_account_is_not_nagged(wa):
+    ev = _event(wa, phones="+15551110000")
+    db, user = _db_and_user()
+    user.wa_capping = {"status": "NONE", "total": -1, "used": 0, "cycle_end": None}
+    db.commit()
+    body = wa.get(f"/events/{ev}").text
+    assert "only let you start" not in body
+    assert "near WhatsApp's limit" not in body
+
+
+def test_using_a_contact_marks_it_recently_used(wa):
+    """services.contacts.mark_used had no callers at all, so last_used_at was
+    never set and the book's "most recently used first" order silently sorted by
+    creation date."""
+    db, user = _db_and_user()
+    a, _ = book.add_contact(db, user.id, "ali@example.com", "Ali")
+    b, _ = book.add_contact(db, user.id, "", "Mara", phone="+15551110000")
+    c, _ = book.add_contact(db, user.id, "unused@example.com", "Unused")
+    assert a.last_used_at is None
+
+    _event(wa, emails="ali@example.com", phones="+15551110000")
+    db2, user2 = _db_and_user()
+    from kith.db.models import Contact
+
+    assert db2.get(Contact, a.id).last_used_at is not None, "email contact not marked"
+    assert db2.get(Contact, b.id).last_used_at is not None, "phone contact not marked"
+    assert db2.get(Contact, c.id).last_used_at is None, "marked someone we didn't use"
+    # ...and the ordering that depended on it now works.
+    order = [x.id for x in book.list_contacts(db2, user2.id)]
+    assert order.index(a.id) < order.index(c.id)

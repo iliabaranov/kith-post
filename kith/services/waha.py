@@ -574,19 +574,20 @@ class WahaClient:
         *,
         link_preview: bool = True,
         chat_id: str | None = None,
+        reply_to: str | None = None,
     ) -> dict:
         """Send one message. Returns WAHA's result (carries the message ``id``).
 
         Pass ``chat_id`` to use an id resolved by :meth:`check_exists` instead of
-        deriving it from the number.
+        deriving it from the number, and ``reply_to`` to quote an earlier message
+        (which is how a reminder reads as a follow-up rather than a fresh pitch).
         """
-        return self._json(
-            "POST",
-            "/api/sendText",
-            json={
-                "session": name,
-                "chatId": chat_id or phones.chat_id(phone_e164),
-                "text": text,
-                "linkPreview": link_preview,
-            },
-        )
+        body: dict = {
+            "session": name,
+            "chatId": chat_id or phones.chat_id(phone_e164),
+            "text": text,
+            "linkPreview": link_preview,
+        }
+        if reply_to:
+            body["reply_to"] = reply_to
+        return self._json("POST", "/api/sendText", json=body)

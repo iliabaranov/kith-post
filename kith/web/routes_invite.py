@@ -61,9 +61,7 @@ def view_invite(
             # Almost certainly the link preview: nobody reads a notification and
             # taps through in under ten seconds. Their next visit will count.
             log.info(
-                "invite: fetch %.2fs after send, not an open (ua=%r)",
-                (now - (r.sent_at.replace(tzinfo=UTC) if r.sent_at.tzinfo is None
-                        else r.sent_at)).total_seconds(),
+                "invite: fetch arrived too soon after the send, not an open (ua=%r)",
                 ua[:120],
             )
         else:

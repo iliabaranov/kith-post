@@ -589,3 +589,11 @@ textarea { resize: vertical; }
 /* WhatsApp's own delivery receipt — quieter than the status chip, because it
    says what the channel knows, not whether anyone opened the invitation. */
 .rsvp-receipt { display: block; font-size: .8rem; color: var(--ink-soft); }
+/* the exact WhatsApp text, shown to the host before they send it */
+.wa-preview { max-width: 34rem; }
+.wa-preview-text {
+  white-space: pre-wrap; word-break: break-word; margin: .6rem 0 .4rem;
+  padding: .8rem 1rem; background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; font-size: .92rem; line-height: 1.5; color: var(--ink);
+  font-family: inherit;
+}

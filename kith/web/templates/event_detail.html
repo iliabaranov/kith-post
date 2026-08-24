@@ -77,6 +77,19 @@
     {% endif %}
   </div>
 
+  {% if wa_quota_note %}
+  <p class="sent-note wa-blocked">{{ wa_quota_note }} Email invitations are unaffected.</p>
+  {% endif %}
+
+  {% if wa_preview %}
+  <details class="faq wa-preview">
+    <summary>What the WhatsApp message will say</summary>
+    <pre class="wa-preview-text">{{ wa_preview }}</pre>
+    <p class="field-hint">Sent from your own WhatsApp{% if event.asset_id %}, with the card
+      itself as the picture and this as its caption{% endif %}. Each guest gets their own link.</p>
+  </details>
+  {% endif %}
+
   {% if schedule_error %}
   <p class="form-error">Pick a future date and time, and make sure there's someone still to send to.</p>
   {% endif %}
