@@ -1,9 +1,13 @@
 """Address book: a user's reusable contacts.
 
-Dedup and lookup go through a blind index (keyed HMAC of the normalized email),
-so we never store or query plaintext — the email/name columns stay Fernet-
+Dedup and lookup go through a blind index (keyed HMAC of the normalized value),
+so we never store or query plaintext — the email/phone/name columns stay Fernet-
 encrypted. Importing into an event copies contacts into Recipient rows, so per-
 event edits never touch the book.
+
+A contact can be reachable by email, by WhatsApp number, or both. Identity — what
+makes two entries the same person — is the email when there is one, else the
+number; see :func:`identity_hash`.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kith.core.crypto import default_cipher
-from kith.core.recipients import Parsed, parse_recipients
+from kith.core.recipients import Parsed, identity_of, parse_phones, parse_recipients
 from kith.db.models import Contact
 
 
@@ -50,6 +54,22 @@ def _hash(email: str) -> str:
     return default_cipher().blind_index(_norm(email))
 
 
+def identity_hash(email: str | None, phone: str | None = None) -> str:
+    """Blind index of a contact's identity: the email, else "tel:<e164>".
+
+    Stored in ``Contact.email_hash``, which is NOT NULL and carries the per-user
+    UNIQUE constraint. Folding the phone into it is what keeps WhatsApp-only
+    contacts distinct from one another — they all share ``email == ""``, so
+    hashing the email alone would collapse them into a single row.
+    """
+    return default_cipher().blind_index(identity_of(email, phone))
+
+
+def phone_hash(phone: str) -> str:
+    """Blind index of a phone number, for "do I already have this number?"."""
+    return default_cipher().blind_index(phone)
+
+
 def list_contacts(db: Session, user_id: str) -> list[Contact]:
     """All of a user's contacts, most-recently-used first."""
     rows = db.execute(select(Contact).where(Contact.user_id == user_id)).scalars().all()
@@ -62,21 +82,69 @@ def find_by_email(db: Session, user_id: str, email: str) -> Contact | None:
     ).scalar_one_or_none()
 
 
+def find_by_identity(db: Session, user_id: str, email: str | None, phone: str | None) -> (
+    Contact | None
+):
+    """The contact this (email, phone) pair *is*, if the book already has them."""
+    return db.execute(
+        select(Contact).where(
+            Contact.user_id == user_id,
+            Contact.email_hash == identity_hash(email, phone),
+        )
+    ).scalar_one_or_none()
+
+
+def find_by_phone(db: Session, user_id: str, phone: str) -> Contact | None:
+    """Whoever holds this number, whether or not they also have an email."""
+    return db.execute(
+        select(Contact).where(
+            Contact.user_id == user_id, Contact.phone_hash == phone_hash(phone)
+        )
+    ).scalars().first()
+
+
+def _parse_one(email: str | None, phone: str | None, name: str | None) -> Parsed | None:
+    """Validate an (email, phone, name) triple into a single Parsed, or None.
+
+    Either address is enough. When both are given the email carries the identity
+    and the phone rides along, which is why the email is parsed first.
+    """
+    label = f"{name} <{{}}>" if name else "{}"
+    if email and email.strip():
+        parsed, _ = parse_recipients(label.format(email))
+        if not parsed:
+            return None
+        e164 = None
+        if phone and phone.strip():
+            ph, _ = parse_phones(phone)
+            if not ph:
+                return None  # a number was offered and it's unusable — say so
+            e164 = ph[0].phone
+        return Parsed(name=parsed[0].name, email=parsed[0].email, phone=e164)
+    if phone and phone.strip():
+        parsed, _ = parse_phones(label.format(phone))
+        return parsed[0] if parsed else None
+    return None
+
+
 def add_contact(
     db: Session, user_id: str, email: str, name: str | None = None,
-    groups: list[str] | None = None,
+    groups: list[str] | None = None, phone: str | None = None,
 ) -> tuple[Contact | None, bool]:
-    """Add a contact; if one with this email already exists, return it instead.
-    Returns (contact, created?). A blank/invalid email yields (None, False)."""
-    parsed, _ = parse_recipients(email if name is None else f"{name} <{email}>")
-    if not parsed:
+    """Add a contact; if this person is already in the book, return them instead.
+    Returns (contact, created?). Nothing usable to reach them by → (None, False)."""
+    p = _parse_one(email, phone, name)
+    if p is None:
         return None, False
-    p = parsed[0]
-    existing = find_by_email(db, user_id, p.email)
+    existing = find_by_identity(db, user_id, p.email or None, p.phone)
     if existing is not None:
         changed = False
         if p.name and not existing.name:  # fill in a missing name, don't overwrite
             existing.name = p.name
+            changed = True
+        if p.phone and not existing.phone:  # adding a number to a known contact
+            existing.phone = p.phone
+            existing.phone_hash = phone_hash(p.phone)
             changed = True
         if groups:  # union any new tags into the existing set
             merged = list(existing.groups or [])
@@ -91,7 +159,12 @@ def add_contact(
             db.commit()
         return existing, False
     c = Contact(
-        user_id=user_id, email=p.email, name=p.name, email_hash=_hash(p.email),
+        user_id=user_id,
+        email=p.email,  # "" for a WhatsApp-only contact; the column is NOT NULL
+        name=p.name,
+        email_hash=identity_hash(p.email or None, p.phone),
+        phone=p.phone,
+        phone_hash=phone_hash(p.phone) if p.phone else None,
         groups=groups or [],
     )
     db.add(c)
@@ -151,23 +224,24 @@ def import_csv(db: Session, user_id: str, text: str) -> tuple[int, int, list[str
 
 def update_contact(
     db: Session, user_id: str, contact_id: str, email: str, name: str | None,
-    groups: list[str] | None = None,
+    groups: list[str] | None = None, phone: str | None = None,
 ) -> Contact | None:
-    """Edit a contact. Returns None if not found/owned, or if the new email
-    would collide with a different existing contact. When groups is not None it
-    replaces the contact's tags."""
+    """Edit a contact. Returns None if not found/owned, if there's nothing usable
+    to reach them by, or if the edit would collide with a different existing
+    contact. When groups is not None it replaces the contact's tags."""
     c = db.get(Contact, contact_id)
     if c is None or c.user_id != user_id:
         return None
-    parsed, _ = parse_recipients(f"{name} <{email}>" if name else email)
-    if not parsed:
+    p = _parse_one(email, phone, name)
+    if p is None:
         return None
-    p = parsed[0]
-    clash = find_by_email(db, user_id, p.email)
+    clash = find_by_identity(db, user_id, p.email or None, p.phone)
     if clash is not None and clash.id != c.id:
         return None
     c.email = p.email
-    c.email_hash = _hash(p.email)
+    c.email_hash = identity_hash(p.email or None, p.phone)
+    c.phone = p.phone
+    c.phone_hash = phone_hash(p.phone) if p.phone else None
     c.name = p.name
     if groups is not None:
         c.groups = groups
@@ -184,10 +258,13 @@ def delete_contact(db: Session, user_id: str, contact_id: str) -> bool:
     return True
 
 
-def mark_used(db: Session, user_id: str, emails: list[str]) -> None:
+def mark_used(
+    db: Session, user_id: str, emails: list[str], phones: list[str] | None = None
+) -> None:
     """Bump last_used_at for contacts an event imported (for recency sorting)."""
     now = datetime.now(UTC)
     hashes = {_hash(e) for e in emails}
+    hashes |= {identity_hash(None, ph) for ph in (phones or [])}
     for c in db.execute(select(Contact).where(Contact.user_id == user_id)).scalars():
         if c.email_hash in hashes:
             c.last_used_at = now
@@ -201,7 +278,7 @@ def new_among(db: Session, user_id: str, parsed: list[Parsed]) -> list[Parsed]:
     out: list[Parsed] = []
     seen: set[str] = set()
     for p in parsed:
-        h = _hash(p.email)
+        h = identity_hash(p.email or None, p.phone)
         if h in known or h in seen:
             continue
         seen.add(h)

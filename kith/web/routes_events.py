@@ -21,7 +21,7 @@ from kith.core.cardstyles import CARD_STYLES, normalize_card_style
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
-from kith.services import scheduler, send, storage
+from kith.services import scheduler, send, storage, waha
 from kith.web.deps import get_db, load_user, templates
 
 router = APIRouter()
@@ -97,6 +97,18 @@ def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergi
         "headcount": headcount is not None,
         "allergies": allergies is not None,
     }
+
+
+def _wa_flags(user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
+    """Whether to offer the WhatsApp box on the compose form.
+
+    ``wa_ready`` = the channel is on and this host has a live session, so the box
+    is usable. ``wa_offer`` = the channel is on but they haven't linked, so point
+    them at it once rather than showing a field that can't send.
+    """
+    on = settings.whatsapp_configured
+    linked = bool(user is not None and user.wa_session and user.wa_status == waha.STATUS_WORKING)
+    return {"wa_ready": on and linked, "wa_offer": on and not linked}
 
 
 def _owned_event(db: Session, user_id: str, event_id: str) -> Event | None:
@@ -189,37 +201,49 @@ class ReconcileResult:
     invalid: list[str]
 
 
-def _reconcile_recipients(db: Session, event_id: str, text: str) -> ReconcileResult:
+def _reconcile_recipients(
+    db: Session, event_id: str, text: str, phone_text: str = ""
+) -> ReconcileResult:
     """Update an event's recipient list without discarding existing rows.
 
-    Match by normalized email: add new addresses (fresh token, queued), keep
-    matched rows untouched (only fill an empty name), remove absent ones. Keeping
-    rows preserves each recipient's token, sent/RSVP state, and mail threading —
-    unlike a delete-and-recreate, which wiped all of that on every edit.
+    Match by identity — the email, or "tel:<e164>" for a WhatsApp recipient: add
+    new people (fresh token, queued, on the channel their box says), keep matched
+    rows untouched (only fill an empty name), remove absent ones. Keeping rows
+    preserves each recipient's token, sent/RSVP state, and mail threading — unlike
+    a delete-and-recreate, which wiped all of that on every edit.
+
+    The two boxes are reconciled together, so moving someone from one to the other
+    is a remove plus an add: a different channel means a different conversation,
+    and carrying an RSVP across would misreport which invite they answered.
     """
     valid, invalid = rcpt.parse_recipients(text)
+    ph_valid, ph_invalid = rcpt.parse_phones(phone_text)
+    valid, invalid = valid + ph_valid, invalid + ph_invalid
     existing = db.execute(
         select(Recipient).where(Recipient.event_id == event_id)
     ).scalars().all()
-    by_email: dict[str, Recipient] = {}
-    stale: list[Recipient] = []  # legacy duplicate rows for the same email
+    by_id: dict[str, Recipient] = {}
+    stale: list[Recipient] = []  # legacy duplicate rows for the same person
     for r in existing:
-        key = rcpt.normalize(r.email)
-        (stale.append(r) if key in by_email else by_email.setdefault(key, r))
-    wanted = {p.email: p for p in valid}  # p.email is already normalized
+        key = rcpt.identity_of(r.email, r.phone)
+        (stale.append(r) if key in by_id else by_id.setdefault(key, r))
+    wanted = {p.identity: p for p in valid}  # already normalized
 
     added = kept = removed = 0
-    for email, p in wanted.items():
-        row = by_email.get(email)
+    for identity, p in wanted.items():
+        row = by_id.get(identity)
         if row is None:
-            db.add(Recipient(event_id=event_id, email=p.email, name=p.name, token=new_token()))
+            db.add(Recipient(
+                event_id=event_id, email=p.email, name=p.name, token=new_token(),
+                channel=p.channel, phone=p.phone,
+            ))
             added += 1
         else:
             if p.name and not row.name:  # fill a missing name, never overwrite
                 row.name = p.name
             kept += 1
-    for email, row in by_email.items():
-        if email not in wanted:
+    for identity, row in by_id.items():
+        if identity not in wanted:
             db.delete(row)  # FK cascade drops any reminders for this recipient
             removed += 1
     for row in stale:
@@ -242,7 +266,9 @@ def new_event(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     ctx = {
         "settings": get_settings(), "user": user, "event": None,
-        "blocks": DEFAULT_BLOCKS, "recipients_text": "", "cc_text": "", "error": None,
+        "blocks": DEFAULT_BLOCKS, "recipients_text": "", "wa_recipients_text": "",
+        **_wa_flags(user, get_settings()),
+        "cc_text": "", "error": None,
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(None),
     }
@@ -264,6 +290,7 @@ async def create_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
+    wa_recipients: str = Form(""),
     cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -286,7 +313,8 @@ async def create_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": None, "blocks": blocks,
-            "recipients_text": recipients, "cc_text": cc, "error": str(e),
+            "recipients_text": recipients, "wa_recipients_text": wa_recipients,
+            "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -313,7 +341,7 @@ async def create_event(
     db.add(ev)
     db.commit()
     db.refresh(ev)
-    _reconcile_recipients(db, ev.id, recipients)
+    _reconcile_recipients(db, ev.id, recipients, wa_recipients)
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
@@ -404,7 +432,7 @@ def event_detail(
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
     if ask_contacts:
-        parsed = [rcpt.Parsed(name=r.name, email=r.email) for r in rows]
+        parsed = [rcpt.Parsed(name=r.name, email=r.email, phone=r.phone) for r in rows]
         new_contacts = len(book.new_among(db, user.id, parsed))
     stats, recipients = _rsvp_summary(rows)
     resendable = sum(1 for r in rows if r.status in ("sent", "coming", "declined"))
@@ -584,7 +612,9 @@ def save_contacts(event_id: str, request: Request, db: Session = Depends(get_db)
     if ev is None:
         return RedirectResponse("/", status_code=303)
     rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
-    added = sum(book.add_contact(db, user.id, r.email, r.name)[1] for r in rows)
+    added = sum(
+        book.add_contact(db, user.id, r.email, r.name, phone=r.phone)[1] for r in rows
+    )
     return RedirectResponse(f"/events/{ev.id}?saved={added}", status_code=303)
 
 
@@ -597,13 +627,17 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     if ev is None:
         return RedirectResponse("/", status_code=303)
     rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
-    recipients_text = "\n".join(
-        (f"{r.name} <{r.email}>" if r.name else r.email) for r in rows
-    )
+
+    def _lines(people, addr) -> str:
+        return "\n".join((f"{r.name} <{addr(r)}>" if r.name else addr(r)) for r in people)
+
+    recipients_text = _lines([r for r in rows if not r.phone], lambda r: r.email)
+    wa_recipients_text = _lines([r for r in rows if r.phone], lambda r: r.phone)
     ctx = {
         "settings": get_settings(), "user": user, "event": ev,
         "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text,
-        "cc_text": _cc_text(ev), "error": None,
+        "wa_recipients_text": wa_recipients_text,
+        "cc_text": _cc_text(ev), "error": None, **_wa_flags(user, get_settings()),
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
     }
@@ -626,6 +660,7 @@ async def update_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
+    wa_recipients: str = Form(""),
     cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -651,7 +686,8 @@ async def update_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
-            "recipients_text": recipients, "cc_text": cc, "error": str(e),
+            "recipients_text": recipients, "wa_recipients_text": wa_recipients,
+            "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -676,7 +712,7 @@ async def update_event(
         ev.asset_id = storage.store_asset(db, user.id, derived).id
     details_changed = before != (ev.event_date, ev.event_time, ev.event_end_time, ev.location)
     db.commit()
-    _reconcile_recipients(db, ev.id, recipients)
+    _reconcile_recipients(db, ev.id, recipients, wa_recipients)
     already_sent = db.execute(
         select(func.count()).select_from(Recipient).where(
             Recipient.event_id == ev.id, Recipient.status.in_(("sent", "coming", "declined"))

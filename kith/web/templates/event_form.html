@@ -116,6 +116,20 @@
       <span class="field-hint">Emails are encrypted. Separate with new lines or commas.</span>
     </label>
 
+    {% if wa_ready %}
+    <label class="field">
+      <span class="field-label">Anyone on WhatsApp?</span>
+      <textarea id="wa_recipients" name="wa_recipients" rows="3"
+                placeholder="+1 555 123 4567, or  Name &lt;+1 555 123 4567&gt;">{{ wa_recipients_text }}</textarea>
+      <span class="field-hint">Goes out from your own WhatsApp as a short message with their
+        invitation link — the card and the RSVP live on the same page as always. Numbers are
+        encrypted. Include the country code, so nobody gets messaged in the wrong one.</span>
+    </label>
+    {% elif wa_offer %}
+    <p class="field-hint">Rather send some of these over WhatsApp?
+      <a class="link" href="/account/whatsapp">Link your WhatsApp account</a>.</p>
+    {% endif %}
+
     {% if contacts %}
     <details class="faq import-book">
       <summary>Import from your address book ({{ contacts|length }})</summary>
