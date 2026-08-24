@@ -273,6 +273,21 @@ class WahaClient:
             raise WahaAuthError("WAHA rejected the API key")
         if resp.status_code == 404:
             raise WahaNotFound(f"{method} {path} -> 404")
+        if resp.status_code == 422:
+            # WAHA's clean answer to "this session isn't WORKING":
+            #   {"error": ..., "status": "SCAN_QR_CODE", "expected": ["WORKING"]}
+            # Worth distinguishing from a generic failure — it means the host has
+            # to re-link, not that anything went wrong with the send. (It is not
+            # a substitute for the pre-flight: a session wedged mid-transition
+            # hangs instead of answering, which is what the timeout is for.)
+            body = resp.json() if resp.headers.get("content-type", "").startswith(
+                "application/json"
+            ) else {}
+            if isinstance(body, dict) and body.get("expected"):
+                raise NotLinked(
+                    f"session is {body.get('status')}, WAHA expected "
+                    f"{body.get('expected')}"
+                )
         if resp.status_code >= 400:
             raise WahaError(f"{method} {path} -> {resp.status_code}: {resp.text[:200]}")
         return resp

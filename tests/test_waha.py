@@ -321,3 +321,27 @@ def test_client_from_settings_uses_configured_url_and_timeout():
     c = waha.WahaClient.from_settings(s)
     assert c._base == "http://waha:3000"  # trailing slash trimmed
     assert c._timeout.read == 7.5
+
+
+def test_wrong_session_state_maps_to_not_linked():
+    """WAHA's real 422 when a session isn't WORKING (observed against 2026.8.1).
+    It means "re-link", not "the send broke", so the send path can say so."""
+    handler = _json_route(
+        {
+            "error": "Session status is not as expected. Try again later or restart the session",
+            "session": "uabc",
+            "status": "SCAN_QR_CODE",
+            "expected": ["WORKING"],
+        },
+        status=422,
+    )
+    with pytest.raises(waha.NotLinked) as e:
+        _client(handler).send_text("uabc", "+15551234567", "hi")
+    assert "SCAN_QR_CODE" in str(e.value)
+
+
+def test_an_unrelated_422_stays_a_generic_error():
+    handler = _json_route({"message": "validation failed"}, status=422)
+    with pytest.raises(waha.WahaError) as e:
+        _client(handler).send_text("uabc", "+15551234567", "hi")
+    assert not isinstance(e.value, waha.NotLinked)
