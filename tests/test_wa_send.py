@@ -28,6 +28,7 @@ class FakeWaha:
         self.status = waha.STATUS_WORKING
         self.phone = "+15550009999"    # the host's own linked number
         self.sent = []            # (session, to, text, chat_id)
+        self.images = []          # (session, to, {caption, mimetype, bytes})
         self.checked = []
         self.exists = True
         self.timelock = None
@@ -55,6 +56,17 @@ class FakeWaha:
         return waha.NumberCheck(
             exists=self.exists, chat_id=f"{phone.lstrip('+')}@c.us" if self.exists else None
         )
+
+    def send_image(self, name, to, image, *, mimetype="image/jpeg", caption="",
+                   filename="card.jpg", chat_id=None, reply_to=None):
+        if self.raise_on_send is not None and len(self.images) >= self.raise_after:
+            err, self.raise_on_send = self.raise_on_send, None
+            raise err
+        self.images.append((name, to, {
+            "caption": caption, "mimetype": mimetype, "bytes": len(image),
+            "filename": filename, "chat_id": chat_id,
+        }))
+        return {"id": f"false_{to.lstrip('+')}@c.us_IMG{len(self.images)}"}
 
     def send_text(self, name, to, text, *, link_preview=True, chat_id=None):
         if self.raise_on_send is not None and len(self.sent) >= self.raise_after:
@@ -481,3 +493,59 @@ def test_an_unlinked_host_is_unaffected_by_the_channel_being_on(monkeypatch):
             assert all(r.status == "sent" for r in _recipients(db, ev))
     finally:
         get_settings.cache_clear()
+
+
+def test_the_card_is_sent_as_the_image_with_the_words_as_its_caption(wa, tmp_path):
+    client, fake = wa
+    img = tmp_path / "card.jpg"
+    img.write_bytes(b"\xff\xd8\xff" + b"fake jpeg" * 100)
+    ev = _make_event(client, "Mara <+15551110000>")
+    db, user = _db_and_user()
+    from kith.db.models import Asset, Event
+
+    a = Asset(user_id=user.id, sha256="x", mime="image/jpeg", full_path=str(img),
+              inline_path=str(img), width=600, height=800, bytes=img.stat().st_size)
+    db.add(a)
+    db.commit()
+    event = db.get(Event, ev)
+    event.asset_id = a.id
+    db.commit()
+
+    _, res = _send(ev)
+    assert res.wa_sent == 1
+    assert len(fake.images) == 1 and fake.sent == [], "should be one image, not a bare text"
+    _, _, payload = fake.images[0]
+    assert payload["caption"].startswith("Hi Mara")
+    assert "/i/" in payload["caption"]
+    assert payload["mimetype"] == "image/jpeg"
+    assert payload["bytes"] == img.stat().st_size
+
+
+def test_a_card_with_no_picture_is_still_sent_as_text(wa):
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    _, res = _send(ev)
+    assert res.wa_sent == 1 and fake.images == [] and len(fake.sent) == 1
+
+
+def test_a_missing_image_file_does_not_break_the_send(wa):
+    """Assets outlive their files: the retention sweep drops the full-res copy,
+    and older rows can be missing the inline one. Reading it unguarded took the
+    whole send down — both channels."""
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    db, user = _db_and_user()
+    from kith.db.models import Asset, Event
+
+    a = Asset(user_id=user.id, sha256="x", mime="image/jpeg",
+              full_path="/nonexistent/gone.jpg", inline_path="/nonexistent/gone.jpg",
+              width=1, height=1, bytes=0)
+    db.add(a)
+    db.commit()
+    event = db.get(Event, ev)
+    event.asset_id = a.id
+    db.commit()
+
+    _, res = _send(ev)
+    assert res.wa_sent == 1, "the words and the link still go out"
+    assert len(fake.sent) == 1 and fake.images == []

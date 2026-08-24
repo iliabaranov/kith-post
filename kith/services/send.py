@@ -66,12 +66,15 @@ def _write_outbox(settings: Settings, event_id: str, recipient_id: str, msg) -> 
 
 
 def _write_wa_outbox(
-    settings: Settings, event_id: str, recipient_id: str, to: str, text: str
+    settings: Settings, event_id: str, recipient_id: str, to: str, text: str,
+    card_bytes: int | None = None,
 ) -> None:
     """dry-run's WhatsApp equivalent of an .eml — the exact text, and who to."""
     d = settings.outbox_dir / event_id / "whatsapp"
     d.mkdir(parents=True, exist_ok=True)
-    (d / f"{recipient_id}.txt").write_text(f"To: {to}\n\n{text}\n")
+    card = f"Card: {card_bytes} bytes, sent as the image with this as its caption\n" \
+        if card_bytes else "Card: none — text only\n"
+    (d / f"{recipient_id}.txt").write_text(f"To: {to}\n{card}\n{text}\n")
 
 
 def send_event(
@@ -85,7 +88,19 @@ def send_event(
     recipients = [r for r in queued if not r.phone]
     wa_recipients = [r for r in queued if r.phone]
     asset = db.get(Asset, event.asset_id) if event.asset_id else None
-    image_bytes = Path(asset.inline_path).read_bytes() if asset else None
+    # A missing inline file must not take the whole send down with it. Assets can
+    # outlive their files — the retention sweep removes the full-res copy, and
+    # older rows exist whose inline copy is gone too. A card without its picture
+    # still carries the words and the link.
+    image_bytes: bytes | None = None
+    if asset:
+        try:
+            image_bytes = Path(asset.inline_path).read_bytes()
+        except OSError:
+            log.warning(
+                "send: inline image missing for asset %s (%s) — sending without it",
+                asset.id, asset.inline_path,
+            )
     image_subtype = _SUBTYPE.get(asset.mime, "jpeg") if asset else "jpeg"
 
     rsvp = bool((event.blocks or {}).get("rsvp"))
@@ -158,7 +173,10 @@ def send_event(
             db.commit()
 
     wa = (
-        _send_whatsapp(db, event, user, settings, wa_recipients, note=note)
+        _send_whatsapp(
+            db, event, user, settings, wa_recipients, note=note,
+            card=image_bytes, card_mime=(asset.mime if asset else "image/jpeg"),
+        )
         if wa_recipients
         else _WaOutcome(0, 0, None)
     )
@@ -187,8 +205,16 @@ def _send_whatsapp(
     recipients: list[Recipient],
     *,
     note: str | None = None,
+    card: bytes | None = None,
+    card_mime: str = "image/jpeg",
 ) -> _WaOutcome:
-    """Send this event's WhatsApp invitations. Never raises — it reports."""
+    """Send this event's WhatsApp invitations. Never raises — it reports.
+
+    ``card`` is the inline copy of the card image, when there is one and it's
+    still on disk (the retention sweep removes the heavy full-res copy, and older
+    rows can be missing the inline one too). Without it this is a text message,
+    which is exactly what a text-only card should be.
+    """
     rsvp = bool((event.blocks or {}).get("rsvp"))
     base = settings.base_url.rstrip("/")
     host_name = user.display_name or "A friend"
@@ -240,7 +266,10 @@ def _send_whatsapp(
             continue
         try:
             if dry:
-                _write_wa_outbox(settings, event.id, r.id, to, text)
+                _write_wa_outbox(
+                    settings, event.id, r.id, to, text,
+                    card_bytes=len(card) if card is not None else None,
+                )
             elif client is not None:
                 # Ask WhatsApp whether the number is really there first. Messaging
                 # numbers that aren't on WhatsApp is one of the things that earns
@@ -257,7 +286,15 @@ def _send_whatsapp(
                     chat_id = check.chat_id
                 except waha.WahaError:
                     log.warning("whatsapp: existence check failed for %s; sending anyway", r.id)
-                res = client.send_text(session, to, text, chat_id=chat_id)
+                if card is not None:
+                    # One message, not two: the card with the words as its
+                    # caption, the way a person would send a photo.
+                    res = client.send_image(
+                        session, to, card, mimetype=card_mime, caption=text,
+                        filename=f"{event.title or 'card'}.jpg"[:60], chat_id=chat_id,
+                    )
+                else:
+                    res = client.send_text(session, to, text, chat_id=chat_id)
                 r.wa_message_id = res.get("id")
             r.status = "sent"
             r.sent_at = datetime.now(UTC)

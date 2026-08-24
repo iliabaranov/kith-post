@@ -27,6 +27,7 @@ re-pairing every session.
 
 from __future__ import annotations
 
+import base64
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -457,6 +458,46 @@ class WahaClient:
             exists=bool(data.get("numberExists")),
             chat_id=data.get("chatId") or data.get("pn") or None,
         )
+
+    # WhatsApp accepts far larger media, but the inline card copy is sized for
+    # email (roughly 90-700KB), so anything past this is a sign something is
+    # wrong rather than a card worth sending.
+    MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+    def send_image(
+        self,
+        name: str,
+        phone_e164: str,
+        image: bytes,
+        *,
+        mimetype: str = "image/jpeg",
+        caption: str = "",
+        filename: str = "card.jpg",
+        chat_id: str | None = None,
+        reply_to: str | None = None,
+    ) -> dict:
+        """Send the card itself, with the message as its caption.
+
+        The image goes as base64 rather than as a URL: handing WhatsApp a link to
+        the recipient's own invitation page would have Meta fetch that private
+        page (again), whereas this keeps the picture on the compose network until
+        the moment it is sent.
+        """
+        if len(image) > self.MAX_IMAGE_BYTES:
+            raise WahaError(f"image is {len(image)} bytes, over the {self.MAX_IMAGE_BYTES} cap")
+        body: dict = {
+            "session": name,
+            "chatId": chat_id or phones.chat_id(phone_e164),
+            "file": {
+                "mimetype": mimetype,
+                "filename": filename,
+                "data": base64.b64encode(image).decode(),
+            },
+            "caption": caption,
+        }
+        if reply_to:
+            body["reply_to"] = reply_to
+        return self._json("POST", "/api/sendImage", json=body)
 
     def send_text(
         self,
