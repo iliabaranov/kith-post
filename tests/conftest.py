@@ -23,6 +23,11 @@ os.environ.setdefault("KITH_REMINDERS__SWEEP_SECONDS", "0")
 # (dev-login) baseline; the configured-OAuth test monkeypatches these back.
 os.environ["KITH_GOOGLE_CLIENT_ID"] = ""
 os.environ["KITH_GOOGLE_CLIENT_SECRET"] = ""
+# Same for the WhatsApp channel: on the deploy box .env has it switched on, and
+# tests that assert the default-off behaviour would read that as the default.
+# Forced off here; the tests that need it monkeypatch it back on.
+os.environ["KITH_WHATSAPP_ENABLED"] = "false"
+os.environ["KITH_WAHA_API_KEY"] = ""
 # Rate limiting is per-client and in-memory, so its counters would bleed across
 # the in-process suite and make unrelated tests flaky. Off by default here; the
 # dedicated test flips the limiter back on to prove it works.
