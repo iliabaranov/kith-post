@@ -443,3 +443,41 @@ def test_self_only_without_a_stored_number_fails_that_recipient(wa, monkeypatch)
     db, res = _send(ev)
     assert (res.wa_sent, res.wa_failed) == (0, 1)
     assert res.wa_blocked is None and fake.sent == []
+
+
+def test_an_unlinked_host_is_unaffected_by_the_channel_being_on(monkeypatch):
+    """The invariant: WhatsApp is optional per user, not just per deployment.
+
+    With the channel enabled server-wide but this host never having linked (or
+    even acknowledged the warning), an email-only card must send exactly as
+    before — no WhatsApp call, no gate, nothing withheld.
+    """
+    monkeypatch.setenv("KITH_WHATSAPP_ENABLED", "true")
+    monkeypatch.setenv("KITH_WAHA_API_KEY", "test-key")
+    monkeypatch.setenv("KITH_SEND_MODE", "live")
+    get_settings.cache_clear()
+    # Any WAHA call at all is a failure of the invariant.
+    def forbidden(settings):
+        raise AssertionError("an unlinked host must never reach WAHA")
+
+    monkeypatch.setattr(link, "client", forbidden)
+    monkeypatch.setattr(
+        "kith.services.gmail.gmail_send", lambda *a, **k: {"id": "gm1", "threadId": "th1"}
+    )
+    try:
+        from kith.web.app import create_app
+
+        with TestClient(create_app()) as c:
+            c.post("/auth/dev-login")
+            db, user = _db_and_user()
+            user.refresh_token, user.display_name = "tok", "Ilia"
+            db.commit()
+            assert user.wa_session is None and user.wa_risk_ack_at is None
+
+            ev = _make_event(c, "", emails="ali@example.com")
+            db, res = _send(ev)
+            assert (res.sent, res.failed) == (1, 0)
+            assert (res.wa_sent, res.wa_failed, res.wa_blocked) == (0, 0, None)
+            assert all(r.status == "sent" for r in _recipients(db, ev))
+    finally:
+        get_settings.cache_clear()
