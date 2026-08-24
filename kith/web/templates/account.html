@@ -7,6 +7,16 @@
   <h1 class="hero-title">{{ user.display_name or "Your account" }}</h1>
   <p class="hero-sub">{{ user.email }}</p>
 
+  {% if settings.whatsapp_configured %}
+  <p class="reassure wa-account-row">
+    WhatsApp: {% if wa_linked %}linked{% if user.wa_number %} as {{ user.wa_number }}{% endif %}
+    · <a class="link" href="/account/whatsapp">manage</a>
+    {%- else -%}
+    not linked · <a class="link" href="/account/whatsapp">set it up</a>
+    {%- endif %}
+  </p>
+  {% endif %}
+
   <div class="account-actions">
     <a class="btn btn-quiet" href="/account/export">Download my data (JSON)</a>
     <form method="post" action="/account/delete"

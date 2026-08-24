@@ -26,12 +26,14 @@ from kith.config import get_settings
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
 from kith.services import google_auth, scheduler, storage
+from kith.services import wa_session as wa_link
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
 from kith.web.ratelimit import limiter
 from kith.web.routes_contacts import router as contacts_router
 from kith.web.routes_events import router as events_router
 from kith.web.routes_invite import router as invite_router
+from kith.web.routes_whatsapp import router as whatsapp_router
 
 log = logging.getLogger("kith")
 
@@ -139,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(events_router)
     app.include_router(invite_router)
     app.include_router(contacts_router)
+    app.include_router(whatsapp_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
     def healthz() -> str:
@@ -276,7 +279,7 @@ def create_app() -> FastAPI:
         user = load_user(request, db)
         if user is None:
             return RedirectResponse("/", status_code=303)
-        ctx = {"settings": settings, "user": user}
+        ctx = {"settings": settings, "user": user, "wa_linked": wa_link.linked(user)}
         return templates.TemplateResponse(request, "account.html", ctx)
 
     @app.get("/account/export")

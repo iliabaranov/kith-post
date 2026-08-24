@@ -518,3 +518,21 @@ textarea { resize: vertical; }
   .event-link:hover { transform: none; }
   .toggle { transition: none; }
 }
+
+/* ---- WhatsApp linking (/account/whatsapp) ---- */
+/* The risk warning is prose, not a one-line banner, so let it stack and read. */
+.ask-note.wa-warn { display: block; text-align: left; margin: 1.6rem 0; }
+.ask-note.wa-warn p { margin: 0 0 .6rem; line-height: 1.55; }
+.ask-note.wa-warn p:last-child { margin-bottom: 0; }
+.wa-actions {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: .9rem; margin: 1.4rem 0 0;
+}
+/* The QR sits on card stock, not on the warm page ground: scanners want the
+   quiet-zone white, and a border keeps it from floating. */
+.wa-qr {
+  display: inline-block; margin: 1.2rem auto .4rem; padding: .8rem;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+}
+.wa-qr img { display: block; width: 264px; height: 264px; image-rendering: pixelated; }
+.wa-account-row { margin-top: 1.2rem; }
