@@ -433,3 +433,51 @@ def test_the_crawler_can_still_read_the_preview_copy(wa):
     db, r = _one_recipient(wa)
     body = wa.get(f"/i/{r.token}", headers={"user-agent": "WhatsApp/2.2437.4 A"}).text
     assert "<title>" in body and "name=\"description\"" in body
+
+
+def test_a_blank_user_agent_is_not_a_reader(wa):
+    """The first filter matched crawler names and the phantom opens continued —
+    the fetcher sends no User-Agent at all. Every real browser sends one."""
+    db, r = _one_recipient(wa)
+    wa.get(f"/i/{r.token}", headers={"user-agent": ""})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is None
+
+
+def test_an_open_cannot_land_within_seconds_of_the_send(wa):
+    """The UA-independent guard, and the one that actually holds: no notification
+    is received, read and tapped in under ten seconds."""
+    from datetime import UTC, datetime
+
+    db, r = _one_recipient(wa)
+    r.status, r.sent_at = "sent", datetime.now(UTC)
+    db.commit()
+    wa.get(f"/i/{r.token}", headers={"user-agent":
+        "Mozilla/5.0 (Linux; Android 14) Chrome/126 Mobile Safari/537.36"})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is None, "counted a preview fetch"
+
+
+def test_a_later_visit_by_the_same_person_does_count(wa):
+    """The undercount has to be self-healing, or a fast reader is never counted."""
+    from datetime import UTC, datetime, timedelta
+
+    db, r = _one_recipient(wa)
+    r.status = "sent"
+    r.sent_at = datetime.now(UTC) - timedelta(minutes=5)
+    db.commit()
+    wa.get(f"/i/{r.token}", headers={"user-agent":
+        "Mozilla/5.0 (Linux; Android 14) Chrome/126 Mobile Safari/537.36"})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is not None
+
+
+def test_an_open_before_any_send_still_counts(wa):
+    """A host sharing the preview link by hand hasn't 'sent' yet — sent_at is
+    None, so there's no window to be inside."""
+    db, r = _one_recipient(wa)
+    assert r.sent_at is None
+    wa.get(f"/i/{r.token}", headers={"user-agent":
+        "Mozilla/5.0 (Macintosh) Safari/605.1.15"})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is not None
