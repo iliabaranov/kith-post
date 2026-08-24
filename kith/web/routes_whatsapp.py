@@ -36,6 +36,9 @@ _PROMPTS = {
 }
 
 
+_UNREAD = object()  # "no state passed in", distinct from "WAHA has no session"
+
+
 def _page(
     request: Request,
     db: Session,
@@ -44,10 +47,26 @@ def _page(
     error: str | None = None,
     code: str | None = None,
     phone: str = "",
+    state: object = _UNREAD,
 ):
+    """Render the linking page.
+
+    Callers that have already read the session pass it in, so a request makes one
+    read rather than two. That's not just tidiness: reading twice let a caller's
+    error be rendered beside a *newer* state that contradicted it — a host who
+    finished pairing between the two reads got "that pairing attempt has expired"
+    sitting above "Linked as +1...".
+    """
     settings = get_settings()
-    state = link.refresh(db, user, settings)
+    if state is _UNREAD:
+        state = link.refresh(db, user, settings)
+    if state is not None and not isinstance(state, waha.SessionState):
+        state = None
     status = state.status if state else None
+    if state is not None and state.is_working:
+        # We're linked. Anything we were about to say about *getting* linked is
+        # stale by definition, and a pairing code is moot.
+        error, code = None, None
     return templates.TemplateResponse(
         request,
         "whatsapp.html",
@@ -146,15 +165,15 @@ def pairing_code(
     state = link.refresh(db, user, settings)
     if state is None or not state.is_pairing:
         return _page(
-            request, db, user, phone=phone,
+            request, db, user, phone=phone, state=state,
             error="That pairing attempt has expired. Press Link WhatsApp to start "
                   "a fresh one, then ask for a code.",
         )
     try:
         code = link.pairing_code(user, settings, e164)
     except waha.WahaError as e:
-        return _page(request, db, user, phone=phone, error=str(e))
-    return _page(request, db, user, code=code, phone=e164)
+        return _page(request, db, user, phone=phone, state=state, error=str(e))
+    return _page(request, db, user, code=code, phone=e164, state=state)
 
 
 @router.get("/account/whatsapp/qr.png")

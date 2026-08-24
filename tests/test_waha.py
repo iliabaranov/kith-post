@@ -253,15 +253,47 @@ def test_ensure_session_creates_when_absent():
 
 
 def test_ensure_session_restarts_a_failed_one():
-    # An unpaired session drifts to FAILED on its own, so linking again must not
-    # need a manual cleanup step.
+    """A FAILED session needs *restart*, not start.
+
+    This is the whole bug: `start` answers 201 and logs "Session is already
+    running", because the session object really is running — it's the WhatsApp
+    connection underneath that died. Pressing "Link WhatsApp" then appears to work
+    while leaving the host stranded on "that pairing attempt didn't finish".
+    """
+    seen = []
+
     def handler(request):
         if request.method == "GET":
             return httpx.Response(200, json={"name": "uabc", "status": "FAILED"})
-        assert request.url.path == "/api/sessions/uabc/start"
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"name": "uabc", "status": "SCAN_QR_CODE"})
+
+    assert _client(handler).ensure_session("uabc").status == "SCAN_QR_CODE"
+    assert seen == ["/api/sessions/uabc/restart"]
+
+
+def test_ensure_session_starts_a_stopped_one():
+    """STOPPED is the case start actually is for."""
+    seen = []
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"name": "uabc", "status": "STOPPED"})
+        seen.append(request.url.path)
         return httpx.Response(200, json={"name": "uabc", "status": "STARTING"})
 
     assert _client(handler).ensure_session("uabc").status == "STARTING"
+    assert seen == ["/api/sessions/uabc/start"]
+
+
+def test_ensure_session_leaves_a_pairing_session_alone():
+    """Restarting mid-pairing would throw away the QR being scanned, or the code
+    being typed."""
+    def handler(request):
+        assert request.method == "GET", "must not disturb a session that's pairing"
+        return httpx.Response(200, json={"name": "uabc", "status": "SCAN_QR_CODE"})
+
+    assert _client(handler).ensure_session("uabc").is_pairing
 
 
 def test_ensure_session_leaves_a_working_one_alone():

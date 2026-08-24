@@ -329,20 +329,43 @@ class WahaClient:
         )
 
     def ensure_session(self, name: str) -> SessionState:
-        """Create the session if WAHA doesn't have it, otherwise start it if stopped.
+        """Get this session ready for the host to pair with.
 
         Idempotent, so the linking page can call it on every attempt without
         caring whether a previous try got half-way.
+
+        The three cases are genuinely different verbs, and getting this wrong
+        strands the host:
+
+        * **missing** -> create it;
+        * **STOPPED** -> ``start``, which is what start is for;
+        * **FAILED** -> ``restart``. ``start`` is a *no-op* here — WAHA answers
+          201 and logs "Session is already running", because the session object
+          really is running; it's the WhatsApp connection underneath that died
+          (typically a pairing window that expired unscanned). Only a restart
+          brings it back to SCAN_QR_CODE.
+
+        A session already waiting to pair is left alone: restarting it would
+        throw away a QR the host is scanning or a code they're typing.
         """
         state = self.find_session(name)
         if state is None:
             return self.create_session(name, start=True)
-        if state.status in (STATUS_STOPPED, STATUS_FAILED):
+        if state.status == STATUS_FAILED:
+            return self.restart_session(name)
+        if state.status == STATUS_STOPPED:
             return self.start_session(name)
         return state
 
     def start_session(self, name: str) -> SessionState:
         return SessionState.parse(self._json("POST", f"/api/sessions/{name}/start"))
+
+    def restart_session(self, name: str) -> SessionState:
+        """Tear the WhatsApp connection down and bring it back up.
+
+        The only way out of FAILED (see :meth:`ensure_session`).
+        """
+        return SessionState.parse(self._json("POST", f"/api/sessions/{name}/restart"))
 
     def stop_session(self, name: str) -> None:
         self._call("POST", f"/api/sessions/{name}/stop")

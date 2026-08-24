@@ -50,11 +50,18 @@ class FakeWaha:
         self.calls.append(("ensure", name))
         if self.status is None:
             self.status = waha.STATUS_SCAN_QR
+        elif self.status == waha.STATUS_FAILED:
+            return self.restart_session(name)   # start would be a no-op
         return self._state()
 
     def qr_png(self, name):
         self.calls.append(("qr", name))
         return b"\x89PNG\r\n\x1a\nfake-qr"
+
+    def restart_session(self, name):
+        self.calls.append(("restart", name))
+        self.status = waha.STATUS_SCAN_QR   # what a real restart does
+        return self._state()
 
     def request_pairing_code(self, name, phone):
         self.calls.append(("code", name, phone))
@@ -503,3 +510,63 @@ def test_asking_for_a_code_on_a_dead_session_says_so_plainly(wa):
     r = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"})
     assert "expired" in r.text and "Link WhatsApp" in r.text
     assert not any(c[0] == "code" for c in fake.calls), "don't ask when it can't answer"
+
+
+
+def test_pressing_link_recovers_a_failed_session(wa):
+    """The bug a real host hit: Link returned 303 and changed nothing, leaving
+    them stuck on "that pairing attempt didn't finish" forever. A FAILED session
+    needs restart; start is a no-op on it."""
+    client, fake = wa
+    _acked_and_linking(client)
+    fake.status = waha.STATUS_FAILED
+    assert "pairing attempt" in client.get("/account/whatsapp").text
+
+    client.post("/account/whatsapp/link", follow_redirects=False)
+    # The session name is derived from the user id, so match on the verb.
+    assert [c[0] for c in fake.calls].count("restart") == 1
+    body = client.get("/account/whatsapp").text
+    assert "pairing attempt" not in body, "still stranded after pressing Link"
+    assert "/account/whatsapp/qr.png" in body
+    assert 'name="phone"' in body       # ...and the by-number path is back too
+
+
+def test_a_success_never_renders_under_a_stale_error(wa):
+    """The contradiction a real host saw: "That pairing attempt has expired"
+    sitting directly above "Linked as +1...".
+
+    The page used to re-read the session after the caller had already read it, so
+    an error derived from the first read could be rendered beside a newer state
+    that disproved it — exactly what happens when the pairing completes between
+    the two reads.
+    """
+    client, fake = wa
+    _acked_and_linking(client)
+    # Pairing finishes; the host's browser then submits the number form anyway.
+    fake.status, fake.phone = waha.STATUS_WORKING, "+15550009999"
+    r = client.post("/account/whatsapp/pairing-code", data={"phone": "+15550009999"})
+    assert r.status_code == 200
+    assert "+15550009999" in r.text          # the linked state
+    assert "expired" not in r.text           # ...and no stale complaint above it
+    # The class name lives in the inlined stylesheet; the element is the tell.
+    assert '<p class="form-error">' not in r.text
+
+
+def test_a_linked_page_never_shows_a_leftover_code(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    body = client.post("/account/whatsapp/pairing-code", data={"phone": "+15550009999"}).text
+    assert "WW5J-87T4" in body               # code while pairing
+    fake.status, fake.phone = waha.STATUS_WORKING, "+15550009999"
+    body = client.post("/account/whatsapp/pairing-code", data={"phone": "+15550009999"}).text
+    assert "WW5J-87T4" not in body           # ...moot once linked
+    assert "Unlink WhatsApp" in body
+
+
+def test_the_page_reads_the_session_once_per_request(wa):
+    """Two reads per request is how the states diverged in the first place."""
+    client, fake = wa
+    _acked_and_linking(client)
+    before = len([c for c in fake.calls if c[0] == "find"])
+    client.post("/account/whatsapp/pairing-code", data={"phone": "+15550009999"})
+    assert len([c for c in fake.calls if c[0] == "find"]) - before == 1
