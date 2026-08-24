@@ -308,3 +308,74 @@ def test_legacy_rows_with_no_channel_are_treated_as_email(client):
     )
     _, rows2 = _recipients(ev)
     assert len(rows2) == 1 and rows2[0].id == rows[0].id
+
+
+# --- the address book UI ------------------------------------------------------
+
+def test_a_number_can_be_added_to_a_new_contact_from_the_page(wa_client):
+    """The gap this closes: the service layer took a phone from the start, but
+    the /contacts page had no field for one."""
+    body = wa_client.get("/contacts").text
+    assert 'name="phone"' in body
+    wa_client.post("/contacts/add", data={
+        "name": "Mara", "email": "mara@example.com",
+        "phone": "+1 555 111 0000", "groups": "family",
+    })
+    db, user = _db_and_user()
+    c = book.find_by_phone(db, user.id, "+15551110000")
+    assert c is not None and c.name == "Mara" and c.email == "mara@example.com"
+
+
+def test_a_number_can_be_added_to_an_existing_contact_from_the_page(wa_client):
+    db, user = _db_and_user()
+    c, _ = book.add_contact(db, user.id, "ali@example.com", "Ali")
+    assert c.phone is None
+    # The row's edit form carries the number field, pre-filled.
+    assert 'class="contact-phone"' in wa_client.get("/contacts").text
+    wa_client.post(f"/contacts/{c.id}/edit", data={
+        "name": "Ali", "email": "ali@example.com", "phone": "+14085559090", "groups": "",
+    })
+    db2, _ = _db_and_user()
+    assert db2.get(Contact, c.id).phone == "+14085559090"
+
+
+def test_a_whatsapp_only_contact_can_be_added_without_an_email(wa_client):
+    wa_client.post("/contacts/add", data={
+        "name": "Gillian", "email": "", "phone": "+14085559090", "groups": "family",
+    })
+    db, user = _db_and_user()
+    c = book.find_by_phone(db, user.id, "+14085559090")
+    assert c is not None and c.name == "Gillian" and c.email == ""
+
+
+def test_a_number_can_be_cleared_from_the_page(wa_client):
+    db, user = _db_and_user()
+    c, _ = book.add_contact(db, user.id, "ali@example.com", "Ali", phone="+14085559090")
+    wa_client.post(f"/contacts/{c.id}/edit", data={
+        "name": "Ali", "email": "ali@example.com", "phone": "", "groups": "",
+    })
+    db2, _ = _db_and_user()
+    assert db2.get(Contact, c.id).phone is None
+
+
+def test_an_unreachable_contact_is_reported_rather_than_silently_dropped(wa_client):
+    r = wa_client.post("/contacts/add", data={"name": "Nobody", "email": "", "phone": ""},
+                       follow_redirects=True)
+    assert "invalid=1" in str(r.url) or "country code" in r.text
+    assert "country code" in r.text
+
+
+def test_a_number_without_a_country_code_is_reported(wa_client):
+    r = wa_client.post("/contacts/add", data={
+        "name": "Mara", "email": "mara@example.com", "phone": "555 111 0000",
+    }, follow_redirects=True)
+    assert "country code" in r.text
+    db, user = _db_and_user()
+    assert book.find_by_email(db, user.id, "mara@example.com") is None
+
+
+def test_the_contacts_page_has_no_number_field_when_the_channel_is_off(client):
+    client.post("/auth/dev-login")
+    body = client.get("/contacts").text
+    assert 'name="phone"' not in body
+    assert "WhatsApp number" not in body
