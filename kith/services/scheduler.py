@@ -57,7 +57,9 @@ def _send_wa_reminder(
         else:
             wa_link.sendable(db, user, settings)  # re-reads the live session
             to = user.wa_number if settings.send_mode == SendMode.self_only else r.phone
-            wa_link.client(settings).send_text(user.wa_session, to, text)
+            if not to:
+                raise waha.WahaError(f"no destination number for recipient {r.id}")
+            wa_link.client(settings).send_text(user.wa_session or "", to, text)
     except waha.Timelocked as e:
         user.wa_timelock_until = e.ends_at
         reminder.status, reminder.sent_at = "pending", None

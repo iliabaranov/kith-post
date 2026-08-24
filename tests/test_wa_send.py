@@ -26,6 +26,7 @@ class FakeWaha:
 
     def __init__(self):
         self.status = waha.STATUS_WORKING
+        self.phone = "+15550009999"    # the host's own linked number
         self.sent = []            # (session, to, text, chat_id)
         self.checked = []
         self.exists = True
@@ -37,7 +38,7 @@ class FakeWaha:
 
     def _state(self):
         return waha.SessionState(
-            name="utest", status=self.status, phone="+15550009999",
+            name="utest", status=self.status, phone=self.phone,
             timelock=self.timelock, capping=self.capping,
         )
 
@@ -423,3 +424,22 @@ def test_the_export_includes_the_link_and_contact_numbers(wa):
     assert data["whatsapp"]["linked"] is True
     assert data["whatsapp"]["number"] == "+15550009999"
     assert data["contacts"][0]["phone"] == "+15551110000"
+
+
+def test_self_only_without_a_stored_number_fails_that_recipient(wa, monkeypatch):
+    """A linked session always reports its number, but if it somehow hasn't, we
+    report the recipient rather than handing WAHA an empty chat id."""
+    client, fake = wa
+    monkeypatch.setenv("KITH_SEND_MODE", "self-only")
+    get_settings.cache_clear()
+    # Clearing the cached number isn't enough: the pre-flight refreshes it from
+    # the live session (which is the right behaviour), so the session itself has
+    # to be the one reporting no number.
+    fake.phone = None
+    db, user = _db_and_user()
+    user.wa_number = None
+    db.commit()
+    ev = _make_event(client, "+15551110000")
+    db, res = _send(ev)
+    assert (res.wa_sent, res.wa_failed) == (0, 1)
+    assert res.wa_blocked is None and fake.sent == []

@@ -196,6 +196,7 @@ def _send_whatsapp(
     dry = settings.send_mode == SendMode.dry_run
 
     client = None
+    session = user.wa_session or ""
     if not dry:
         # One pre-flight for the whole batch: re-reads the live session, and
         # refuses on not-linked / timelocked / capped before anything is sent.
@@ -215,6 +216,7 @@ def _send_whatsapp(
             log.exception("whatsapp: WAHA unreachable for user %s", user.id)
             return _WaOutcome(0, 0, "unavailable")
         client = wa_link.client(settings)
+        session = user.wa_session or ""  # sendable() guarantees this is set
 
     sent = failed = 0
     for i, r in enumerate(recipients):
@@ -228,10 +230,16 @@ def _send_whatsapp(
             note=note,
         )
         to = user.wa_number if settings.send_mode == SendMode.self_only else r.phone
+        if not to:
+            # self-only with no number stored for the host: nothing to send to.
+            # Better to report it than to hand WAHA an empty chat id.
+            log.warning("whatsapp: no destination number for recipient %s", r.id)
+            failed += 1
+            continue
         try:
             if dry:
-                _write_wa_outbox(settings, event.id, r.id, to or r.phone, text)
-            else:
+                _write_wa_outbox(settings, event.id, r.id, to, text)
+            elif client is not None:
                 # Ask WhatsApp whether the number is really there first. Messaging
                 # numbers that aren't on WhatsApp is one of the things that earns
                 # an account a reachout timelock, so a wrong digit should cost one
@@ -239,7 +247,7 @@ def _send_whatsapp(
                 # errors is not treated as an answer — we go ahead and send.
                 chat_id = None
                 try:
-                    check = client.check_exists(user.wa_session, to)
+                    check = client.check_exists(session, to)
                     if not check.exists:
                         log.warning("whatsapp: %s is not on WhatsApp (event %s)", r.id, event.id)
                         failed += 1
@@ -247,7 +255,7 @@ def _send_whatsapp(
                     chat_id = check.chat_id
                 except waha.WahaError:
                     log.warning("whatsapp: existence check failed for %s; sending anyway", r.id)
-                res = client.send_text(user.wa_session, to, text, chat_id=chat_id)
+                res = client.send_text(session, to, text, chat_id=chat_id)
                 r.wa_message_id = res.get("id")
             r.status = "sent"
             r.sent_at = datetime.now(UTC)
