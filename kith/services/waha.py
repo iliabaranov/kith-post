@@ -378,6 +378,27 @@ class WahaClient:
         resp = self._call("GET", f"/api/{name}/auth/qr", params={"format": "image"})
         return resp.content
 
+    def request_pairing_code(self, name: str, phone_e164: str) -> str:
+        """Ask WhatsApp for a pairing code for this number, e.g. "WW5J-87T4".
+
+        This is WhatsApp's "link with phone number instead" path, and it's the
+        answer to the obvious hole in QR pairing: the code has to be scanned *by*
+        the phone, so it can't be displayed *on* the phone. The host types this
+        code into WhatsApp instead, and never needs a second screen.
+
+        ``method`` is deliberately omitted — left empty it means web pairing (a
+        code to type), rather than asking WhatsApp to send an SMS or call.
+        """
+        data = self._json(
+            "POST",
+            f"/api/{name}/auth/request-code",
+            json={"phoneNumber": phones.digits(phone_e164)},
+        )
+        code = (data or {}).get("code") if isinstance(data, dict) else None
+        if not code:
+            raise WahaError("WhatsApp did not return a pairing code")
+        return str(code)
+
     def qr_raw(self, name: str) -> str:
         """The pairing payload as text (a ``wa.me/settings/linked_devices#...``
         link), for a copy-paste fallback when the image won't render."""

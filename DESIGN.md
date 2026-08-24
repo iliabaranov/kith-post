@@ -266,6 +266,15 @@ Pairing has more than one path: 2026.8.1 added `PASSKEY_REQUIRED` and
 `PASSKEY_CONFIRMATION_REQUIRED` next to `SCAN_QR_CODE`, and an unpaired session
 drifts to `FAILED` on its own, so the linking UI handles all seven states.
 
+QR pairing also has a hole worth naming: the code has to be scanned *by* the
+phone, so it is useless *on* the phone — and a host who opens the linking page on
+their phone is the common case, not the edge one. So the page offers WhatsApp's
+own "link with phone number instead" path as an equal option:
+`POST /api/{session}/auth/request-code` with the host's number and no `method`
+returns an 8-character code they type into WhatsApp. That request is only valid
+while the session is in `SCAN_QR_CODE`, so the route checks the state first
+rather than surfacing WAHA's developer-facing 422.
+
 ---
 
 ## 7. Tracking Design

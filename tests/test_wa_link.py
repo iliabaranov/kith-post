@@ -24,6 +24,7 @@ class FakeWaha:
         self.calls = []
         self.timelock = None
         self.capping = None
+        self.code_error = None
 
     # -- the surface wa_session uses --
     def _state(self):
@@ -54,6 +55,12 @@ class FakeWaha:
     def qr_png(self, name):
         self.calls.append(("qr", name))
         return b"\x89PNG\r\n\x1a\nfake-qr"
+
+    def request_pairing_code(self, name, phone):
+        self.calls.append(("code", name, phone))
+        if self.code_error:
+            raise self.code_error
+        return "WW5J-87T4"
 
     def unlink(self, name):
         self.calls.append(("unlink", name))
@@ -385,3 +392,114 @@ def test_sendable_refuses_with_no_link_at_all(wa):
     db, user = _user()
     with pytest.raises(waha.NotLinked):
         link.sendable(db, user, get_settings())
+
+
+# --- pairing by typed code (for when you can't scan) --------------------------
+
+def test_the_qr_screen_offers_the_by_number_path(wa):
+    """A QR has to be scanned *by* the phone, so it's useless *on* the phone.
+    The way out has to be visible without hunting for it."""
+    client, fake = wa
+    _acked_and_linking(client)
+    body = client.get("/account/whatsapp").text
+    assert 'action="/account/whatsapp/pairing-code"' in body
+    assert 'name="phone"' in body
+    assert "phone you" in body           # "...the phone you're linking?"
+
+
+def test_requesting_a_code_shows_it_with_where_to_type_it(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    r = client.post("/account/whatsapp/pairing-code", data={"phone": "+1 555 123 4567"})
+    assert r.status_code == 200
+    assert "WW5J-87T4" in r.text
+    assert "phone number instead" in r.text          # where to type it
+    assert ("code", "utest", "+15551234567") in fake.calls   # normalised first
+
+
+def test_the_code_screen_hides_the_qr_so_there_is_one_thing_to_do(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    body = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"}).text
+    # No QR image on this screen (the shared poller script still names the URL,
+    # but with no <img id="waQr"> to update it never fires).
+    assert 'id="waQr"' not in body
+    assert 'src="/account/whatsapp/qr.png"' not in body
+    assert "Use a QR code instead" in body   # ...but the way back is there
+
+
+def test_the_code_screen_still_polls_for_success(wa):
+    """Typing the code is the last thing the host does, so the page must notice on
+    its own. Safe because the session stays SCAN_QR_CODE while a code is
+    outstanding, so the poller can't reload and wipe the code away."""
+    client, fake = wa
+    _acked_and_linking(client)
+    body = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"}).text
+    assert "/account/whatsapp/state" in body
+    assert "check now" in body               # and a no-JS way to do the same
+
+
+def test_a_number_without_a_country_code_is_refused_kindly(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    r = client.post("/account/whatsapp/pairing-code", data={"phone": "555 123 4567"})
+    assert "country code" in r.text
+    assert not any(c[0] == "code" for c in fake.calls), "never guess the country"
+    assert "555 123 4567" in r.text  # what they typed survives, to fix not retype
+
+
+def test_the_number_is_used_once_and_not_stored(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"})
+    db, user = _user()
+    # Only a completed pairing sets the linked number, and that comes from WAHA.
+    assert user.wa_number is None
+
+
+def test_a_refused_code_request_is_reported_not_crashed(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    fake.code_error = waha.WahaError("WhatsApp refused the pairing request")
+    r = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"})
+    assert r.status_code == 200 and "WhatsApp refused" in r.text
+
+
+def test_a_new_code_can_be_requested_for_the_same_number(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"})
+    body = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"}).text
+    assert "WW5J-87T4" in body
+    assert len([c for c in fake.calls if c[0] == "code"]) == 2
+
+
+def test_pairing_by_code_completes_like_any_other(wa):
+    client, fake = wa
+    _acked_and_linking(client)
+    client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"})
+    fake.status, fake.phone = waha.STATUS_WORKING, "+15551234567"
+    body = client.get("/account/whatsapp").text
+    assert "+15551234567" in body
+    db, user = _user()
+    assert user.wa_status == waha.STATUS_WORKING and user.wa_linked_at is not None
+
+
+def test_the_code_route_needs_sign_in(wa):
+    client, _ = wa
+    client.post("/auth/logout")
+    r = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+
+
+def test_asking_for_a_code_on_a_dead_session_says_so_plainly(wa):
+    """WAHA only issues codes in SCAN_QR_CODE and answers 422 otherwise, with a
+    message written for developers. An unpaired session drifts to FAILED by
+    itself, so this is a normal thing to walk into."""
+    client, fake = wa
+    _acked_and_linking(client)
+    fake.status = waha.STATUS_FAILED
+    r = client.post("/account/whatsapp/pairing-code", data={"phone": "+15551234567"})
+    assert "expired" in r.text and "Link WhatsApp" in r.text
+    assert not any(c[0] == "code" for c in fake.calls), "don't ask when it can't answer"

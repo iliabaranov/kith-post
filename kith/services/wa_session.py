@@ -132,6 +132,18 @@ def qr_png(user: User, settings: Settings) -> bytes:
     return client(settings).qr_png(user.wa_session)
 
 
+def pairing_code(user: User, settings: Settings, phone_e164: str) -> str:
+    """A code the host types into WhatsApp, for when they can't scan a QR.
+
+    The number is used for this one request and deliberately not stored: it's the
+    host's own WhatsApp number, we have no other use for it, and the pairing that
+    results already tells us which account got linked.
+    """
+    if not user.wa_session:
+        raise waha.WahaError("no session to pair")
+    return client(settings).request_pairing_code(user.wa_session, phone_e164)
+
+
 def unlink(db: Session, user: User, settings: Settings) -> None:
     """Drop the pairing and forget it.
 

@@ -66,7 +66,30 @@
   {% else %}
   {# Acknowledged, not yet paired. #}
   {% if pairing %}
+  {% if code %}
+  {# Reading this on the phone being linked: a code to type, no second screen. #}
+  <p class="hero-sub">In WhatsApp, go to <strong>Settings → Linked devices → Link
+    with phone number instead</strong>, then enter this code:</p>
+  <p class="wa-code">{{ code }}</p>
+  <p class="field-hint">It's only good for a few minutes. If it expires, ask for
+    another one.</p>
+  <div class="wa-actions">
+    <form method="post" action="/account/whatsapp/pairing-code" class="inline-form">
+      <input type="hidden" name="phone" value="{{ phone }}">
+      <button class="btn btn-quiet" type="submit">New code</button>
+    </form>
+    <a class="btn btn-quiet" href="/account/whatsapp">Use a QR code instead</a>
+  </div>
+  <div class="reassure">
+    Typed it in? This page notices on its own —
+    <a class="link" href="/account/whatsapp">or check now</a>.
+  </div>
+
+  {% else %}
   <p class="hero-sub" id="waPrompt">{{ prompt }}</p>
+
+  {# Two equal paths, because which one works depends on where you're reading
+     this. A QR has to be scanned BY the phone, so it's no use ON the phone. #}
   <div class="wa-qr">
     <img id="waQr" src="/account/whatsapp/qr.png" alt="QR code to link WhatsApp" width="264" height="264">
   </div>
@@ -74,10 +97,28 @@
     Link a device. The code expires after a minute or so; reload for a fresh one.</p>
   <div class="wa-actions">
     <form method="post" action="/account/whatsapp/link" class="inline-form">
-      <button class="btn btn-quiet" type="submit">New code</button>
+      <button class="btn btn-quiet" type="submit">New QR</button>
     </form>
     <a class="btn btn-quiet" href="/account/whatsapp">Check again</a>
   </div>
+
+  <div class="or-divider"><span>or</span></div>
+
+  <form method="post" action="/account/whatsapp/pairing-code" class="wa-bynumber">
+    <p class="panel-title">Reading this on the phone you're linking?</p>
+    <p class="field-hint">You can't scan a code with the same phone that's showing
+      it. Enter that phone's WhatsApp number and we'll give you a code to type in
+      instead.</p>
+    <label class="field">
+      <span class="field-label">Your WhatsApp number</span>
+      <input type="tel" name="phone" value="{{ phone }}" autocomplete="tel"
+             placeholder="+1 555 123 4567" inputmode="tel">
+      <span class="field-hint">Include the country code. Used once to fetch the
+        code — we don't store it.</span>
+    </label>
+    <button class="btn btn-primary" type="submit">Get a code to type</button>
+  </form>
+  {% endif %}
   {% else %}
   <p class="hero-sub">
     {%- if prompt %}{{ prompt }}{% else %}Link your WhatsApp account to start
@@ -110,7 +151,7 @@
         someone replies to the invitation.</dd>
       <dt>If it stops working</dt>
       <dd>WhatsApp sometimes ends a linked-device session. The card page will say
-        so, and re-linking takes a scan. Anything already sent keeps working, since
+        so, and re-linking takes a scan or a typed code. Anything already sent keeps working, since
         the invitation lives on the web page, not in the message.</dd>
     </dl>
   </details>
@@ -133,7 +174,9 @@
         if (s.linked) { location.reload(); return; }
         if (!s.pairing) { location.reload(); return; }   // FAILED/STOPPED: show it
         if (s.prompt && prompt) prompt.textContent = s.prompt;
-        if (qr && tries % 6 === 0) {        // refresh the code every ~18s
+        // Only on the QR screen — the code screen has no image to refresh, and
+        // re-requesting would invalidate the code the host is typing.
+        if (qr && tries % 6 === 0) {        // refresh the QR every ~18s
           qr.src = "/account/whatsapp/qr.png?t=" + Date.now();
         }
         setTimeout(tick, 3000);

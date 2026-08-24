@@ -12,11 +12,12 @@ via a plain "check again" button.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from kith.config import get_settings
+from kith.core import phones
 from kith.services import wa_session as link
 from kith.services import waha
 from kith.web.deps import get_db, load_user, templates
@@ -35,7 +36,15 @@ _PROMPTS = {
 }
 
 
-def _page(request: Request, db: Session, user, *, error: str | None = None):  # noqa: ANN001
+def _page(
+    request: Request,
+    db: Session,
+    user,  # noqa: ANN001 — a DB User
+    *,
+    error: str | None = None,
+    code: str | None = None,
+    phone: str = "",
+):
     settings = get_settings()
     state = link.refresh(db, user, settings)
     status = state.status if state else None
@@ -52,6 +61,8 @@ def _page(request: Request, db: Session, user, *, error: str | None = None):  # 
             "linked": bool(state and state.is_working),
             "pairing": bool(state and state.is_pairing),
             "error": error,
+            "code": code,
+            "phone": phone,
         },
     )
 
@@ -102,6 +113,48 @@ def unlink(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     link.unlink(db, user, get_settings())
     return RedirectResponse("/account/whatsapp?unlinked=1", status_code=303)
+
+
+@router.post("/account/whatsapp/pairing-code", response_class=HTMLResponse)
+def pairing_code(
+    request: Request, db: Session = Depends(get_db), phone: str = Form("")
+):
+    """Get a code the host can type into WhatsApp, instead of scanning a QR.
+
+    The whole point: a QR has to be scanned *by* the phone, so it's useless when
+    the host is reading this page *on* that phone. Rendered directly rather than
+    redirected, because the code is short-lived and has no business surviving in
+    a URL or the session.
+    """
+    user = load_user(request, db)
+    if user is None:
+        return RedirectResponse("/", status_code=303)
+    settings = get_settings()
+    if not link.available(settings):
+        return RedirectResponse("/account", status_code=303)
+    e164 = phones.normalize(phone)
+    if e164 is None:
+        return _page(
+            request, db, user, phone=phone,
+            error="That doesn't look like a phone number with its country code — "
+                  "try the form +1 555 123 4567.",
+        )
+    # WhatsApp only issues a code while the session is actually waiting to pair
+    # (WAHA answers 422 otherwise, with a message aimed at developers). An
+    # unpaired session drifts to FAILED on its own, so this is a normal thing to
+    # walk into after leaving the page open — check first and say it plainly.
+    state = link.refresh(db, user, settings)
+    if state is None or not state.is_pairing:
+        return _page(
+            request, db, user, phone=phone,
+            error="That pairing attempt has expired. Press Link WhatsApp to start "
+                  "a fresh one, then ask for a code.",
+        )
+    try:
+        code = link.pairing_code(user, settings, e164)
+    except waha.WahaError as e:
+        return _page(request, db, user, phone=phone, error=str(e))
+    return _page(request, db, user, code=code, phone=e164)
 
 
 @router.get("/account/whatsapp/qr.png")

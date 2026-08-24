@@ -538,3 +538,15 @@ textarea { resize: vertical; }
 .wa-account-row { margin-top: 1.2rem; }
 /* A WhatsApp batch stopped by WhatsApp itself — explain, don't alarm. */
 .sent-note.wa-blocked { border-color: rgba(196, 69, 105, .5); background: rgba(196, 69, 105, .1); }
+/* The typed pairing code — the only thing on the page worth reading character by
+   character, so give it room and never let it wrap mid-code. */
+.wa-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(1.6rem, 7vw, 2.4rem); letter-spacing: .12em; font-weight: 600;
+  margin: 1.4rem auto .4rem; padding: .8rem 1.2rem; display: inline-block;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  color: var(--ink); white-space: nowrap; user-select: all;
+}
+.wa-bynumber { max-width: 24rem; margin: 0 auto; text-align: left; }
+.wa-bynumber .panel-title { margin: 0 0 .3rem; }
+.wa-bynumber .btn { margin-top: .9rem; width: 100%; }

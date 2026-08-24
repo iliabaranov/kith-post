@@ -162,7 +162,15 @@ docker compose --profile public --profile whatsapp up -d
 ```
 
 Then each host links their own account at **`/account/whatsapp`**: accept the
-warning, press Link, scan the QR with WhatsApp → Settings → Linked devices.
+warning, press Link, and pair one of two ways —
+
+- **scan the QR** with WhatsApp → Settings → Linked devices (needs a second
+  screen: a QR has to be scanned *by* the phone, so it can't be *on* it); or
+- **type a code**, for a host reading the page on the phone being linked. They
+  enter that phone's number and get an 8-character code for WhatsApp → Settings →
+  Linked devices → *Link with phone number instead*. The number is used for that
+  one request and never stored. WhatsApp only issues a code while the session is
+  waiting to pair, so an attempt left too long has to be restarted first.
 
 **What the compose file already does for you, and why:**
 
