@@ -62,7 +62,9 @@ export-and-delete. It is free, offered as-is with no warranty.
   invited guests, and never in a sent email.)*
 - Rich drag-and-drop card *designer* (we accept a finished image; we are not
   Canva). A future "templates" feature is out of scope for MVP.
-- SMS / WhatsApp / push delivery. Email only.
+- SMS or push delivery. Email is the default channel; **WhatsApp** was added
+  later as an opt-in second channel (§6a) — off unless the operator turns it on,
+  because it needs an unofficial client and carries real account risk.
 - Mobile native apps. Responsive web only.
 - Multi-language / i18n in v1 (English only).
 
@@ -187,14 +189,96 @@ create event ─► build recipient rows ─► [Send]
 
 ---
 
+## 6a. WhatsApp Channel (opt-in, via WAHA)
+
+A second delivery channel alongside Gmail, added after v1. Same shape as the
+email model — the host links **their own** WhatsApp account once and the server
+sends on their behalf, so guests see a message from someone they know, not from a
+service.
+
+```
+kith ──HTTP (compose network, X-Api-Key)──► WAHA container ──► WhatsApp
+                                            one session per kith user
+                                            /app/.sessions (named volume)
+```
+
+**Recipients get a short text with their same `/i/{token}` link.** Tracking is
+therefore *unchanged*: Opened, RSVP, headcount and allergies all come from the
+invitation page, which is channel-agnostic. Nothing is added to the message —
+no parameter, no redirect, no shortener.
+
+### Why it is off by default
+
+WAHA is an **unofficial** WhatsApp client. Using it is against WhatsApp's terms
+of service, and a linked account can be restricted or banned. At personal-invite
+volume to people who already have your number the practical risk is low, but it
+is real, so:
+
+- the operator must switch the channel on (`KITH_WHATSAPP_ENABLED`), and
+- each host must accept an in-app warning naming the risk before any session is
+  created. This gate is a product requirement, not a nicety.
+
+### Where the credentials live
+
+In WAHA's own volume, never in our database. kith stores only the session name,
+the last status it saw, the linked number (encrypted), and WhatsApp's restriction
+state — enough to render a page and explain a pause. Deleting an account unlinks
+first, so a pairing can't outlive the account it belongs to. The volume sits
+outside `./data` on purpose: the off-box backup covers `./data`, and these are
+live WhatsApp credentials in the clear. Losing them costs a QR re-scan.
+
+### Restrictions are instructions
+
+WhatsApp shadow-restricts accounts that message too many unknown contacts — the
+"reachout timelock" behind error 463, which leaves the session looking `WORKING`
+while sends fail. WAHA surfaces it (and the separate per-cycle new-chat quota) on
+the session, so:
+
+- every batch is pre-flighted once, and a timelock or exhausted quota **stops**
+  it, leaving recipients `queued` rather than burning attempt after attempt —
+  each further attempt makes the account look worse;
+- **never restart or re-pair** during a timelock. It follows the WhatsApp
+  account, not the session, so re-pairing only adds churn;
+- numbers are checked against WhatsApp before a first send, so a wrong digit
+  costs one recipient instead of the host's ability to send;
+- sends are spaced out (`KITH_WAHA_SEND_GAP_SECONDS`).
+
+### Engine choice
+
+Pinned to the **GOWS** build (browserless Go engine, ~850 MB vs ~1.15 GB for the
+Chromium one). This is not cosmetic: payload shapes differ between engines, **and
+the session store is per-engine** (`/app/.sessions/<engine>/<name>`), so
+switching engines re-pairs every user. WEBJS is the fallback if GOWS misbehaves;
+re-test the send path if you switch.
+
+### Operational notes worth remembering
+
+Every WAHA call is bounded by an explicit timeout. Against a session that isn't
+paired WAHA does not reliably fail fast — a wedged session can make `sendText`,
+`contacts/check-exists` and `sessions/{s}/timelock` hang indefinitely (a clean
+state mismatch returns a tidy 422 instead). Without that bound, one wedged
+session could tie up a request handler or the reminder sweep. Restriction state
+is read from the cheap `GET /api/sessions/{s}` (`me.reachoutTimelock`,
+`me.messageCapping`); the dedicated `timelock`/`capping` endpoints force a
+blocking fetch from WhatsApp and are only used as an explicit refresh.
+
+Pairing has more than one path: 2026.8.1 added `PASSKEY_REQUIRED` and
+`PASSKEY_CONFIRMATION_REQUIRED` next to `SCAN_QR_CODE`, and an unpaired session
+drifts to `FAILED` on its own, so the linking UI handles all seven states.
+
+---
+
 ## 7. Tracking Design
 
 **No tracking pixel.** All signals come from explicit, first-party HTTP requests
 the recipient's browser makes to *our* server — nothing hidden in the email body.
 
+Signals are **channel-independent**: they come from the invitation page, so a
+WhatsApp guest (§6a) is tracked exactly like an email one.
+
 | Signal | Mechanism | Reliability |
 |--------|-----------|-------------|
-| **Sent** | Gmail API returns a message id | High |
+| **Sent** | Gmail API returns a message id (or WAHA a WhatsApp message id) | High |
 | **Opened** | Recipient clicks **"View invitation"** → landing page rendered at `/i/{token}` (logged as `landing_view`) | High *for those who click through* |
 | **Accepted / Declined** | RSVP buttons → `/t/rsvp/{token}?a=yes\|no` → confirm step | High (explicit user action) |
 
@@ -620,10 +704,20 @@ Each gate is a working, committed, tested increment.
   **details-changed → re-send & re-collect** flow (date/time/location change prompts
   an opt-in re-send that clears prior RSVPs and reschedules). 148 tests.
 - **G6 — Polish, deploy & legal.** *(Partial.)* **✅ Done:** contacts address book,
-  export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups, and
-  auto-purge of heavy full-res images past a retention window. **Remaining:**
-  Privacy/ToS/disclaimer pages and a subtle "buy me a coffee" donation link
-  (signed-in only, after the first event; links out, no payment data stored).
+  export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups,
+  auto-purge of heavy full-res images past a retention window, and the
+  Privacy/ToS/disclaimer pages (`/privacy`, `/terms`). **Remaining:** a subtle
+  "buy me a coffee" donation link (signed-in only, after the first event; links
+  out, no payment data stored).
+- **G8 — WhatsApp delivery channel.** A second channel alongside Gmail (§6a):
+  invitations and reminders sent from each host's own WhatsApp account via a
+  self-hosted WAHA container, one session per user. **✅ Done** — pinned GOWS
+  image on the compose network only, `services/waha` client (every call bounded)
+  + `services/wa_session` for the kith-side link, risk-gated linking flow at
+  `/account/whatsapp`, a second recipient box in compose, per-channel send and
+  reminders with timelock/quota back-off, and unlink-on-account-delete. Off by
+  default (`KITH_WHATSAPP_ENABLED`). Tracking is unchanged, because it lives on
+  the invitation page rather than in the delivery channel.
 - **G7 — Richer RSVP & contacts.** **✅ Done** — optional reply note + allergies
   toggle, adults/kids headcount split, address-book group tags (filter + add a
   whole group at once), and non-destructive edit reconciliation with a

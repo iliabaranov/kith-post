@@ -19,8 +19,8 @@ thing rather than an open sandbox.
 </p>
 
 > **Status:** functional and self-hostable end to end — Google sign-in, card
-> compose, Gmail send with open/RSVP tracking, automated reminders, and a
-> contacts address book are all in place. See [`DESIGN.md`](./DESIGN.md) for the
+> compose, Gmail send with open/RSVP tracking, automated reminders, a contacts
+> address book, and an opt-in WhatsApp channel are all in place. See [`DESIGN.md`](./DESIGN.md) for the
 > architecture/roadmap and [`DESIGN-LANGUAGE.md`](./DESIGN-LANGUAGE.md) for the
 > visual system.
 
@@ -54,6 +54,9 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 - Build a list of family and friends.
 - Send a personal email **from your own Gmail account** (via the Gmail API), so
   it looks like it came directly from you.
+- Optionally send over **WhatsApp instead**, from your own WhatsApp account, via a
+  self-hosted [WAHA](https://github.com/devlikeapro/waha) container — a short
+  message with the same invitation link. Off by default; see the warning below.
 - Collect RSVPs with an optional headcount (adults + kids), an allergies/dietary
   question, and a free-text note back.
 - Track who was sent an invite, who opened it (visited the invitation page), and
@@ -66,14 +69,33 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 - Re-send an updated card and re-collect RSVPs when the date, time, or location
   changes.
 
+## The WhatsApp channel (opt-in, and it carries real risk)
+
+WhatsApp has no official way for an app to send from a personal account, so this
+uses an **unofficial** client. That is against WhatsApp's terms of service, and a
+linked account **can be restricted or banned**. Sending a few personal invitations
+to people who already have your number is a world away from what gets accounts
+banned — but the risk is real, and it's yours.
+
+So the channel is off unless you turn it on (`KITH_WHATSAPP_ENABLED` plus the
+`whatsapp` compose profile), and every host is warned in-app before they link
+anything. Email invitations don't carry any of this.
+
+What doesn't change: guests get the same `/i/{token}` invitation page, so opens,
+RSVPs, headcount and reminders work identically — tracking lives on the page, not
+in the delivery channel. Nothing is added to a WhatsApp message to track anyone.
+Setup, and what to do when WhatsApp throttles an account, is in
+[`docs/deploy.md`](./docs/deploy.md#5a-optional-the-whatsapp-channel-waha).
+
 ## Principles
 
 - **Privacy first** — minimal data, PII encrypted at rest, one-click export &
   delete, heavy assets auto-purged. We use the `gmail.send` scope only and can
   never read your mailbox.
-- **Self-hosted & free** — one container on your own hardware, exposed via a
-  Cloudflare Tunnel with automatic HTTPS (no open router ports, works behind
-  CGNAT). No paid dependencies, no monetization. See [`docs/deploy.md`](./docs/deploy.md).
+- **Self-hosted & free** — one container on your own hardware (two if you enable
+  WhatsApp), exposed via a Cloudflare Tunnel with automatic HTTPS (no open router
+  ports, works behind CGNAT). No paid dependencies, no monetization. See
+  [`docs/deploy.md`](./docs/deploy.md).
 - **Honest tracking, no pixel** — signals are Sent, Opened (= the recipient
   visited the invitation page), Accepted, and Declined. No hidden tracking pixel
   or beacons; "Opened" is an explicit page visit, never an inferred open.
@@ -81,8 +103,8 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 ## Stack
 
 Python 3.12 · FastAPI · SQLite · Jinja2 (server-rendered) + hand-written vanilla JS
-+ token-based CSS (light/warm, no framework) · Pillow · Google API client · Docker ·
-Cloudflare Tunnel. Tested with pytest.
++ token-based CSS (light/warm, no framework) · Pillow · Google API client · httpx ·
+Docker · Cloudflare Tunnel · WAHA (optional, for WhatsApp). Tested with pytest.
 
 ## License
 

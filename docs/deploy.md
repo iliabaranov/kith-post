@@ -141,11 +141,77 @@ warning), and:
 
 ---
 
+## 5a. Optional: the WhatsApp channel (WAHA)
+
+Invitations and reminders can also go out over WhatsApp, sent from each host's own
+account by a self-hosted [WAHA](https://github.com/devlikeapro/waha) container
+(Apache-2.0). Skip this section entirely if you only want email.
+
+> **Read this before enabling it.** WAHA is an **unofficial** WhatsApp client.
+> Using it is against WhatsApp's terms of service and a linked account can be
+> restricted or banned. At personal-invite volume to people who already have your
+> number the practical risk is low, but it is real. Every host is warned in-app
+> before they link, and the channel stays off until you turn it on.
+
+```bash
+# in .env
+KITH_WHATSAPP_ENABLED=true
+KITH_WAHA_API_KEY=<a long random string>   # the app AND the container read this
+
+docker compose --profile public --profile whatsapp up -d
+```
+
+Then each host links their own account at **`/account/whatsapp`**: accept the
+warning, press Link, scan the QR with WhatsApp → Settings → Linked devices.
+
+**What the compose file already does for you, and why:**
+
+- **The image is pinned** (`devlikeapro/waha:gows-2026.8.1`), never `:latest` —
+  same reasoning as the cloudflared pin. Dependabot will open the bump PR.
+- **No published ports.** The app reaches it at `waha:3000` over the compose
+  network; nothing is exposed to the LAN or the tunnel. Note that *every* WAHA
+  route sits behind the API key, including `/health`.
+- **The dashboard and Swagger are off**, with credentials pinned anyway — left
+  enabled without a password, WAHA generates one and **prints it to its log**. To
+  poke at a misbehaving pairing, bring it up temporarily on localhost:
+  ```bash
+  WAHA_DASHBOARD_PASSWORD=<something long> \
+  docker compose -f docker-compose.yml -f docker-compose.dashboard.yml \
+    --profile whatsapp up -d waha
+  ```
+- **Sessions live in a named volume** (`waha-sessions:/app/.sessions`),
+  deliberately *outside* `./data`. The off-box backup below covers `./data`, and
+  these are live WhatsApp credentials in the clear — so they are **not** backed
+  up. Losing them costs each host a QR re-scan, nothing more.
+
+**Engine choice is not cosmetic.** This is the GOWS build (browserless Go engine,
+~850 MB vs ~1.15 GB for the Chromium one). WEBJS is the fallback if GOWS
+misbehaves — but payload shapes differ between engines **and the session store is
+per-engine** (`/app/.sessions/<engine>/<name>`), so switching engines makes every
+host re-pair, and the send path needs re-testing.
+
+**If sending stops working:**
+
+- *"WhatsApp has paused new conversations"* — a reachout timelock (the error-463
+  restriction). Recipients stay queued; wait for the date shown. **Do not restart
+  or re-pair the session:** the restriction follows the WhatsApp account, not the
+  session, and re-pairing only adds churn that looks worse.
+- *"used up WhatsApp's allowance"* — the per-cycle new-chat quota. Same deal: the
+  invitations wait for the next cycle.
+- *Session shows `FAILED`* — WhatsApp ended the linked device. Re-link; anything
+  already sent keeps working, since the invitation lives on the web page rather
+  than in the message.
+
+---
+
 ## 6. Backups & updates
 
 - **Back up `data/`** — it holds the SQLite DB, uploaded images, and (if you
   didn't set `KITH_FERNET_KEY`) the dev key. A periodic copy of `data/` + your
   `KITH_FERNET_KEY` is a full backup.
+- **WhatsApp pairings are not backed up, on purpose** (§5a). They live in the
+  `waha-sessions` volume rather than `data/`, because shipping live WhatsApp
+  credentials off-box is a worse trade than asking each host to re-scan a QR.
 - **Update:**
   ```bash
   git pull
