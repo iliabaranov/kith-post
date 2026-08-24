@@ -28,6 +28,9 @@ os.environ["KITH_GOOGLE_CLIENT_SECRET"] = ""
 # Forced off here; the tests that need it monkeypatch it back on.
 os.environ["KITH_WHATSAPP_ENABLED"] = "false"
 os.environ["KITH_WAHA_API_KEY"] = ""
+# ...and the receipt secret, which the deploy box's .env now has: without this a
+# test asserting receipts are off by default reads the box's real configuration.
+os.environ["KITH_WAHA_WEBHOOK_SECRET"] = ""
 # Rate limiting is per-client and in-memory, so its counters would bleed across
 # the in-process suite and make unrelated tests flaky. Off by default here; the
 # dedicated test flips the limiter back on to prove it works.

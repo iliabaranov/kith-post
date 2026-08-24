@@ -99,11 +99,21 @@ def refresh(db: Session, user: User, settings: Settings) -> waha.SessionState | 
     """
     if not available(settings) or not user.wa_session:
         return None
+    c = client(settings)
     try:
-        state = client(settings).find_session(user.wa_session)
+        state = c.find_session(user.wa_session)
     except waha.WahaError:
         log.exception("waha: could not read session for user %s", user.id)
         return None
+    # A session linked before receipts were configured has no webhooks. We just
+    # read the session, so the answer is already in hand — no extra call to find
+    # out, and the PUT only happens the once.
+    if state is not None and settings.waha_webhooks_configured:
+        try:
+            if c.ensure_webhooks(user.wa_session):
+                state = c.find_session(user.wa_session) or state
+        except waha.WahaError:
+            log.exception("waha: could not configure webhooks for %s", user.wa_session)
     _remember(db, user, state)
     return state
 
