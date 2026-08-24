@@ -18,12 +18,63 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
-from kith.core import mailbuild
+from kith.core import mailbuild, wamessage
 from kith.core import reminders as rem
 from kith.db.models import Asset, Event, Recipient, Reminder, User
+from kith.services import wa_session as wa_link
+from kith.services import waha
 from kith.services.gmail import GmailAuthError
 
 log = logging.getLogger("kith")
+
+
+def _send_wa_reminder(
+    db: Session, reminder: Reminder, r: Recipient, ev: Event, user: User,
+    settings: Settings, *, rsvp: bool,
+) -> bool:
+    """A nudge in the same WhatsApp chat as the invitation.
+
+    Same shape as the email path: marked sent before the network call so a crash
+    can't re-send, reverted to pending on a transient failure so the next tick
+    retries. A restriction from WhatsApp reverts it too — the nudge isn't lost,
+    it just waits, and hammering a timelocked account is what makes it worse.
+    """
+    text = wamessage.reminder_text(
+        title=ev.title,
+        host_name=user.display_name or "A friend",
+        view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
+        recipient_name=r.name,
+        when=wamessage.when_line(ev.event_date, ev.event_time),
+        rsvp=rsvp,
+    )
+    reminder.status, reminder.sent_at = "sent", datetime.now(UTC)
+    db.commit()
+    try:
+        if settings.send_mode == SendMode.dry_run:
+            d = settings.outbox_dir / ev.id / "whatsapp" / "reminders"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{reminder.id}.txt").write_text(f"To: {r.phone}\n\n{text}\n")
+        else:
+            wa_link.sendable(db, user, settings)  # re-reads the live session
+            to = user.wa_number if settings.send_mode == SendMode.self_only else r.phone
+            wa_link.client(settings).send_text(user.wa_session, to, text)
+    except waha.Timelocked as e:
+        user.wa_timelock_until = e.ends_at
+        reminder.status, reminder.sent_at = "pending", None
+        db.commit()
+        log.warning("reminder: WhatsApp timelock active for user %s; holding", user.id)
+        return False
+    except waha.WahaError:
+        reminder.status, reminder.sent_at = "pending", None
+        db.commit()
+        log.warning("reminder: WhatsApp unavailable for user %s; will retry", user.id)
+        return False
+    except Exception:
+        log.exception("reminder: WhatsApp send failed (reminder %s)", reminder.id)
+        reminder.status, reminder.sent_at = "pending", None
+        db.commit()
+        return False
+    return True
 
 
 def resolved_cfg(settings: Settings, event: Event) -> rem.ReminderConfig:
@@ -78,6 +129,8 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
     rsvp = bool((ev.blocks or {}).get("rsvp"))
     host_name = user.display_name or "A friend"
     view_url = f"{settings.base_url.rstrip('/')}/i/{r.token}"
+    if r.phone:
+        return _send_wa_reminder(db, reminder, r, ev, user, settings, rsvp=rsvp)
     msg = mailbuild.build_email(
         subject=mailbuild.reminder_subject(mailbuild.subject_for(ev.title, rsvp)),
         from_name=user.display_name, from_email=user.email,
@@ -181,9 +234,17 @@ def send_due_scheduled(db: Session, settings: Settings, *, now: datetime | None 
             ev.scheduled_send_at = None
             db.commit()
             continue
-        # can't send live without a token — keep the schedule and retry later
+        # Can't send email live without a token — keep the schedule and retry
+        # later. Only holds the card back if it actually has email recipients; a
+        # WhatsApp-only card doesn't need Google at all.
         if settings.send_mode != SendMode.dry_run and not user.refresh_token:
-            continue
+            wants_email = db.execute(
+                select(Recipient).where(
+                    Recipient.event_id == ev.id, Recipient.status == "queued"
+                )
+            ).scalars().all()
+            if any(not r.phone for r in wants_email):
+                continue
         queued = db.execute(
             select(func.count()).select_from(Recipient).where(
                 Recipient.event_id == ev.id, Recipient.status == "queued"

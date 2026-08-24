@@ -536,3 +536,5 @@ textarea { resize: vertical; }
 }
 .wa-qr img { display: block; width: 264px; height: 264px; image-rendering: pixelated; }
 .wa-account-row { margin-top: 1.2rem; }
+/* A WhatsApp batch stopped by WhatsApp itself — explain, don't alarm. */
+.sent-note.wa-blocked { border-color: rgba(196, 69, 105, .5); background: rgba(196, 69, 105, .1); }

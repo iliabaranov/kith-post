@@ -99,6 +99,45 @@ def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergi
     }
 
 
+# Why a WhatsApp batch stopped, in words a host can act on. Deliberately blames
+# WhatsApp where WhatsApp is at fault, and never suggests re-linking during a
+# timelock — that only makes the account look worse.
+_WA_BLOCKED = {
+    "timelock": (
+        "WhatsApp has paused new conversations from your account, so those "
+        "invitations weren't sent. They're still queued — try again once it lifts. "
+        "Re-linking won't help and makes it look worse."
+    ),
+    "capped": (
+        "You've used up WhatsApp's allowance for starting new conversations this "
+        "cycle. Those invitations are still queued for the next one."
+    ),
+    "not-linked": (
+        "Your WhatsApp isn't linked right now, so those invitations weren't sent. "
+        "They're still queued."
+    ),
+    "unavailable": (
+        "The WhatsApp service didn't answer, so those invitations weren't sent. "
+        "They're still queued — check the server logs."
+    ),
+}
+
+
+def _needs_google(db: Session, event_id: str, statuses: tuple[str, ...]) -> bool:
+    """Does this send actually need the Gmail connection?
+
+    Only email recipients do. A card addressed entirely over WhatsApp must not be
+    held hostage to a Google connection the host may never have made — and a host
+    whose Google token has expired can still reach their WhatsApp guests.
+    """
+    rows = db.execute(
+        select(Recipient).where(
+            Recipient.event_id == event_id, Recipient.status.in_(statuses)
+        )
+    ).scalars().all()
+    return any(not r.phone for r in rows)
+
+
 def _wa_flags(user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
     """Whether to offer the WhatsApp box on the compose form.
 
@@ -403,6 +442,7 @@ def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
     sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
     details_changed: int = 0, scheduled: int = 0, schedule_error: int = 0,
+    wa_blocked: str = "",
 ):
     user = load_user(request, db)
     if user is None:
@@ -443,6 +483,7 @@ def event_detail(
         "send_label": label.format(n=queued), "send_hint": hint,
         "send_confirm": confirm.format(n=queued, noun=noun), "noun": noun,
         "sent": sent, "failed": failed,
+        "wa_blocked_msg": _WA_BLOCKED.get(wa_blocked),
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
@@ -463,15 +504,22 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
     if ev is None:
         return RedirectResponse("/", status_code=303)
     settings = get_settings()
-    if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+    if (
+        settings.send_mode != SendMode.dry_run
+        and not user.refresh_token
+        and _needs_google(db, ev.id, ("queued",))
+    ):
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
     result = send.send_event(db, ev, user, settings)
     scheduler.schedule_event_reminders(db, ev, settings)  # nudge non-responders (G5)
     ev.scheduled_send_at = None  # sending now supersedes any pending schedule
     db.commit()
-    return RedirectResponse(
-        f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
-    )
+    url = f"/events/{ev.id}?sent={result.sent}&failed={result.failed}"
+    if result.wa_blocked:
+        # A WhatsApp batch stopped as a whole needs explaining, or the host just
+        # sees invitations that didn't go anywhere.
+        url += f"&wa_blocked={result.wa_blocked}"
+    return RedirectResponse(url, status_code=303)
 
 
 def _schedule_to_utc(d: date | None, hhmm: str, tzname: str | None) -> datetime | None:
@@ -557,7 +605,11 @@ def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db
     if ev is None:
         return RedirectResponse("/", status_code=303)
     settings = get_settings()
-    if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+    if (
+        settings.send_mode != SendMode.dry_run
+        and not user.refresh_token
+        and _needs_google(db, ev.id, ("sent", "coming", "declined"))
+    ):
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
     targets = db.execute(
         select(Recipient).where(

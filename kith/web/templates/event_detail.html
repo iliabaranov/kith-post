@@ -24,6 +24,10 @@
   </div>
   {% endif %}
 
+  {% if wa_blocked_msg %}
+  <p class="sent-note wa-blocked">{{ wa_blocked_msg }}</p>
+  {% endif %}
+
   {% if sent or failed %}
   <p class="sent-note">
     {% if sent %}✓ Sent {{ sent }} {{ noun }}{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}

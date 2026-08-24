@@ -296,7 +296,14 @@ def create_app() -> FastAPI:
             "display_name": user.display_name,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-            "contacts": [{"name": c.name, "email": c.email} for c in contacts],
+            "whatsapp": {
+                "linked": wa_link.linked(user),
+                "number": user.wa_number,
+                "linked_at": user.wa_linked_at.isoformat() if user.wa_linked_at else None,
+            },
+            "contacts": [
+                {"name": c.name, "email": c.email, "phone": c.phone} for c in contacts
+            ],
             "events": [
                 {
                     "id": e.id, "title": e.title, "message": e.message,
@@ -316,6 +323,11 @@ def create_app() -> FastAPI:
     def delete_account(request: Request, db: Session = Depends(get_db)):
         user = load_user(request, db)
         if user is not None:
+            # Unlink WhatsApp FIRST. The pairing lives in WAHA's own volume, not
+            # in our database, so deleting the user would otherwise leave live
+            # WhatsApp credentials behind with nothing left pointing at them —
+            # which would quietly break the one-click-delete promise.
+            wa_link.unlink(db, user, settings)
             storage.delete_user_assets(user.id)  # remove image files (DB rows cascade)
             db.delete(user)
             db.commit()
