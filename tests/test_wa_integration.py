@@ -362,3 +362,74 @@ def test_those_hints_stay_email_only_when_the_channel_is_off(wa_off):
     body = wa_off.get("/events/new").text
     assert "used as the email's subject line" in body
     assert "Email only" not in body
+
+
+# --- the "Opened" signal must stay honest -------------------------------------
+
+def _one_recipient(client):
+    ev = _event(client, phones="+15551110000", rsvp=True)
+    db, _ = _db_and_user()
+    r = db.execute(
+        select(Recipient).where(Recipient.event_id == ev)
+    ).scalars().first()
+    return db, r
+
+
+@pytest.mark.parametrize("ua", [
+    "WhatsApp/2.2437.4 A",
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    "TelegramBot (like TwitterBot)",
+    "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+    "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+    "Twitterbot/1.0",
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+])
+def test_a_link_preview_crawler_does_not_count_as_opened(wa, ua):
+    """The bug this exists for: WhatsApp fetches the invitation page to build its
+    preview, which recorded an open 0.4s *before* the message finished sending."""
+    db, r = _one_recipient(wa)
+    assert r.first_open_at is None
+    page = wa.get(f"/i/{r.token}", headers={"user-agent": ua})
+    assert page.status_code == 200, "the page must still render — the preview is wanted"
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is None
+
+
+def test_a_real_visit_still_counts_as_opened(wa):
+    db, r = _one_recipient(wa)
+    wa.get(f"/i/{r.token}", headers={"user-agent":
+        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36"})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is not None
+
+
+def test_a_speculative_prefetch_does_not_count_as_opened(wa):
+    db, r = _one_recipient(wa)
+    wa.get(f"/i/{r.token}", headers={
+        "user-agent": "Mozilla/5.0 (Macintosh) Safari/605.1.15",
+        "sec-purpose": "prefetch;anonymous-client-ip",
+    })
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, r.id).first_open_at is None
+
+
+def test_a_crawler_visit_does_not_stop_reminders(wa):
+    """Opened is what cancels a nudge, so a false open silently cancels one."""
+    from kith.core import reminders as rem
+
+    db, r = _one_recipient(wa)
+    r.status = "sent"          # a nudge is only owed to someone already sent to
+    db.commit()
+    wa.get(f"/i/{r.token}", headers={"user-agent": "WhatsApp/2.2437.4 A"})
+    db2, _ = _db_and_user()
+    fresh = db2.get(Recipient, r.id)
+    assert rem.still_needs_nudge(fresh.status, fresh.first_open_at, "not-clicked")
+    # ...and a genuine open does stop it, so the test isn't vacuous.
+    assert not rem.still_needs_nudge("sent", "2026-01-01", "not-clicked")
+
+
+def test_the_crawler_can_still_read_the_preview_copy(wa):
+    """We refuse it the *signal*, not the page — the preview is good for guests."""
+    db, r = _one_recipient(wa)
+    body = wa.get(f"/i/{r.token}", headers={"user-agent": "WhatsApp/2.2437.4 A"}).text
+    assert "<title>" in body and "name=\"description\"" in body

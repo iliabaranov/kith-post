@@ -143,6 +143,11 @@ def add_contact(
     if p is None:
         return None, False
     existing = find_by_identity(db, user_id, p.email or None, p.phone)
+    if existing is None and p.phone:
+        # The number is a join key in its own right. Without this, saving a
+        # WhatsApp recipient (identity "tel:…") beside a contact keyed on their
+        # email (identity "their@address") makes a second copy of one person.
+        existing = find_by_phone(db, user_id, p.phone)
     if existing is not None:
         changed = False
         if p.name and not existing.name:  # fill in a missing name, don't overwrite
@@ -335,13 +340,22 @@ def mark_used(
 
 def new_among(db: Session, user_id: str, parsed: list[Parsed]) -> list[Parsed]:
     """From a parsed recipient list, the people NOT already in the book (deduped)
-    — drives the 'add these new people?' prompt after an event is created."""
-    known = {c.email_hash for c in list_contacts(db, user_id)}
+    — drives the 'add these new people?' prompt after an event is created.
+
+    Known by *either* key. A WhatsApp recipient's identity is "tel:<e164>", while
+    the contact we already have for them may be keyed on their email, so matching
+    identities alone reported people we plainly do have. The number is the join.
+    """
+    contacts = list_contacts(db, user_id)
+    known_identity = {c.email_hash for c in contacts}
+    known_phones = {c.phone_hash for c in contacts if c.phone_hash}
     out: list[Parsed] = []
     seen: set[str] = set()
     for p in parsed:
         h = identity_hash(p.email or None, p.phone)
-        if h in known or h in seen:
+        if h in known_identity or h in seen:
+            continue
+        if p.phone and phone_hash(p.phone) in known_phones:
             continue
         seen.add(h)
         out.append(p)

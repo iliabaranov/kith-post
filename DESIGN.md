@@ -282,13 +282,24 @@ rather than surfacing WAHA's developer-facing 422.
 **No tracking pixel.** All signals come from explicit, first-party HTTP requests
 the recipient's browser makes to *our* server — nothing hidden in the email body.
 
+**Automated fetches don't count as opens.** When a chat app is handed a URL it
+fetches the page itself to build a preview card, so *sending* an invitation
+produces a request for it. On the first real WhatsApp send this recorded an open
+**0.4 s before the message finished sending** — the signal was reporting Meta's
+crawler, not a guest. `core.tracking.is_automated_fetch` now excludes known
+preview crawlers and declared prefetches (the page still renders — a preview is
+useful to the recipient — we simply don't record it). The list over-matches on
+purpose: an undercount is already accepted by design, an invented open is not.
+This matters beyond the dashboard, because Opened is one of the signals that
+cancels a reminder.
+
 Signals are **channel-independent**: they come from the invitation page, so a
 WhatsApp guest (§6a) is tracked exactly like an email one.
 
 | Signal | Mechanism | Reliability |
 |--------|-----------|-------------|
 | **Sent** | Gmail API returns a message id (or WAHA a WhatsApp message id) | High |
-| **Opened** | Recipient clicks **"View invitation"** → landing page rendered at `/i/{token}` (logged as `landing_view`) | High *for those who click through* |
+| **Opened** | Recipient clicks **"View invitation"** → landing page rendered at `/i/{token}` (logged as `landing_view`), **excluding automated fetches** | High *for those who click through* |
 | **Accepted / Declined** | RSVP buttons → `/t/rsvp/{token}?a=yes\|no` → confirm step | High (explicit user action) |
 
 **Honest caveat (stated plainly in the UI):** because the card image is **inlined

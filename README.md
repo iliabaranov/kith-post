@@ -98,7 +98,9 @@ Setup, and what to do when WhatsApp throttles an account, is in
   [`docs/deploy.md`](./docs/deploy.md).
 - **Honest tracking, no pixel** — signals are Sent, Opened (= the recipient
   visited the invitation page), Accepted, and Declined. No hidden tracking pixel
-  or beacons; "Opened" is an explicit page visit, never an inferred open.
+  or beacons; "Opened" is an explicit page visit, never an inferred open — and
+  never a robot's: link-preview crawlers and prefetches are excluded, since a chat
+  app fetching the URL is what *sending* looks like, not what reading looks like.
 
 ## Stack
 
