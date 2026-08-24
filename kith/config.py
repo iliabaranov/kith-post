@@ -71,6 +71,22 @@ class Settings(BaseSettings):
     # Shown to people who can't get in, so they know who to ask for access.
     contact_email: str = ""
 
+    # --- WhatsApp channel (via a self-hosted WAHA container) ---
+    # Off by default: WAHA is an unofficial WhatsApp client, so the channel only
+    # appears once the operator has read the warning and opted in on the box.
+    whatsapp_enabled: bool = False
+    waha_url: str = "http://waha:3000"
+    waha_api_key: str = ""
+    # Every WAHA call is bounded. Calls against a session that isn't WORKING do
+    # not fail fast — sendText and contacts/check-exists were observed hanging
+    # indefinitely, and sessions/{s}/timelock blocked for minutes before a 500 —
+    # so a timeout is the only thing standing between a stuck session and a
+    # wedged request handler (or a wedged reminder sweep).
+    waha_timeout_seconds: float = 20.0
+    # Pause between consecutive WhatsApp sends. Messaging many unknown contacts
+    # in a burst is what triggers WhatsApp's reachout timelock (error 463).
+    waha_send_gap_seconds: float = 2.0
+
     reminders: ReminderSettings = ReminderSettings()
 
     # Per-client rate limiting on the public + auth endpoints. On by default;
@@ -81,6 +97,11 @@ class Settings(BaseSettings):
     # for dateless/orphaned cards, after creation). The small inline copy is kept
     # so the card still renders. 0 disables auto-purge.
     asset_retention_days: int = 30
+
+    @property
+    def whatsapp_configured(self) -> bool:
+        """The channel is usable: enabled, and we know where WAHA is + how to auth."""
+        return bool(self.whatsapp_enabled and self.waha_url and self.waha_api_key)
 
     @property
     def google_configured(self) -> bool:
