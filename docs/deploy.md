@@ -200,6 +200,12 @@ misbehaves — but payload shapes differ between engines **and the session store
 per-engine** (`/app/.sessions/<engine>/<name>`), so switching engines makes every
 host re-pair, and the send path needs re-testing.
 
+**Monitoring.** `/healthz` stays deliberately dependency-free — the uptime cron
+pings it every five minutes and a WhatsApp outage must not read as the site being
+down. Add a second check on **`/healthz?deep=1`** if you want to be told about the
+channel: it answers `503` when WAHA is unreachable. The container's own healthcheck
+covers WAHA from the inside.
+
 **If sending stops working:**
 
 - *"WhatsApp has paused new conversations"* — a reachout timelock (the error-463
@@ -208,6 +214,9 @@ host re-pair, and the send path needs re-testing.
   session, and re-pairing only adds churn that looks worse.
 - *"used up WhatsApp's allowance"* — the per-cycle new-chat quota. Same deal: the
   invitations wait for the next cycle.
+- The host's dashboard says so on its own — a dropped link raises a banner there,
+  the same way an expired Google token does — so you don't have to notice it from
+  a failed send.
 - *Session shows `FAILED`* — WhatsApp ended the linked device. Re-link; anything
   already sent keeps working, since the invitation lives on the web page rather
   than in the message.

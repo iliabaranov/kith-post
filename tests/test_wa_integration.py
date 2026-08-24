@@ -481,3 +481,83 @@ def test_an_open_before_any_send_still_counts(wa):
         "Mozilla/5.0 (Macintosh) Safari/605.1.15"})
     db2, _ = _db_and_user()
     assert db2.get(Recipient, r.id).first_open_at is not None
+
+
+# --- finding out when it's broken ---------------------------------------------
+
+def test_the_dashboard_says_so_when_the_link_has_dropped(wa):
+    """A dead WhatsApp link used to be as silent as an expired Google token: you
+    found out when a send was refused."""
+    db, user = _db_and_user()
+    user.wa_status = waha.STATUS_FAILED
+    db.commit()
+    body = wa.get("/").text
+    assert "connection has dropped" in body
+    assert "Email still works" in body
+    assert 'href="/account/whatsapp"' in body
+
+
+def test_the_dashboard_distinguishes_a_half_finished_pairing(wa):
+    db, user = _db_and_user()
+    user.wa_status = waha.STATUS_SCAN_QR
+    db.commit()
+    assert "isn't finished linking" in wa.get("/").text
+
+
+def test_a_healthy_link_says_nothing(wa):
+    body = wa.get("/").text
+    assert "connection has dropped" not in body
+    assert "finished linking" not in body
+    assert "Fix WhatsApp" not in body
+
+
+def test_a_timelock_is_explained_on_the_dashboard_without_alarm(wa):
+    from datetime import UTC, datetime, timedelta
+
+    db, user = _db_and_user()
+    user.wa_timelock_until = datetime.now(UTC) + timedelta(days=2)
+    db.commit()
+    body = wa.get("/").text
+    assert "paused new conversations" in body
+    assert "waiting is the fix" in body
+    assert "Fix WhatsApp" not in body      # there is nothing for them to fix
+
+
+def test_the_dashboard_is_quiet_for_a_host_who_never_linked(wa):
+    db, user = _db_and_user()
+    user.wa_session, user.wa_status = None, None
+    db.commit()
+    body = wa.get("/").text
+    assert "connection has dropped" not in body
+
+
+def test_healthz_stays_simple_so_a_whatsapp_outage_is_not_an_outage(wa):
+    """The uptime cron pings this every five minutes; WhatsApp being down must
+    not read as the site being down."""
+    r = wa.get("/healthz")
+    assert r.status_code == 200 and r.text.strip() == "ok"
+
+
+def test_healthz_deep_reports_the_channel(wa, monkeypatch):
+    from kith.services import wa_session as link
+
+    class Ok:
+        def healthy(self):
+            return True
+
+    class Down:
+        def healthy(self):
+            return False
+
+    monkeypatch.setattr(link, "client", lambda settings: Ok())
+    r = wa.get("/healthz?deep=1")
+    assert r.status_code == 200 and "waha: ok" in r.text
+
+    monkeypatch.setattr(link, "client", lambda settings: Down())
+    r = wa.get("/healthz?deep=1")
+    assert r.status_code == 503 and "unreachable" in r.text
+
+
+def test_healthz_deep_is_a_no_op_when_the_channel_is_off(wa_off):
+    r = wa_off.get("/healthz?deep=1")
+    assert r.status_code == 200 and r.text.strip() == "ok"

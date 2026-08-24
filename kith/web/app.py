@@ -25,7 +25,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from kith.config import get_settings
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth, scheduler, storage
+from kith.services import google_auth, scheduler, storage, waha
 from kith.services import wa_session as wa_link
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
@@ -144,8 +144,21 @@ def create_app() -> FastAPI:
     app.include_router(whatsapp_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
-    def healthz() -> str:
-        return "ok"
+    def healthz(deep: int = 0) -> PlainTextResponse:
+        """Liveness. `?deep=1` also checks WAHA, when the channel is enabled.
+
+        The plain check stays dependency-free on purpose: the uptime cron pings it
+        every five minutes and a WhatsApp outage must not read as the site being
+        down. `?deep=1` is for a monitor that wants to know about the channel, and
+        answers 503 so it can actually alert.
+        """
+        if not deep or not settings.whatsapp_configured:
+            return PlainTextResponse("ok")
+        healthy = wa_link.client(settings).healthy()
+        return PlainTextResponse(
+            "ok\nwaha: ok" if healthy else "ok\nwaha: unreachable",
+            status_code=200 if healthy else 503,
+        )
 
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):
@@ -198,10 +211,25 @@ def create_app() -> FastAPI:
                     if tz is not None:
                         d = d.astimezone(tz)
                     scheduled_disp[e.id] = d.strftime("%m/%d/%y")
+        # A dead WhatsApp link is as silent as an expired Google token used to
+        # be: nothing says so until a send is refused. Read from the cached
+        # status, so the dashboard never waits on WAHA to render.
+        wa_broken = bool(
+            user is not None
+            and settings.whatsapp_configured
+            and user.wa_session
+            and user.wa_status
+            and user.wa_status not in (waha.STATUS_WORKING, waha.STATUS_STARTING)
+        )
         ctx = {
             "settings": settings, "user": user, "events": events,
             "counts": counts, "today": date.today(), "sent_at": sent_at,
             "scheduled_disp": scheduled_disp,
+            "wa_broken": wa_broken,
+            "wa_pairing": bool(
+                user is not None and user.wa_status in waha.PAIRING_STATUSES
+            ),
+            "wa_timelock_until": user.wa_timelock_until if user is not None else None,
         }
         return templates.TemplateResponse(request, "index.html", ctx)
 

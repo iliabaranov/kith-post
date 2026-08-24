@@ -3,6 +3,20 @@
 {% block content %}
 {% if user %}
 <section class="dash">
+  {% if wa_broken %}
+  <div class="ask-note reconnect">
+    <span>{% if wa_pairing %}Your WhatsApp isn't finished linking{% else %}Your WhatsApp connection has dropped{% endif %},
+      so WhatsApp invitations are paused. Email still works.</span>
+    <a class="btn btn-primary btn-sm" href="/account/whatsapp">Fix WhatsApp</a>
+  </div>
+  {% elif wa_timelock_until %}
+  <div class="ask-note">
+    <span>WhatsApp has paused new conversations from your account until
+      {{ wa_timelock_until.strftime('%b %-d') }}. Email invitations are unaffected, and
+      nothing needs fixing — waiting is the fix.</span>
+  </div>
+  {% endif %}
+
   {% if user.reconnect_needed %}
   <div class="ask-note reconnect">
     <span>Your Google connection has expired, so sending is paused. Reconnect to keep sending invitations and reminders.</span>

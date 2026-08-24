@@ -21,6 +21,7 @@ from kith.core import phones
 from kith.services import wa_session as link
 from kith.services import waha
 from kith.web.deps import get_db, load_user, templates
+from kith.web.ratelimit import limiter
 
 router = APIRouter()
 
@@ -109,6 +110,7 @@ def acknowledge(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/account/whatsapp/link")
+@limiter.limit("10/minute")
 def start_link(request: Request, db: Session = Depends(get_db)):
     user = load_user(request, db)
     if user is None:
@@ -135,6 +137,9 @@ def unlink(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/account/whatsapp/pairing-code", response_class=HTMLResponse)
+# Every call asks WhatsApp for a real code. Behind invite-only sign-in, so this
+# is a guard against a stuck finger or a loop, not against an attacker.
+@limiter.limit("10/minute")
 def pairing_code(
     request: Request, db: Session = Depends(get_db), phone: str = Form("")
 ):
@@ -177,6 +182,7 @@ def pairing_code(
 
 
 @router.get("/account/whatsapp/qr.png")
+@limiter.limit("60/minute")   # the page refreshes this every ~18s while pairing
 def qr(request: Request, db: Session = Depends(get_db)):
     """Proxy the pairing QR from WAHA.
 
@@ -198,6 +204,7 @@ def qr(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/account/whatsapp/state")
+@limiter.limit("120/minute")  # polled every 3s while a host is pairing
 def state(request: Request, db: Session = Depends(get_db)):
     """Current pairing state as JSON, for the page's poller."""
     user = load_user(request, db)
