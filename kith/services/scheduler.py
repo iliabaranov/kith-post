@@ -72,13 +72,26 @@ def _send_wa_reminder(
         db.commit()
         log.warning("reminder: WhatsApp timelock active for user %s; holding", user.id)
         return False
+    except waha.WahaTimeout:
+        # We do not know whether WhatsApp took it. Leaving it 'sent' risks one
+        # nudge nobody received; reverting it risks a second nudge in the same
+        # chat five minutes later, with no human in the loop. For a reminder the
+        # duplicate is the worse of the two.
+        db.rollback()
+        log.warning(
+            "reminder %s timed out; leaving it sent because the outcome is unknown",
+            reminder.id,
+        )
+        return False
     except waha.WahaError:
+        db.rollback()
         reminder.status, reminder.sent_at = "pending", None
         db.commit()
         log.warning("reminder: WhatsApp unavailable for user %s; will retry", user.id)
         return False
     except Exception:
         log.exception("reminder: WhatsApp send failed (reminder %s)", reminder.id)
+        db.rollback()
         reminder.status, reminder.sent_at = "pending", None
         db.commit()
         return False
@@ -175,6 +188,7 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
         return False
     except Exception:
         log.exception("reminder send failed (reminder %s)", reminder.id)
+        db.rollback()
         reminder.status, reminder.sent_at = "pending", None
         db.commit()
         return False

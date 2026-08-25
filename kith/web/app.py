@@ -65,6 +65,13 @@ class CachedStaticFiles(StaticFiles):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Refuse to serve a public URL with the placeholder secrets. Better a clear
+    # failure at boot than a site whose session cookies anyone can forge.
+    problems = settings.check_production_ready()
+    if problems:
+        raise RuntimeError(
+            "refusing to start: " + "; ".join(problems)
+        )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.outbox_dir.mkdir(parents=True, exist_ok=True)
     engine = make_engine(settings.db_path)
@@ -90,6 +97,11 @@ async def lifespan(app: FastAPI):
         engine.dispose()
 
 
+def _as_utc_dt(dt: datetime) -> datetime:
+    """SQLite hands back naive datetimes; treat them as the UTC they are."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
 def upsert_user(db: Session, identity: GoogleIdentity) -> User:
     user = db.execute(
         select(User).where(User.google_sub == identity.sub)
@@ -112,7 +124,13 @@ def upsert_user(db: Session, identity: GoogleIdentity) -> User:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    # No /docs, /redoc or /openapi.json. This is a private invitation site, not an
+    # API product: the only thing an unauthenticated map of its routes does is
+    # advertise the HMAC-authenticated webhook and the account endpoints.
+    app = FastAPI(
+        title=settings.app_name, lifespan=lifespan,
+        docs_url=None, redoc_url=None, openapi_url=None,
+    )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(
@@ -146,7 +164,8 @@ def create_app() -> FastAPI:
     app.include_router(wa_webhook_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
-    def healthz(deep: int = 0) -> PlainTextResponse:
+    @limiter.limit("30/minute")
+    def healthz(request: Request, deep: int = 0) -> PlainTextResponse:
         """Liveness. `?deep=1` also checks WAHA, when the channel is enabled.
 
         The plain check stays dependency-free on purpose: the uptime cron pings it
@@ -231,7 +250,15 @@ def create_app() -> FastAPI:
             "wa_pairing": bool(
                 user is not None and user.wa_status in waha.PAIRING_STATUSES
             ),
-            "wa_timelock_until": user.wa_timelock_until if user is not None else None,
+            # Compare to now, not just truthiness: the value is only cleared when
+            # the session is next read, so a lapsed timelock would otherwise keep
+            # announcing a pause that ended days ago.
+            "wa_timelock_until": (
+                user.wa_timelock_until
+                if user is not None and user.wa_timelock_until is not None
+                and _as_utc_dt(user.wa_timelock_until) > datetime.now(UTC)
+                else None
+            ),
         }
         return templates.TemplateResponse(request, "index.html", ctx)
 

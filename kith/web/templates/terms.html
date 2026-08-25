@@ -4,20 +4,21 @@
 <section class="legal">
   <p class="detail-eyebrow"><a class="link" href="/">← home</a></p>
   <h1 class="legal-title">Terms of Service</h1>
-  <p class="legal-meta">Last updated: July 2, 2026</p>
+  <p class="legal-meta">Last updated: August 25, 2026</p>
 
   <p>{{ settings.app_name }} is a free, non-commercial, open-source project operated by
   Ilia Baranov. By signing in and using it, you agree to these terms.</p>
 
   <h2>The service</h2>
   <p>{{ settings.app_name }} lets you send digital invitations and cards from your own
-  Gmail account and track responses. It is provided at no cost, with no ads and no paid
+  Gmail account{% if settings.whatsapp_configured %}, or from your own linked
+  WhatsApp account,{% endif %} and track responses. It is provided at no cost, with no ads and no paid
   tiers. The source code is available under the MIT License.</p>
 
   <h2>Acceptable use</h2>
   <ul>
     <li>You must have a genuine relationship with, and a reasonable basis to contact,
-      the people you email. Do <strong>not</strong> use {{ settings.app_name }} for spam,
+      the people you contact. Do <strong>not</strong> use {{ settings.app_name }} for spam,
       bulk unsolicited mail, marketing to strangers, or purchased lists.</li>
     <li>Do not send unlawful, harassing, deceptive, or infringing content.</li>
     {% if settings.whatsapp_configured %}
@@ -28,7 +29,8 @@
       warned before linking. Only message people who would expect to hear from
       you.</li>
     {% endif %}
-    <li>Respect Gmail's sending limits and the
+    <li>Respect Gmail's sending limits{% if settings.whatsapp_configured %},
+      WhatsApp's,{% endif %} and the
       <a class="link" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>.</li>
     <li>Do not attempt to disrupt, overload, or abuse the service.</li>
   </ul>

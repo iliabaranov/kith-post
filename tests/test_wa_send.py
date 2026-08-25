@@ -722,3 +722,121 @@ def test_a_timelock_is_still_explained_after_the_batch_runs(wa):
     body = client.post(f"/events/{ev}/send", follow_redirects=True).text
     assert "paused new conversations" in body
     assert "still queued" in body
+
+
+# --- restrictions that arrive mid-batch (from the pre-release review) ---------
+
+def test_a_restriction_found_mid_batch_stops_the_batch(wa):
+    """WAHA does not report error 463 as a Timelocked exception — it comes back as
+    an ordinary send failure. The batch has to notice by re-reading the session,
+    or it grinds through the rest of the list while restricted, which is exactly
+    what deepens a timelock."""
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000\n+15553330000")
+    # A generic failure (what a real 463 looks like to us), then the session
+    # reports the restriction.
+    fake.raise_on_send, fake.raise_after = waha.WahaError("500: server error 463"), 1
+
+    def timelock_after_first(name):
+        if fake.sent:
+            fake.timelock = waha.Timelock.parse(
+                {"isActive": True, "timeEnforcementEnds": 4102444800,
+                 "enforcementType": "DEFAULT"})
+        return fake._state()
+
+    fake.get_session = timelock_after_first
+    db, res = _send(ev)
+    assert res.wa_blocked == "timelock"
+    assert res.wa_sent == 1, "the first got through"
+    assert len(fake.sent) == 1, "and we stopped instead of grinding on"
+    assert sorted(r.status for r in _recipients(db, ev)) == ["queued", "queued", "sent"]
+    _, user = _db_and_user()
+    assert user.wa_timelock_until is not None, "the host needs to be told why"
+
+
+def test_an_undated_timelock_is_still_recorded(wa):
+    """wa_timelock_until is the only place the UI learns a send is blocked, so
+    storing None for "restricted, end unknown" reads as "not restricted"."""
+    client, fake = wa
+    fake.timelock = waha.Timelock.parse(
+        {"isActive": True, "timeEnforcementEnds": None, "enforcementType": "DEFAULT"}
+    )
+    ev = _make_event(client, "+15551110000")
+    db, res = _send(ev)
+    assert res.wa_blocked == "timelock"
+    _, user = _db_and_user()
+    assert user.wa_timelock_until is not None
+
+
+def test_one_bad_number_does_not_stop_the_rest(wa):
+    """The mid-batch session re-read must not turn a single failure into an abort."""
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000")
+    fake.raise_on_send = waha.WahaError("one-off blip")
+    db, res = _send(ev)
+    assert res.wa_blocked is None
+    assert (res.wa_sent, res.wa_failed) == (1, 1)
+
+
+def test_an_inline_send_will_not_run_beside_a_background_batch(wa):
+    """A scheduled send does the WhatsApp half inline. Without the same claim the
+    background batch takes, both could walk the same queued rows and everyone in
+    the overlap gets the invitation twice."""
+    from kith.db.session import make_engine, make_session_factory
+
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    factory = make_session_factory(make_engine(get_settings().db_path))
+
+    seen = {}
+    real = sender._send_whatsapp
+
+    def reentrant(db_, event_, user_, settings_, recipients_, **kw):
+        # Mid-batch, an inline send for the same event must decline.
+        res = sender.send_event(factory(), event_, user_, settings_)
+        seen["inline_sent"] = res.wa_sent
+        seen["inline_pending"] = res.wa_pending
+        return real(db_, event_, user_, settings_, recipients_, **kw)
+
+    import pytest as _pytest
+    monkey = _pytest.MonkeyPatch()
+    monkey.setattr(sender, "_send_whatsapp", reentrant)
+    try:
+        sender.send_whatsapp_batch(factory, ev, get_settings())
+    finally:
+        monkey.undo()
+    assert seen["inline_sent"] == 0, "the inline half must not send during a batch"
+    assert seen["inline_pending"] == 1
+    assert len(fake.sent) == 1, "exactly one message, not two"
+
+
+def test_a_recipient_removed_mid_batch_is_not_messaged(wa):
+    """A paced batch holds its session for minutes. Working from the snapshot it
+    started with, it would message someone the host deleted in the meantime."""
+    from kith.db.session import make_engine, make_session_factory
+
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000")
+    factory = make_session_factory(make_engine(get_settings().db_path))
+    db, _ = _db_and_user()
+    rows = sorted(_recipients(db, ev), key=lambda r: r.phone)
+
+    real = sender._send_whatsapp
+
+    def delete_second_midway(db_, event_, user_, settings_, recipients_, **kw):
+        other = factory()
+        victim = other.get(Recipient, rows[1].id)
+        other.delete(victim)
+        other.commit()
+        other.close()
+        return real(db_, event_, user_, settings_, recipients_, **kw)
+
+    import pytest as _pytest
+    monkey = _pytest.MonkeyPatch()
+    monkey.setattr(sender, "_send_whatsapp", delete_second_midway)
+    try:
+        sender.send_whatsapp_batch(factory, ev, get_settings())
+    finally:
+        monkey.undo()
+    sent_to = [to for _, to, _, _ in fake.sent]
+    assert rows[1].phone not in sent_to, "messaged a recipient who was removed"

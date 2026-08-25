@@ -22,13 +22,15 @@ worse, and the recipients stay 'queued' for when it lifts.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import random
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
@@ -44,6 +46,33 @@ from kith.services.gmail import GmailAuthError
 log = logging.getLogger("kith")
 
 _SUBTYPE = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
+
+
+def _far_future() -> datetime:
+    """A stand-in end date for a timelock WhatsApp didn't date.
+
+    ``wa_timelock_until`` is the only place the UI learns a send is blocked, so
+    storing None for "restricted, end unknown" is indistinguishable from "not
+    restricted" — the host would get a stalled queue and no explanation. A day
+    out is honest enough: the next successful read of the session replaces it.
+    """
+    return datetime.now(UTC) + timedelta(days=1)
+
+
+def _pace(settings: Settings, dry: bool, index: int, total: int) -> None:
+    """Wait before the next send. A burst is what WhatsApp restricts accounts
+    for, and an exactly-even cadence is its own signature — neither looks like a
+    person working through a list.
+
+    Called from the skip paths too: a list with several bad numbers would
+    otherwise fire its existence checks back to back, which is the same burst.
+    """
+    if dry or index + 1 >= total:
+        return
+    gap = next_send_gap(settings)
+    if gap > 0:
+        log.info("whatsapp: pausing %.1fs before the next send", gap)
+        time.sleep(gap)
 
 
 def next_send_gap(settings: Settings, rng: random.Random | None = None) -> float:
@@ -190,8 +219,20 @@ def send_event(
         except Exception:
             log.exception("send failed for recipient %s (event %s)", r.id, event.id)
             failed += 1  # leave as 'queued' so a retry can pick it up
-            db.commit()
+            db.rollback()   # committing again after a failed statement raises
 
+    if wa_recipients and not wa_defer and wa_batch_running(event.id):
+        # A scheduled send runs the WhatsApp half inline. Without this check it
+        # could walk the same queued rows as a background batch already working
+        # through them, and everyone in the overlap gets the invitation twice.
+        log.warning(
+            "whatsapp: a batch for event %s is already running; skipping the "
+            "inline half", event.id,
+        )
+        return SendResult(
+            sent=sent, failed=failed, mode=settings.send_mode.value,
+            wa_pending=len(wa_recipients),
+        )
     if wa_recipients and wa_defer:
         # Email is quick and stays inline; WhatsApp is paced and goes to a
         # background batch. Recipients stay 'queued' until it reaches them, so the
@@ -200,14 +241,18 @@ def send_event(
             sent=sent, failed=failed, mode=settings.send_mode.value,
             wa_pending=len(wa_recipients),
         )
-    wa = (
-        _send_whatsapp(
-            db, event, user, settings, wa_recipients, note=note,
-            card=image_bytes, card_mime=(asset.mime if asset else "image/jpeg"),
-        )
-        if wa_recipients
-        else _WaOutcome(0, 0, None)
-    )
+    if wa_recipients:
+        with _wa_claim(event.id) as claimed:
+            wa = (
+                _send_whatsapp(
+                    db, event, user, settings, wa_recipients, note=note,
+                    card=image_bytes, card_mime=(asset.mime if asset else "image/jpeg"),
+                )
+                if claimed
+                else _WaOutcome(0, 0, None)
+            )
+    else:
+        wa = _WaOutcome(0, 0, None)
     return SendResult(
         sent=sent + wa.sent,
         failed=failed + wa.failed,
@@ -216,6 +261,19 @@ def send_event(
         wa_failed=wa.failed,
         wa_blocked=wa.blocked,
     )
+
+
+# WhatsApp batches run here rather than on the threadpool Starlette uses for
+# sync route handlers. A paced batch holds its thread for minutes, and that pool
+# serves every other page in the app — a few cards sending at once could stall the
+# site for everyone. Two workers also caps how many batches run at once, which is
+# its own kindness to a WhatsApp account.
+_wa_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wa-batch")
+
+
+def submit_whatsapp_batch(session_factory, event_id: str, settings: Settings):
+    """Queue a batch on the WhatsApp pool and hand back its Future."""
+    return _wa_pool.submit(send_whatsapp_batch, session_factory, event_id, settings)
 
 
 # Events with a WhatsApp batch in flight. A single-process guard: the app runs as
@@ -231,19 +289,45 @@ def wa_batch_running(event_id: str) -> bool:
         return event_id in _wa_in_flight
 
 
+@contextlib.contextmanager
+def _wa_claim(event_id: str):
+    """Claim the right to send this event's WhatsApp half, or yield False.
+
+    Both paths go through this: the background batch and the inline one a
+    scheduled send uses. Anything that sends without claiming can double-message
+    people, which is both rude and the burst WhatsApp restricts accounts for.
+    """
+    with _wa_lock:
+        if event_id in _wa_in_flight:
+            yield False
+            return
+        _wa_in_flight.add(event_id)
+    try:
+        yield True
+    finally:
+        with _wa_lock:
+            _wa_in_flight.discard(event_id)
+
+
 def send_whatsapp_batch(session_factory, event_id: str, settings: Settings) -> None:
     """Deliver an event's queued WhatsApp invitations, paced, in its own session.
 
     Written to be run off the request path (a Starlette BackgroundTask), so it
     takes a session factory rather than a session and never raises at the caller.
     """
-    with _wa_lock:
-        if event_id in _wa_in_flight:
+    with _wa_claim(event_id) as claimed:
+        if not claimed:
             log.info("whatsapp: a batch for event %s is already running", event_id)
             return
-        _wa_in_flight.add(event_id)
-    db: Session = session_factory()
+        _run_whatsapp_batch(session_factory, event_id, settings)
+
+
+def _run_whatsapp_batch(session_factory, event_id: str, settings: Settings) -> None:
+    db: Session | None = None
     try:
+        # Inside the try: a pool timeout here would otherwise skip the finally
+        # and leave the event permanently "sending", refusing every later batch.
+        db = session_factory()
         event = db.get(Event, event_id)
         user = db.get(User, event.user_id) if event else None
         if event is None or user is None:
@@ -281,9 +365,8 @@ def send_whatsapp_batch(session_factory, event_id: str, settings: Settings) -> N
     except Exception:
         log.exception("whatsapp batch failed for event %s", event_id)
     finally:
-        db.close()
-        with _wa_lock:
-            _wa_in_flight.discard(event_id)
+        if db is not None:
+            db.close()
 
 
 @dataclass
@@ -326,7 +409,7 @@ def _send_whatsapp(
         try:
             wa_link.sendable(db, user, settings)
         except waha.Timelocked as e:
-            user.wa_timelock_until = e.ends_at
+            user.wa_timelock_until = e.ends_at or _far_future()
             db.commit()
             log.warning("whatsapp: reachout timelock active for user %s", user.id)
             return _WaOutcome(0, 0, "timelock")
@@ -343,6 +426,25 @@ def _send_whatsapp(
 
     sent = failed = 0
     for i, r in enumerate(recipients):
+        # Re-read the row before using it. A paced batch holds this session for
+        # minutes, and the factory keeps objects unexpired after commit, so
+        # without this the batch works from a snapshot: it would message someone
+        # the host removed mid-batch, and then die on the stale UPDATE.
+        db.expire(r)
+        try:
+            still_queued = r.status == "queued"
+        except Exception:      # the row was deleted under us
+            log.info("whatsapp: recipient %s went away mid-batch; skipping", r.id)
+            db.rollback()
+            _pace(settings, dry, i, len(recipients))
+            continue
+        if not still_queued:
+            log.info(
+                "whatsapp: recipient %s is no longer queued (%s); skipping",
+                r.id, r.status,
+            )
+            _pace(settings, dry, i, len(recipients))
+            continue
         text = wamessage.invite_text(
             title=event.title,
             host_name=host_name,
@@ -359,6 +461,7 @@ def _send_whatsapp(
             # Better to report it than to hand WAHA an empty chat id.
             log.warning("whatsapp: no destination number for recipient %s", r.id)
             failed += 1
+            _pace(settings, dry, i, len(recipients))
             continue
         try:
             if dry:
@@ -378,6 +481,7 @@ def _send_whatsapp(
                     if not check.exists:
                         log.warning("whatsapp: %s is not on WhatsApp (event %s)", r.id, event.id)
                         failed += 1
+                        _pace(settings, dry, i, len(recipients))
                         continue
                     chat_id = check.chat_id
                 except waha.WahaError:
@@ -399,7 +503,7 @@ def _send_whatsapp(
         except waha.Timelocked as e:
             # Hit mid-batch: stop. Retrying is what makes it worse, and the rest
             # stay queued so they go out once it lifts.
-            user.wa_timelock_until = e.ends_at
+            user.wa_timelock_until = e.ends_at or _far_future()
             db.commit()
             log.warning("whatsapp: timelock hit mid-send for user %s; stopping", user.id)
             return _WaOutcome(sent, failed, "timelock")
@@ -412,14 +516,30 @@ def _send_whatsapp(
         except Exception:
             log.exception("whatsapp send failed for recipient %s (event %s)", r.id, event.id)
             failed += 1  # left 'queued' so a retry can pick it up
-            db.commit()
-        # Space the sends out, by a different amount every time. A burst is what
-        # WhatsApp restricts accounts for, and an exactly-even cadence is its own
-        # signature — neither looks like a person working through a list.
-        if not dry and i + 1 < len(recipients):
-            gap = next_send_gap(settings)
-            if gap > 0:
-                log.info("whatsapp: pausing %.1fs before the next send", gap)
-                time.sleep(gap)
+            db.rollback()   # a failed statement poisons the session otherwise
+            # A restriction arriving mid-batch does NOT surface as Timelocked from
+            # a send call — WAHA answers with an error whose shape we don't
+            # control, so error 463 looks like any other failure. Re-read the
+            # session instead: if WhatsApp has restricted the account, stop now.
+            # Grinding through the rest is precisely what deepens a timelock.
+            if not dry and client is not None:
+                try:
+                    wa_link.sendable(db, user, settings)
+                except waha.Timelocked as e:
+                    user.wa_timelock_until = e.ends_at or _far_future()
+                    db.commit()
+                    log.warning(
+                        "whatsapp: a send failed and the account is timelocked; "
+                        "stopping with %d recipient(s) still queued",
+                        len(recipients) - i - 1,
+                    )
+                    return _WaOutcome(sent, failed, "timelock")
+                except waha.Capped:
+                    return _WaOutcome(sent, failed, "capped")
+                except waha.NotLinked:
+                    return _WaOutcome(sent, failed, "not-linked")
+                except waha.WahaError:
+                    pass    # can't tell; treat it as this one recipient's problem
+        _pace(settings, dry, i, len(recipients))
 
     return _WaOutcome(sent, failed, None)

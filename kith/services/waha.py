@@ -53,6 +53,13 @@ STATUS_FAILED = "FAILED"
 # Statuses where the host still has something to do to finish linking.
 PAIRING_STATUSES = frozenset({STATUS_SCAN_QR, STATUS_PASSKEY, STATUS_PASSKEY_CONFIRM})
 
+# Every status WAHA defines. Used to vet a webhook payload before it's stored and
+# shown to the host, since the field is otherwise an unbounded string.
+ALL_STATUSES = frozenset({
+    STATUS_STOPPED, STATUS_STARTING, STATUS_SCAN_QR, STATUS_PASSKEY,
+    STATUS_PASSKEY_CONFIRM, STATUS_WORKING, STATUS_FAILED,
+})
+
 
 # WhatsApp's own receipts for a message we sent, as WAHA reports them.
 ACK_ERROR, ACK_PENDING, ACK_SERVER, ACK_DEVICE, ACK_READ, ACK_PLAYED = -1, 0, 1, 2, 3, 4

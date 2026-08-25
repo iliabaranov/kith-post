@@ -379,3 +379,30 @@ def test_the_contacts_page_has_no_number_field_when_the_channel_is_off(client):
     body = client.get("/contacts").text
     assert 'name="phone"' not in body
     assert "WhatsApp number" not in body
+
+
+def test_using_a_contact_by_number_marks_them_even_if_they_have_an_email(wa_client):
+    """mark_used matched only the identity hash, which for a contact holding both
+    is their email — so inviting them over WhatsApp never bumped last_used_at.
+    The same email-vs-phone key mismatch that broke the 'not in your book' prompt."""
+    db, user = _db_and_user()
+    c, _ = book.add_contact(db, user.id, "both@example.com", "Both", phone="+15551110000")
+    assert c.last_used_at is None
+    _event_with(wa_client, phones="+15551110000")     # invited by number only
+    db2, _ = _db_and_user()
+    assert db2.get(Contact, c.id).last_used_at is not None
+
+
+def test_editing_a_contact_cannot_steal_a_number_another_one_holds(wa_client):
+    """add_contact treats a number as a join key; editing has to as well, or two
+    rows end up holding one number and find_by_phone picks arbitrarily."""
+    db, user = _db_and_user()
+    a, _ = book.add_contact(db, user.id, "", "PhoneOnly", phone="+15551110000")
+    b, _ = book.add_contact(db, user.id, "b@example.com", "Other")
+    assert book.update_contact(
+        db, user.id, b.id, "b@example.com", "Other", phone="+15551110000"
+    ) is None, "the edit should be refused, not duplicate the number"
+    db2, _ = _db_and_user()
+    assert db2.get(Contact, b.id).phone is None
+    # ...and the original still owns it.
+    assert book.find_by_phone(db2, user.id, "+15551110000").id == a.id

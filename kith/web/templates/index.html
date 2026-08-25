@@ -84,7 +84,8 @@
         else. {{ settings.app_name }} can't read, search, or delete anything in your inbox.</dd>
 
       <dt>Who actually sends the invites?</dt>
-      <dd>You do. They go out from your own Gmail and land in your Sent folder, so they
+      <dd>You do. They go out from your own Gmail{% if settings.whatsapp_configured %} — or,
+        if you link it, your own WhatsApp{% endif %} and land in your Sent folder, so they
         arrive as a personal note from you.</dd>
 
       <dt>What do you store about me?</dt>

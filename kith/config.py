@@ -19,6 +19,11 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+# The built-in session key. Fine for a laptop; on a public URL it means anyone
+# holding this repo can forge a signed-in cookie, so `check_production_ready`
+# refuses to start with it.
+DEV_SECRET_KEY = "dev-insecure-change-me"
+
 
 class SendMode(StrEnum):
     dry_run = "dry-run"      # compose real MIME -> data/outbox/*.eml, no Gmail call
@@ -53,7 +58,9 @@ class Settings(BaseSettings):
     base_url: str = "http://localhost:8000"
     send_mode: SendMode = SendMode.dry_run
     data_dir: Path = Path("data")
-    secret_key: str = "dev-insecure-change-me"
+    # Deliberately a recognisable placeholder, so the startup check below can
+    # tell "never configured" from "configured to something".
+    secret_key: str = DEV_SECRET_KEY
 
     # Encryption of PII + OAuth refresh tokens at rest (Fernet). Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -138,6 +145,30 @@ class Settings(BaseSettings):
         made it through Google (i.e. Google's test-user list is the gate)."""
         allow = self.allowed_email_set
         return not allow or (email or "").strip().lower() in allow
+
+    def check_production_ready(self) -> list[str]:
+        """Configuration mistakes that must not run on a public URL.
+
+        Only enforced when base_url is https, i.e. when the deployment is
+        actually reachable: a local http run is allowed to be insecure, which is
+        the point of the defaults.
+        """
+        if not self.https_only:
+            return []
+        problems = []
+        if self.secret_key == DEV_SECRET_KEY or not self.secret_key:
+            problems.append(
+                "KITH_SECRET_KEY is still the built-in default — session cookies "
+                "would be forgeable by anyone with a copy of this repo. Generate "
+                'one: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+            )
+        if not self.fernet_key:
+            problems.append(
+                "KITH_FERNET_KEY is unset — PII would be encrypted with a "
+                "throwaway key written under the data dir, and a lost key means "
+                "unreadable rows. Generate one and back it up."
+            )
+        return problems
 
     @property
     def https_only(self) -> bool:

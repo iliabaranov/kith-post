@@ -47,7 +47,8 @@ export-and-delete. It is free, offered as-is with no warranty.
   schedule (halfway / 1 wk / 3 days out) — and stop the instant they engage.
 - **Privacy by default.** Minimal data, encrypted PII at rest, user-owned
   export/delete, heavy assets auto-purged.
-- **Cheap & self-hostable.** One container, one volume, no paid dependencies.
+- **Cheap & self-hostable.** One container and one volume (a second of each only
+  if you opt into WhatsApp), no paid dependencies.
   Free TLS via a Cloudflare Tunnel.
 - **Clean architecture.** Pure-logic core, thin framework glue, testable with
   pytest.
@@ -202,7 +203,12 @@ kith ──HTTP (compose network, X-Api-Key)──► WAHA container ──► W
                                             /app/.sessions (named volume)
 ```
 
-**Recipients get a short text with their same `/i/{token}` link.** Tracking is
+**Recipients get the card itself as a picture**, captioned with a short text and
+their same `/i/{token}` link (text-only when the card has no image, or its inline
+file has been purged). The picture travels as base64 over the compose network
+rather than as a URL, so WhatsApp is never handed a link to the recipient's own
+invitation page — but it does mean the image reaches Meta's servers, which an
+emailed card never does. Tracking is
 therefore *unchanged*: Opened, RSVP, headcount and allergies all come from the
 invitation page, which is channel-agnostic. Nothing is added to the message —
 no parameter, no redirect, no shortener.
@@ -331,8 +337,8 @@ WhatsApp guest (§6a) is tracked exactly like an email one.
 | Signal | Mechanism | Reliability |
 |--------|-----------|-------------|
 | **Sent** | Gmail API returns a message id (or WAHA a WhatsApp message id) | High |
-| **Opened** | Recipient clicks **"View invitation"** → landing page rendered at `/i/{token}` (logged as `landing_view`), **excluding automated fetches** | High *for those who click through* |
-| **Accepted / Declined** | RSVP buttons → `/t/rsvp/{token}?a=yes\|no` → confirm step | High (explicit user action) |
+| **Opened** | Recipient opens their invitation page at `/i/{token}`, **excluding automated fetches** (preview crawlers, declared prefetches, requests with no User-Agent, and anything within `OPEN_GRACE_SECONDS` of the send) | High *for those who click through* |
+| **Accepted / Declined** | RSVP buttons → `POST /i/{token}/rsvp` → confirm step | High (explicit user action) |
 
 **Honest caveat (stated plainly in the UI):** because the card image is **inlined
 in the email**, a recipient can read the whole invitation without ever clicking
@@ -367,9 +373,8 @@ answer feel expected, not like an error path:
   passes, the page goes read-only ("This event has passed") so late flips don't
   mislead the host.
 - **Data:** `Recipient.status` holds the *latest* answer and `rsvp_at` its time;
-  every change also **appends a `TrackingEvent`** (accept/decline), so the host's
-  history is preserved and the dashboard can show "changed their mind 2× · now
-  Coming." Nothing is overwritten silently.
+  only the latest state is kept, with no per-signal audit log (see G4) — a flip
+  updates `status` and `rsvp_at` in place.
 - The sender's dashboard reflects the change on next page load; the running
   reminder logic already treats accept/decline as "engaged → stop," and a flip
   back to non-responded does **not** restart reminders (avoids nagging).
@@ -439,7 +444,7 @@ in tests).
 ```toml
 [reminders]
 enabled           = true            # sane default: on
-target            = "not-clicked"   # or "no-rsvp"
+target            = "no-rsvp"       # or "not-clicked"
 offsets           = ["halfway", "7d", "3d"]
 send_hour_local   = 9               # ~9am sender-local, not the exact instant
 min_gap_hours     = 24              # merge reminders closer than this
@@ -480,13 +485,8 @@ Recipient                # one row per (event, person)
   party_size?            note? 🔒    sent_at?  first_open_at?  rsvp_at?
   # party_size = total people coming, from the headcount stepper (if enabled).
   # status = LATEST answer (mutable); rsvp_at updates on each change.
-  # Every change also appends a TrackingEvent, so history is never lost.
   msg_id_hdr?  thread_id?   # RFC822 Message-ID + Gmail thread of the first send,
                             # so reminders thread as replies (In-Reply-To/References)
-
-TrackingEvent            # append-only audit of signals
-  id  recipient_id→Recipient   kind[sent|landing_view|accept|decline|bounce]
-  at   user_agent?   ip_hash?   (raw IP never stored; hashed + truncated)
 
 Reminder                 # one scheduled nudge for a non-responder (§8)
   id  recipient_id→Recipient   slot[halfway|7d|3d|manual]   scheduled_for (UTC)
@@ -542,11 +542,12 @@ with the "store little to no data" goal. We resolve it deliberately:
 
 - **Scope of persistence:** only the *user's own* account, their saved contacts,
   their events, and the per-recipient tracking needed to power the dashboard.
-- **Encrypt PII at rest:** recipient names/emails, contact entries, location,
-  notes, the user's own email, and OAuth refresh token are Fernet-encrypted with
+- **Encrypt PII at rest:** recipient names/emails/phone numbers, contact entries,
+  location, notes, the user's own email and linked WhatsApp number, and the OAuth
+  refresh token are Fernet-encrypted with
   a key from env (never in git, never in the DB). DB-at-rest leak ≠ PII leak.
-- **Minimize third-party data:** recipients get no account and no cookie; raw IPs
-  are never stored (only a salted, truncated hash for basic abuse signals); no
+- **Minimize third-party data:** recipients get no account and no cookie; IPs are
+  never stored at all — they serve only as an in-memory rate-limiting key; no
   external analytics or trackers.
 - **Auto-purge heavy/ephemeral data:** hosted images and (optionally) whole past
   events expire on a schedule.
@@ -573,8 +574,9 @@ with the "store little to no data" goal. We resolve it deliberately:
   minimal base image, pinned deps.
 - **Exposure:** the Cloudflare Tunnel terminates TLS at the edge and forwards to
   the app over the container network — no inbound ports are opened on the host;
-  the admin/dashboard requires auth; only `/i/...` and `/t/...` (recipient-facing,
-  token-gated) are effectively public.
+  the admin/dashboard requires auth; only `/i/{token}` and its sub-paths
+  (recipient-facing, token-gated) and, where receipts are enabled,
+  `POST /wa/webhook` (HMAC-authenticated, no cookie) are effectively public.
 - **Rate limiting** on tracking + RSVP endpoints to blunt token-guessing/abuse.
 
 ---
@@ -755,6 +757,10 @@ Each gate is a working, committed, tested increment.
   toggle. Also **edit reconciliation** (edits no longer wipe RSVPs) and a
   **details-changed → re-send & re-collect** flow (date/time/location change prompts
   an opt-in re-send that clears prior RSVPs and reschedules). 148 tests.
+
+> Test counts in the gates above are historical — what the suite stood at when
+> that gate landed. `make test` is the current number (473 at the time of
+> writing); don't read a gate's figure as today's.
 - **G6 — Polish, deploy & legal.** *(Partial.)* **✅ Done:** contacts address book,
   export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups,
   auto-purge of heavy full-res images past a retention window, and the
@@ -766,10 +772,14 @@ Each gate is a working, committed, tested increment.
   self-hosted WAHA container, one session per user. **✅ Done** — pinned GOWS
   image on the compose network only, `services/waha` client (every call bounded)
   + `services/wa_session` for the kith-side link, risk-gated linking flow at
-  `/account/whatsapp`, a second recipient box in compose, per-channel send and
-  reminders with timelock/quota back-off, and unlink-on-account-delete. Off by
-  default (`KITH_WHATSAPP_ENABLED`). Tracking is unchanged, because it lives on
-  the invitation page rather than in the delivery channel.
+  `/account/whatsapp` with both QR and typed-code pairing, a second recipient box
+  in compose plus a per-contact channel choice in the address book, the card sent
+  as a picture captioned with the invitation link, per-channel send and reminders
+  with timelock/quota back-off, sends paced a random 5–20s apart from a background
+  batch, opt-in delivery/read receipts over an HMAC-signed webhook, and
+  unlink-on-account-delete. Off by default (`KITH_WHATSAPP_ENABLED` +
+  `KITH_WAHA_API_KEY`). "Opened" is unchanged and still means a person loaded the
+  invitation page — receipts are shown separately and never counted as one.
 - **G7 — Richer RSVP & contacts.** **✅ Done** — optional reply note + allergies
   toggle, adults/kids headcount split, address-book group tags (filter + add a
   whole group at once), and non-destructive edit reconciliation with a

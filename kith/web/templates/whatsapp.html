@@ -12,9 +12,11 @@
 
   {% if not acknowledged %}
   {# The gate. Nothing exists in WAHA until this is accepted. #}
-  <p class="hero-sub">Invitations can go out from your own WhatsApp, as a short
-    message with each guest's invitation link — the card, the RSVP and the
-    headcount all stay on the invitation page, exactly as they do over email.</p>
+  <p class="hero-sub">Invitations go out from your own WhatsApp as the card itself
+    — a picture, captioned with a short message and each guest's invitation link.
+    The RSVP and the headcount stay on the invitation page, exactly as they do over
+    email. Unlike email, where the card is attached and never leaves this server,
+    the picture passes through WhatsApp's servers the way any photo you send does.</p>
 
   <div class="ask-note reconnect wa-warn">
     <div>
@@ -42,9 +44,10 @@
   {% if user.wa_timelock_until %}
   <div class="ask-note reconnect">
     <div>WhatsApp has paused new conversations from your account until
-      <strong>{{ user.wa_timelock_until.strftime('%b %-d, %Y') }}</strong>. Invitations
-      to people you've messaged before still go out. Nothing to fix — waiting is
-      the fix, and re-linking would only make it look worse.</div>
+      <strong>{{ user.wa_timelock_until.strftime('%b %-d, %Y') }}</strong>. WhatsApp
+      invitations are paused until then — your guests stay queued and go out when it
+      lifts. Email is unaffected. Nothing to fix — waiting is the fix, and
+      re-linking would only make it look worse.</div>
   </div>
   {% endif %}
 
@@ -131,7 +134,8 @@
 
   <div class="reassure">
     Your WhatsApp login stays on this server, in the WhatsApp service's own
-    storage — {{ settings.app_name }} never sees it, and unlinking removes it.
+    storage — {{ settings.app_name }} never sees it. Unlinking deletes it
+    immediately if that service is up, and as soon as it's reachable if it isn't.
   </div>
   {% endif %}
 

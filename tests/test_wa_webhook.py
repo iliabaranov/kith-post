@@ -357,3 +357,54 @@ def test_no_webhook_is_configured_when_receipts_are_off():
     )
     c.ensure_session("u1")
     assert c.ensure_webhooks("u1") is False
+
+
+# --- hardening from the pre-release security review ---------------------------
+
+def test_an_oversized_body_is_refused_before_it_is_hashed(wa):
+    """The endpoint is reachable from the internet by anyone who finds it, so an
+    unsigned body must not be buffered and HMAC'd at whatever size they choose."""
+    from kith.web.routes_wa_webhook import MAX_WEBHOOK_BODY
+
+    big = b'{"event":"x","pad":"' + b"A" * (MAX_WEBHOOK_BODY + 1000) + b'"}'
+    r = wa.post("/wa/webhook", content=big,
+                headers={"content-type": "application/json"})
+    assert r.status_code == 413
+
+
+def test_an_unknown_session_status_is_not_stored(wa):
+    """The field is an unbounded string from the payload and ends up in the
+    dashboard banner; only values WAHA defines are accepted."""
+    _signed(wa, {"event": "session.status", "session": "utest",
+                 "payload": {"status": "TOTALLY MADE UP <b>x</b>"}})
+    db, user = _db_and_user()
+    assert user.wa_status == waha.STATUS_WORKING
+
+
+def test_a_receipt_cannot_be_stamped_onto_another_accounts_recipient(wa):
+    """Message ids are unguessable, but a holder of the shared secret still
+    shouldn't be able to write a receipt across accounts."""
+    db, ev, rec = _recipient_with_message(wa)
+    _signed(wa, {"event": "message.ack", "session": "someone-elses-session",
+                 "payload": {"id": rec.wa_message_id, "ack": waha.ACK_READ}})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, rec.id).wa_read_at is None
+
+
+def test_a_delivery_failure_is_recorded_even_after_a_success_ack(wa):
+    """ERROR is -1, so a plain "only move forwards" rule files it below every
+    success and the failure is never shown to the host."""
+    db, ev, rec = _recipient_with_message(wa)
+    for ack in (waha.ACK_SERVER, waha.ACK_DEVICE, waha.ACK_ERROR):
+        _signed(wa, {"event": "message.ack", "session": "utest",
+                     "payload": {"id": rec.wa_message_id, "ack": ack}})
+    db2, _ = _db_and_user()
+    assert db2.get(Recipient, rec.id).wa_ack == waha.ACK_ERROR
+    assert "deliver it" in wa.get(f"/events/{ev}").text
+
+
+def test_the_api_surface_is_not_published(wa):
+    """An unauthenticated map of the routes only advertises the webhook and the
+    account endpoints."""
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert wa.get(path).status_code == 404, path

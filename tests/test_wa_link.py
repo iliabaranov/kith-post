@@ -240,6 +240,9 @@ def test_a_timelock_is_explained_and_says_not_to_relink(wa):
     body = client.get("/account/whatsapp").text
     assert "paused new conversations" in body
     assert "re-linking would only make it look worse" in body
+    # It stops the whole batch — it does not spare people already messaged.
+    assert "messaged before still go out" not in body
+    assert "Email is unaffected" in body
     db, user = _user()
     assert user.wa_timelock_until is not None
 

@@ -55,8 +55,9 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
 - Send a personal email **from your own Gmail account** (via the Gmail API), so
   it looks like it came directly from you.
 - Optionally send over **WhatsApp instead**, from your own WhatsApp account, via a
-  self-hosted [WAHA](https://github.com/devlikeapro/waha) container — a short
-  message with the same invitation link. Off by default; see the warning below.
+  self-hosted [WAHA](https://github.com/devlikeapro/waha) container — the card
+  itself as a picture, captioned with a short message and the same invitation link
+  (a card with no image sends as text). Off by default; see the warning below.
 - Collect RSVPs with an optional headcount (adults + kids), an allergies/dietary
   question, and a free-text note back.
 - Track who was sent an invite, who opened it (visited the invitation page), and
@@ -77,13 +78,19 @@ linked account **can be restricted or banned**. Sending a few personal invitatio
 to people who already have your number is a world away from what gets accounts
 banned — but the risk is real, and it's yours.
 
-So the channel is off unless you turn it on (`KITH_WHATSAPP_ENABLED` plus the
-`whatsapp` compose profile), and every host is warned in-app before they link
-anything. Email invitations don't carry any of this.
+So the channel is off unless you turn it on (`KITH_WHATSAPP_ENABLED` **and**
+`KITH_WAHA_API_KEY`, plus the `whatsapp` compose profile), and every host is warned
+in-app before they link anything. Email invitations don't carry any of this.
 
 What doesn't change: guests get the same `/i/{token}` invitation page, so opens,
 RSVPs, headcount and reminders work identically — tracking lives on the page, not
-in the delivery channel. Nothing is added to a WhatsApp message to track anyone.
+in the delivery channel. Nothing is added to a WhatsApp message to track anyone,
+and WhatsApp's own delivered/read ticks (if you enable receipts) are shown
+separately and never counted as an open.
+
+What does change: **the card image passes through WhatsApp's servers**, the way any
+photo you send does. An emailed card is attached to the message and never leaves
+your own server.
 Setup, and what to do when WhatsApp throttles an account, is in
 [`docs/deploy.md`](./docs/deploy.md#5a-optional-the-whatsapp-channel-waha).
 

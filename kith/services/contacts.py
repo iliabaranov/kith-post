@@ -305,6 +305,14 @@ def update_contact(
     clash = find_by_identity(db, user_id, p.email or None, p.phone)
     if clash is not None and clash.id != c.id:
         return None
+    if p.phone:
+        # Checked separately, not as a fallback: the identity lookup finds the
+        # contact being edited (their email *is* their identity), so a fallback
+        # would never run. add_contact treats a number as a join key and editing
+        # must too, or two rows hold one number and find_by_phone picks arbitrarily.
+        holder = find_by_phone(db, user_id, p.phone)
+        if holder is not None and holder.id != c.id:
+            return None
     c.email = p.email
     c.email_hash = identity_hash(p.email or None, p.phone)
     c.phone = p.phone
@@ -330,10 +338,14 @@ def mark_used(
 ) -> None:
     """Bump last_used_at for contacts an event imported (for recency sorting)."""
     now = datetime.now(UTC)
-    hashes = {_hash(e) for e in emails}
-    hashes |= {identity_hash(None, ph) for ph in (phones or [])}
+    identities = {_hash(e) for e in emails}
+    # A contact who has both an email and a number is keyed on the email, so a
+    # number alone never matches their identity — match phone_hash as well, the
+    # same join that new_among and add_contact needed.
+    identities |= {identity_hash(None, ph) for ph in (phones or [])}
+    numbers = {phone_hash(ph) for ph in (phones or [])}
     for c in db.execute(select(Contact).where(Contact.user_id == user_id)).scalars():
-        if c.email_hash in hashes:
+        if c.email_hash in identities or (c.phone_hash and c.phone_hash in numbers):
             c.last_used_at = now
     db.commit()
 

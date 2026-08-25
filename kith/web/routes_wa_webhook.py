@@ -25,9 +25,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kith.config import get_settings
-from kith.db.models import Recipient, User
+from kith.db.models import Event, Recipient, User
 from kith.services import waha
 from kith.web.deps import get_db
+from kith.web.ratelimit import limiter
 
 log = logging.getLogger("kith")
 router = APIRouter()
@@ -39,17 +40,32 @@ def _ok(detail: str = "ok") -> JSONResponse:
     return JSONResponse({"status": detail})
 
 
+# A receipt is a few hundred bytes. Anything larger is not one, and must be
+# refused before it is buffered and hashed — this endpoint is reachable from the
+# internet by anyone who finds it, signature or not.
+MAX_WEBHOOK_BODY = 64 * 1024
+
+
 @router.post("/wa/webhook")
+@limiter.limit("240/minute")
 async def wa_webhook(request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
     if not settings.waha_webhooks_configured:
         return JSONResponse({"error": "receipts are not enabled"}, status_code=404)
 
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_WEBHOOK_BODY:
+        return JSONResponse({"error": "body too large"}, status_code=413)
+
     raw = await request.body()
+    if len(raw) > MAX_WEBHOOK_BODY:
+        return JSONResponse({"error": "body too large"}, status_code=413)
     if not waha.verify_webhook(
         settings.waha_webhook_secret, raw, request.headers.get(waha.WEBHOOK_HMAC_HEADER)
     ):
-        log.warning("wa webhook: rejected an unsigned or mis-signed POST")
+        # Debug, not warning: an internet-reachable endpoint attracts unsigned
+        # traffic, and a log line per attempt is a flooding vector of its own.
+        log.debug("wa webhook: rejected an unsigned or mis-signed POST")
         return JSONResponse({"error": "bad signature"}, status_code=401)
 
     try:
@@ -84,6 +100,10 @@ def _session_status(db: Session, session: str, payload: dict) -> JSONResponse:
     ).scalar_one_or_none()
     if user is None:
         return _ok("no such session here")
+    if status not in waha.ALL_STATUSES:
+        # Only values WAHA actually defines; the payload is otherwise an
+        # unbounded string that would end up in the dashboard banner.
+        return _ok("unknown status")
     user.wa_status = status
     user.wa_status_at = datetime.now(UTC)
     db.commit()
@@ -98,16 +118,24 @@ def _message_ack(db: Session, session: str, payload: dict) -> JSONResponse:
     if not message_id or not isinstance(ack, int | float):
         return _ok("nothing to record")
     ack = int(ack)
+    # Scope the match to the session that reported it. Message ids are opaque and
+    # unguessable, but a holder of the shared secret shouldn't be able to stamp a
+    # receipt onto another account's recipient either.
     r = db.execute(
-        select(Recipient).where(Recipient.wa_message_id == message_id)
-    ).scalar_one_or_none()
+        select(Recipient)
+        .join(Event, Event.id == Recipient.event_id)
+        .join(User, User.id == Event.user_id)
+        .where(Recipient.wa_message_id == message_id, User.wa_session == session)
+    ).scalars().first()
     if r is None:
         # Ordinary: acks arrive for the host's own unrelated conversations too.
         return _ok("not one of ours")
 
     now = datetime.now(UTC)
-    # Acks can arrive out of order and can repeat; only ever move forwards.
-    if r.wa_ack is None or ack > r.wa_ack:
+    # Acks can arrive out of order and can repeat, so normally only move
+    # forwards. ERROR is the exception: it's -1, so "forwards only" would file it
+    # below every success and the failure would never be shown. It's terminal.
+    if ack == waha.ACK_ERROR or r.wa_ack is None or ack > r.wa_ack:
         r.wa_ack = ack
     if ack >= waha.ACK_DEVICE and r.wa_delivered_at is None:
         r.wa_delivered_at = now

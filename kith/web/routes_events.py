@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -198,12 +199,18 @@ def _wa_batch_task(request: Request, ev: Event, result) -> BackgroundTask | None
     """
     if not result.wa_pending:
         return None
-    return BackgroundTask(
-        send.send_whatsapp_batch,
-        request.app.state.session_factory,
-        ev.id,
-        get_settings(),
-    )
+    factory, settings = request.app.state.session_factory, get_settings()
+
+    async def _run() -> None:
+        # Runs after the response, on the WhatsApp pool rather than the threadpool
+        # that serves sync route handlers — a multi-minute batch must not hold a
+        # worker the rest of the site needs. Awaited here so the loop tracks it
+        # (and so tests stay deterministic) without occupying a thread.
+        await asyncio.wrap_future(
+            send.submit_whatsapp_batch(factory, ev.id, settings)
+        )
+
+    return BackgroundTask(_run)
 
 
 def _touch_book(db: Session, user_id: str, event_id: str) -> None:

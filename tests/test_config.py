@@ -44,3 +44,31 @@ def test_derived_paths_live_under_data_dir():
     s = Settings(data_dir="/tmp/kith-x")
     assert str(s.db_path).startswith("/tmp/kith-x")
     assert str(s.outbox_dir).endswith("outbox")
+
+
+def test_a_public_url_refuses_the_placeholder_session_key():
+    """cp .env.example .env used to hand a public deployment a session key that
+    anyone with the repo could forge cookies with."""
+    from kith.config import DEV_SECRET_KEY
+
+    s = Settings(base_url="https://example.com", secret_key=DEV_SECRET_KEY,
+                 fernet_key="k")
+    problems = s.check_production_ready()
+    assert any("KITH_SECRET_KEY" in p for p in problems)
+
+
+def test_a_public_url_wants_a_real_fernet_key():
+    s = Settings(base_url="https://example.com", secret_key="a-real-one",
+                 fernet_key="")
+    assert any("KITH_FERNET_KEY" in p for p in s.check_production_ready())
+
+
+def test_a_properly_configured_public_deployment_passes():
+    s = Settings(base_url="https://example.com", secret_key="a-real-one",
+                 fernet_key="also-real")
+    assert s.check_production_ready() == []
+
+
+def test_a_local_http_run_is_allowed_to_be_insecure():
+    """The defaults exist so `make dev` just works."""
+    assert Settings(base_url="http://localhost:8000").check_production_ready() == []

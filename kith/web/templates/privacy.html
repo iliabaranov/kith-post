@@ -4,7 +4,7 @@
 <section class="legal">
   <p class="detail-eyebrow"><a class="link" href="/">← home</a></p>
   <h1 class="legal-title">Privacy Policy</h1>
-  <p class="legal-meta">Last updated: July 2, 2026</p>
+  <p class="legal-meta">Last updated: August 25, 2026</p>
 
   <p>{{ settings.app_name }} is a free, non-commercial, open-source digital-invitation
   service operated by Ilia Baranov as a personal project. It is self-hosted and
@@ -37,13 +37,17 @@
       <strong>encrypted at rest</strong>. Your WhatsApp login itself is
       <strong>never</strong> stored by {{ settings.app_name }}; it stays in the
       WhatsApp service's own storage on this server.</li>
+    <li>For each WhatsApp recipient: the message id and WhatsApp's own
+      delivered/read timestamps — the same ticks you can see in your phone. These
+      are never treated as "opened".</li>
     {% endif %}
     <li>Card images you upload — the heavy full-resolution copy is
       <strong>automatically purged</strong> after the event's retention window.</li>
   </ul>
   <p>Data is encrypted at rest (Fernet) and served over HTTPS in transit. The service
-  runs as a single self-hosted container; there are no third-party analytics, ads, or
-  trackers.</p>
+  runs on a single self-hosted server{% if settings.whatsapp_configured %} — this app
+  and the WhatsApp service beside it{% endif %}; there are no third-party analytics,
+  ads, or trackers.</p>
 
   <h2>How we use it</h2>
   <p>To authenticate you, send the messages you compose — from your Gmail{% if settings.whatsapp_configured %},
@@ -70,14 +74,15 @@
       as they would if you sent the photo yourself, and are then subject to
       WhatsApp's own privacy policy. (Cards sent by email never leave this server
       — they're attached to the message.)</li>
-    <li>A WhatsApp message contains a short line of text and the recipient's
-      invitation link — <strong>nothing is added to track them</strong>. As with
+    <li>A WhatsApp message contains the card image, a short line of text and the
+      recipient's invitation link — <strong>nothing is added to track them</strong>. As with
       email, the only signals we record are the ones the invitation page sees.</li>
     <li>This uses an <strong>unofficial</strong> WhatsApp client, which is against
       WhatsApp's terms of service and can get an account restricted or banned.
       That risk is yours, and is why the feature is opt-in and clearly warned.</li>
-    <li><strong>Unlinking</strong>, and deleting your account, remove the stored
-      WhatsApp connection from this server.</li>
+    <li><strong>Unlinking</strong>, and deleting your account, delete the stored
+      WhatsApp connection from this server — immediately if that service is up,
+      and as soon as it is reachable again if it happens to be down.</li>
   </ul>
 {% endif %}
 
@@ -99,9 +104,11 @@
 
   <h2>Recipients of your invitations</h2>
   <p>Recipients get no account and no cookies, and there is <strong>no tracking
-  pixel</strong>. "Opened" simply means a person visited the invitation page — we
-  exclude the automatic fetches that chat apps and search engines make to build
-  link previews, so it counts readers rather than robots. Their
+  pixel</strong>. "Opened" simply means a person visited the invitation page. We
+  exclude anything that isn't a person reading: the automatic fetches chat apps and
+  search engines make to build link previews, requests that identify themselves as
+  nothing at all, and any visit arriving within seconds of the message being sent.
+  It counts readers rather than robots. Their
   email and name are stored encrypted so the invitation can be delivered and RSVPs
   recorded.</p>
 
