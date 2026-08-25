@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="detail-eyebrow"><a class="link" href="/account">← your account</a></p>
+  <p class="eyebrow">whatsapp</p>
+  <h1 class="hero-title">Send invitations over WhatsApp</h1>
+
+  {% if error %}
+  <p class="form-error">{{ error }}</p>
+  {% endif %}
+
+  {% if not acknowledged %}
+  {# The gate. Nothing exists in WAHA until this is accepted. #}
+  <p class="hero-sub">Invitations go out from your own WhatsApp as the card itself
+    — a picture, captioned with a short message and each guest's invitation link.
+    The RSVP and the headcount stay on the invitation page, exactly as they do over
+    email. Unlike email, where the card is attached and never leaves this server,
+    the picture passes through WhatsApp's servers the way any photo you send does.</p>
+
+  <div class="ask-note reconnect wa-warn">
+    <div>
+      <p><strong>Read this first.</strong> WhatsApp has no official way for an app
+        to send messages from a personal account, so this uses an unofficial
+        client. That is against WhatsApp's terms of service, and WhatsApp can
+        restrict or ban an account that does it.</p>
+      <p>Sending a few personal invitations to people who already know you is a
+        world away from what gets accounts banned — but the risk is real and it is
+        yours. Your everyday email invitations don't carry it.</p>
+    </div>
+  </div>
+
+  <form method="post" action="/account/whatsapp/acknowledge" class="wa-actions">
+    <button class="btn btn-primary" type="submit">I understand — let me link WhatsApp</button>
+  </form>
+  <div class="reassure">
+    <a class="link" href="/account">No thanks, take me back</a>
+  </div>
+
+  {% elif linked %}
+  <p class="hero-sub">Linked{% if user.wa_number %} as <strong>{{ user.wa_number }}</strong>{% endif %}.
+    New cards can now offer a WhatsApp box next to the email one.</p>
+
+  {% if user.wa_timelock_until %}
+  <div class="ask-note reconnect">
+    <div>WhatsApp has paused new conversations from your account until
+      <strong>{{ user.wa_timelock_until.strftime('%b %-d, %Y') }}</strong>. WhatsApp
+      invitations are paused until then — your guests stay queued and go out when it
+      lifts. Email is unaffected. Nothing to fix — waiting is the fix, and
+      re-linking would only make it look worse.</div>
+  </div>
+  {% endif %}
+
+  {% if user.wa_capping and user.wa_capping.status in ("FIRST_WARNING", "SECOND_WARNING") %}
+  <div class="ask-note">
+    <div>You're near WhatsApp's limit on starting new conversations
+      ({{ user.wa_capping.used }} of {{ user.wa_capping.total }} this cycle). Big
+      lists are safer over email for now.</div>
+  </div>
+  {% endif %}
+
+  <div class="account-actions">
+    <form method="post" action="/account/whatsapp/unlink"
+          onsubmit="return confirm('Unlink WhatsApp? Cards already sent keep working — you just won\'t be able to send new WhatsApp invitations until you link again.');">
+      <button class="btn btn-danger" type="submit">Unlink WhatsApp</button>
+    </form>
+  </div>
+
+  {% else %}
+  {# Acknowledged, not yet paired. #}
+  {% if pairing %}
+  {% if code %}
+  {# Reading this on the phone being linked: a code to type, no second screen. #}
+  <p class="hero-sub">In WhatsApp, go to <strong>Settings → Linked devices → Link
+    with phone number instead</strong>, then enter this code:</p>
+  <p class="wa-code">{{ code }}</p>
+  <p class="field-hint">It's only good for a few minutes. If it expires, ask for
+    another one.</p>
+  <div class="wa-actions">
+    <form method="post" action="/account/whatsapp/pairing-code" class="inline-form">
+      <input type="hidden" name="phone" value="{{ phone }}">
+      <button class="btn btn-quiet" type="submit">New code</button>
+    </form>
+    <a class="btn btn-quiet" href="/account/whatsapp">Use a QR code instead</a>
+  </div>
+  <div class="reassure">
+    Typed it in? This page notices on its own —
+    <a class="link" href="/account/whatsapp">or check now</a>.
+  </div>
+
+  {% else %}
+  <p class="hero-sub" id="waPrompt">{{ prompt }}</p>
+
+  {# Two equal paths, because which one works depends on where you're reading
+     this. A QR has to be scanned BY the phone, so it's no use ON the phone. #}
+  <div class="wa-qr">
+    <img id="waQr" src="/account/whatsapp/qr.png" alt="QR code to link WhatsApp" width="264" height="264">
+  </div>
+  <p class="field-hint">On your phone: WhatsApp → Settings → Linked devices →
+    Link a device. The code expires after a minute or so; reload for a fresh one.</p>
+  <div class="wa-actions">
+    <form method="post" action="/account/whatsapp/link" class="inline-form">
+      <button class="btn btn-quiet" type="submit">New QR</button>
+    </form>
+    <a class="btn btn-quiet" href="/account/whatsapp">Check again</a>
+  </div>
+
+  <div class="or-divider"><span>or</span></div>
+
+  <form method="post" action="/account/whatsapp/pairing-code" class="wa-bynumber">
+    <p class="panel-title">Reading this on the phone you're linking?</p>
+    <p class="field-hint">You can't scan a code with the same phone that's showing
+      it. Enter that phone's WhatsApp number and we'll give you a code to type in
+      instead.</p>
+    <label class="field">
+      <span class="field-label">Your WhatsApp number</span>
+      <input type="tel" name="phone" value="{{ phone }}" autocomplete="tel"
+             placeholder="+1 555 123 4567" inputmode="tel">
+      <span class="field-hint">Include the country code. Used once to fetch the
+        code — we don't store it.</span>
+    </label>
+    <button class="btn btn-primary" type="submit">Get a code to type</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <p class="hero-sub">
+    {%- if prompt %}{{ prompt }}{% else %}Link your WhatsApp account to start
+    sending invitations through it.{% endif -%}
+  </p>
+  <form method="post" action="/account/whatsapp/link" class="wa-actions">
+    <button class="btn btn-primary" type="submit">Link WhatsApp</button>
+  </form>
+  {% endif %}
+
+  <div class="reassure">
+    Your WhatsApp login stays on this server, in the WhatsApp service's own
+    storage — {{ settings.app_name }} never sees it. Unlinking deletes it
+    immediately if that service is up, and as soon as it's reachable if it isn't.
+  </div>
+  {% endif %}
+
+  <details class="faq">
+    <summary>What guests see, and what we can't do</summary>
+    <dl class="faq-body">
+      <dt>What arrives</dt>
+      <dd>The card itself, as a picture from your own number, with a short message
+        and their personal invitation link as the caption. The details and the RSVP
+        live on that page, the same one email guests open. Nothing is added to the
+        message to track them — but note the picture does pass through WhatsApp,
+        the way any photo you send does.</dd>
+      <dt>Who it works for</dt>
+      <dd>People who already have your number, ideally in a chat you've spoken in
+        before. Messaging lots of numbers that have never heard from you is
+        exactly what WhatsApp restricts accounts for.</dd>
+      <dt>Reminders</dt>
+      <dd>The same schedule as email, in the same chat, and they stop the moment
+        someone replies to the invitation.</dd>
+      <dt>If it stops working</dt>
+      <dd>WhatsApp sometimes ends a linked-device session. The card page will say
+        so, and re-linking takes a scan or a typed code. Anything already sent keeps working, since
+        the invitation lives on the web page, not in the message.</dd>
+    </dl>
+  </details>
+</section>
+
+{% if pairing %}
+<script>
+// Poll for the pairing finishing, so the page turns itself into "linked" without
+// the host wondering whether the scan worked. Everything here is an enhancement:
+// the "Check again" link does the same job with no JS.
+(function () {
+  var tries = 0;
+  var prompt = document.getElementById("waPrompt");
+  var qr = document.getElementById("waQr");
+  function tick() {
+    if (++tries > 60) return;               // ~3 minutes, then stop nagging WAHA
+    fetch("/account/whatsapp/state", { headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (s.linked) { location.reload(); return; }
+        if (!s.pairing) { location.reload(); return; }   // FAILED/STOPPED: show it
+        if (s.prompt && prompt) prompt.textContent = s.prompt;
+        // Only on the QR screen — the code screen has no image to refresh, and
+        // re-requesting would invalidate the code the host is typing.
+        if (qr && tries % 6 === 0) {        // refresh the QR every ~18s
+          qr.src = "/account/whatsapp/qr.png?t=" + Date.now();
+        }
+        setTimeout(tick, 3000);
+      })
+      .catch(function () { setTimeout(tick, 5000); });
+  }
+  setTimeout(tick, 3000);
+})();
+</script>
+{% endif %}
+{% endblock %}

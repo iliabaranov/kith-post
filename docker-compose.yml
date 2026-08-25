@@ -29,6 +29,56 @@ services:
       retries: 3
       start_period: 10s
 
+  # WhatsApp transport (WAHA) — one session per kith user, reached only over the
+  # compose network at http://waha:3000. Off unless you opt in:
+  #   docker compose --profile whatsapp up -d
+  # and set KITH_WHATSAPP_ENABLED=true + KITH_WAHA_API_KEY in .env.
+  #
+  # WAHA is an UNOFFICIAL WhatsApp client: it violates WhatsApp's terms and a
+  # linked account can be restricted or banned. At personal-invite volume to
+  # people who already know you the practical risk is low, but every host is
+  # warned in-app before they link.
+  waha:
+    # Pinned, NOT :latest — same reasoning as cloudflared below. This is the
+    # GOWS build (browserless Go engine, ~850MB vs ~1.15GB for the Chromium
+    # one). Engine choice is NOT cosmetic: payload shapes differ between
+    # engines AND the session store is per-engine
+    # (/app/.sessions/<engine>/<name>), so switching engines re-pairs every
+    # user. WEBJS is the fallback if GOWS misbehaves; re-test the send path.
+    image: devlikeapro/waha:gows-2026.8.1
+    profiles: ["whatsapp"]
+    environment:
+      WAHA_API_KEY: "${KITH_WAHA_API_KEY:-}"
+      WHATSAPP_DEFAULT_ENGINE: "GOWS"
+      # Dashboard + Swagger off: kith drives WAHA over the API, and every extra
+      # listener is another auth surface. Set the credentials anyway — WAHA
+      # autogenerates its own and PRINTS THEM IN ITS LOGS whenever they're
+      # unset, and it does that even with the UI disabled (an empty value counts
+      # as unset). To poke at the dashboard, see docker-compose.dashboard.yml.
+      WAHA_DASHBOARD_ENABLED: "false"
+      WHATSAPP_SWAGGER_ENABLED: "false"
+      WAHA_DASHBOARD_USERNAME: "${WAHA_DASHBOARD_USERNAME:-admin}"
+      WAHA_DASHBOARD_PASSWORD: "${WAHA_DASHBOARD_PASSWORD:-}"
+      WHATSAPP_SWAGGER_USERNAME: "${WAHA_DASHBOARD_USERNAME:-admin}"
+      WHATSAPP_SWAGGER_PASSWORD: "${WAHA_DASHBOARD_PASSWORD:-}"
+      WAHA_LOG_FORMAT: "JSON"
+      WAHA_LOG_LEVEL: "info"
+    volumes:
+      # WhatsApp pairings live here. A named volume, deliberately NOT under
+      # ./data: the off-box backup covers ./data, and these are live WhatsApp
+      # credentials in the clear. Losing them costs a re-scan, nothing more.
+      - waha-sessions:/app/.sessions
+    # No published ports. The app reaches it at waha:3000 over this network.
+    restart: unless-stopped
+    healthcheck:
+      # Every WAHA route, /health included, is behind the API key.
+      test: ["CMD-SHELL",
+             "curl -fsS -H \"X-Api-Key: $$WAHA_API_KEY\" http://localhost:3000/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   # Public HTTPS via Cloudflare Tunnel — free auto-TLS, no open router ports,
   # works behind CGNAT. Enable only when you want the app reachable publicly:
   #   docker compose --profile public up -d
@@ -51,3 +101,9 @@ services:
     depends_on:
       - kith
     restart: unless-stopped
+
+volumes:
+  # WAHA session store. Not backed up on purpose (see the mount comment): these
+  # are re-pairable WhatsApp credentials, and shipping them off-box would be a
+  # worse trade than asking each host to re-scan a QR code.
+  waha-sessions:

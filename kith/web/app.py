@@ -25,13 +25,16 @@ from starlette.middleware.sessions import SessionMiddleware
 from kith.config import get_settings
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth, scheduler, storage
+from kith.services import google_auth, scheduler, storage, waha
+from kith.services import wa_session as wa_link
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
 from kith.web.ratelimit import limiter
 from kith.web.routes_contacts import router as contacts_router
 from kith.web.routes_events import router as events_router
 from kith.web.routes_invite import router as invite_router
+from kith.web.routes_wa_webhook import router as wa_webhook_router
+from kith.web.routes_whatsapp import router as whatsapp_router
 
 log = logging.getLogger("kith")
 
@@ -62,6 +65,13 @@ class CachedStaticFiles(StaticFiles):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Refuse to serve a public URL with the placeholder secrets. Better a clear
+    # failure at boot than a site whose session cookies anyone can forge.
+    problems = settings.check_production_ready()
+    if problems:
+        raise RuntimeError(
+            "refusing to start: " + "; ".join(problems)
+        )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.outbox_dir.mkdir(parents=True, exist_ok=True)
     engine = make_engine(settings.db_path)
@@ -87,6 +97,11 @@ async def lifespan(app: FastAPI):
         engine.dispose()
 
 
+def _as_utc_dt(dt: datetime) -> datetime:
+    """SQLite hands back naive datetimes; treat them as the UTC they are."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
 def upsert_user(db: Session, identity: GoogleIdentity) -> User:
     user = db.execute(
         select(User).where(User.google_sub == identity.sub)
@@ -109,7 +124,13 @@ def upsert_user(db: Session, identity: GoogleIdentity) -> User:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    # No /docs, /redoc or /openapi.json. This is a private invitation site, not an
+    # API product: the only thing an unauthenticated map of its routes does is
+    # advertise the HMAC-authenticated webhook and the account endpoints.
+    app = FastAPI(
+        title=settings.app_name, lifespan=lifespan,
+        docs_url=None, redoc_url=None, openapi_url=None,
+    )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(
@@ -139,10 +160,26 @@ def create_app() -> FastAPI:
     app.include_router(events_router)
     app.include_router(invite_router)
     app.include_router(contacts_router)
+    app.include_router(whatsapp_router)
+    app.include_router(wa_webhook_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
-    def healthz() -> str:
-        return "ok"
+    @limiter.limit("30/minute")
+    def healthz(request: Request, deep: int = 0) -> PlainTextResponse:
+        """Liveness. `?deep=1` also checks WAHA, when the channel is enabled.
+
+        The plain check stays dependency-free on purpose: the uptime cron pings it
+        every five minutes and a WhatsApp outage must not read as the site being
+        down. `?deep=1` is for a monitor that wants to know about the channel, and
+        answers 503 so it can actually alert.
+        """
+        if not deep or not settings.whatsapp_configured:
+            return PlainTextResponse("ok")
+        healthy = wa_link.client(settings).healthy()
+        return PlainTextResponse(
+            "ok\nwaha: ok" if healthy else "ok\nwaha: unreachable",
+            status_code=200 if healthy else 503,
+        )
 
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):
@@ -195,10 +232,33 @@ def create_app() -> FastAPI:
                     if tz is not None:
                         d = d.astimezone(tz)
                     scheduled_disp[e.id] = d.strftime("%m/%d/%y")
+        # A dead WhatsApp link is as silent as an expired Google token used to
+        # be: nothing says so until a send is refused. Read from the cached
+        # status, so the dashboard never waits on WAHA to render.
+        wa_broken = bool(
+            user is not None
+            and settings.whatsapp_configured
+            and user.wa_session
+            and user.wa_status
+            and user.wa_status not in (waha.STATUS_WORKING, waha.STATUS_STARTING)
+        )
         ctx = {
             "settings": settings, "user": user, "events": events,
             "counts": counts, "today": date.today(), "sent_at": sent_at,
             "scheduled_disp": scheduled_disp,
+            "wa_broken": wa_broken,
+            "wa_pairing": bool(
+                user is not None and user.wa_status in waha.PAIRING_STATUSES
+            ),
+            # Compare to now, not just truthiness: the value is only cleared when
+            # the session is next read, so a lapsed timelock would otherwise keep
+            # announcing a pause that ended days ago.
+            "wa_timelock_until": (
+                user.wa_timelock_until
+                if user is not None and user.wa_timelock_until is not None
+                and _as_utc_dt(user.wa_timelock_until) > datetime.now(UTC)
+                else None
+            ),
         }
         return templates.TemplateResponse(request, "index.html", ctx)
 
@@ -276,7 +336,7 @@ def create_app() -> FastAPI:
         user = load_user(request, db)
         if user is None:
             return RedirectResponse("/", status_code=303)
-        ctx = {"settings": settings, "user": user}
+        ctx = {"settings": settings, "user": user, "wa_linked": wa_link.linked(user)}
         return templates.TemplateResponse(request, "account.html", ctx)
 
     @app.get("/account/export")
@@ -293,7 +353,14 @@ def create_app() -> FastAPI:
             "display_name": user.display_name,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-            "contacts": [{"name": c.name, "email": c.email} for c in contacts],
+            "whatsapp": {
+                "linked": wa_link.linked(user),
+                "number": user.wa_number,
+                "linked_at": user.wa_linked_at.isoformat() if user.wa_linked_at else None,
+            },
+            "contacts": [
+                {"name": c.name, "email": c.email, "phone": c.phone} for c in contacts
+            ],
             "events": [
                 {
                     "id": e.id, "title": e.title, "message": e.message,
@@ -313,6 +380,11 @@ def create_app() -> FastAPI:
     def delete_account(request: Request, db: Session = Depends(get_db)):
         user = load_user(request, db)
         if user is not None:
+            # Unlink WhatsApp FIRST. The pairing lives in WAHA's own volume, not
+            # in our database, so deleting the user would otherwise leave live
+            # WhatsApp credentials behind with nothing left pointing at them —
+            # which would quietly break the one-click-delete promise.
+            wa_link.unlink(db, user, settings)
             storage.delete_user_assets(user.id)  # remove image files (DB rows cascade)
             db.delete(user)
             db.commit()

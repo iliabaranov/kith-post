@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from kith.config import get_settings
 from kith.core import calendar as cal
 from kith.core.cardstyles import normalize_card_style
+from kith.core.tracking import is_automated_fetch, is_impossibly_soon
 from kith.db.models import Asset, Event, Recipient, User
 from kith.services import scheduler
 from kith.web.deps import get_db, templates
@@ -48,9 +49,25 @@ def view_invite(
         return templates.TemplateResponse(
             request, "invite_404.html", {"settings": get_settings()}, status_code=404
         )
-    if r.first_open_at is None:  # "Opened" = first landing visit, no pixel
-        r.first_open_at = datetime.now(UTC)
-        db.commit()
+    # "Opened" = the first time a *person* lands here. No pixel — and no credit
+    # for a chat app's link-preview crawler, which fetches this page the instant
+    # the invitation is sent (see tracking.is_automated_fetch).
+    if r.first_open_at is None:
+        ua = request.headers.get("user-agent") or ""
+        now = datetime.now(UTC)
+        if is_automated_fetch(ua, request.headers):
+            log.info("invite: automated fetch, not an open (ua=%r)", ua[:120])
+        elif is_impossibly_soon(r.sent_at, now):
+            # Almost certainly the link preview: nobody reads a notification and
+            # taps through in under ten seconds. Their next visit will count.
+            log.info(
+                "invite: fetch arrived too soon after the send, not an open (ua=%r)",
+                ua[:120],
+            )
+        else:
+            r.first_open_at = now
+            db.commit()
+            log.info("invite: counted an open (ua=%r)", ua[:120])
     owner = db.get(User, ev.user_id)
     asset = db.get(Asset, ev.asset_id) if ev.asset_id else None
     rsvp_url = f"{get_settings().base_url.rstrip('/')}/i/{token}"

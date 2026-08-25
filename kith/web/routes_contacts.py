@@ -18,7 +18,8 @@ router = APIRouter()
 
 @router.get("/contacts", response_class=HTMLResponse)
 def contacts_page(
-    request: Request, db: Session = Depends(get_db), added: int = 0, skipped: int = 0
+    request: Request, db: Session = Depends(get_db), added: int = 0, skipped: int = 0,
+    invalid: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -27,7 +28,7 @@ def contacts_page(
         "settings": get_settings(), "user": user,
         "contacts": book.list_contacts(db, user.id),
         "all_groups": book.all_groups(db, user.id),
-        "added": added, "skipped": skipped,
+        "added": added, "skipped": skipped, "invalid": invalid,
     }
     return templates.TemplateResponse(request, "contacts.html", ctx)
 
@@ -36,15 +37,21 @@ def contacts_page(
 def add_one(
     request: Request, db: Session = Depends(get_db),
     name: str = Form(""), email: str = Form(""), groups: str = Form(""),
+    phone: str = Form(""),
 ):
     user = load_user(request, db)
     if user is None:
         return RedirectResponse("/", status_code=303)
     contact, created = book.add_contact(
-        db, user.id, email, name.strip() or None, groups=book.parse_groups(groups)
+        db, user.id, email, name.strip() or None, groups=book.parse_groups(groups),
+        phone=phone.strip() or None,
     )
+    if contact is None:
+        # Either nothing to reach them by, or a number we couldn't read. Say so
+        # rather than bouncing back to a silently unchanged page.
+        return RedirectResponse("/contacts?invalid=1", status_code=303)
     added = 1 if created else 0
-    skipped = 1 if (contact is not None and not created) else 0
+    skipped = 0 if created else 1
     return RedirectResponse(f"/contacts?added={added}&skipped={skipped}", status_code=303)
 
 
@@ -82,13 +89,17 @@ def csv_template():
 def edit_one(
     contact_id: str, request: Request, db: Session = Depends(get_db),
     name: str = Form(""), email: str = Form(""), groups: str = Form(""),
+    phone: str = Form(""),
 ):
     user = load_user(request, db)
     if user is None:
         return RedirectResponse("/", status_code=303)
-    book.update_contact(
-        db, user.id, contact_id, email, name.strip() or None, groups=book.parse_groups(groups)
+    updated = book.update_contact(
+        db, user.id, contact_id, email, name.strip() or None,
+        groups=book.parse_groups(groups), phone=phone.strip() or None,
     )
+    if updated is None:
+        return RedirectResponse("/contacts?invalid=1", status_code=303)
     return RedirectResponse("/contacts", status_code=303)
 
 
@@ -108,9 +119,11 @@ def export_csv(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["name", "email", "groups"])
+    # Same column order the template and the importer use, so an export can be
+    # edited and imported straight back without losing anyone's number.
+    writer.writerow(["name", "email", "phone", "groups"])
     for c in book.list_contacts(db, user.id):
-        writer.writerow([c.name or "", c.email, ", ".join(c.groups or [])])
+        writer.writerow([c.name or "", c.email, c.phone or "", ", ".join(c.groups or [])])
     return Response(
         buf.getvalue(),
         media_type="text/csv",

@@ -1,0 +1,23 @@
+# Opt-in WAHA dashboard/Swagger, for when a pairing misbehaves and you want to
+# look at the session by hand. Not part of the normal stack: it turns on two more
+# authenticated listeners, so bring it up only while you need it.
+#
+#   WAHA_DASHBOARD_PASSWORD=<something long> \
+#   docker compose -f docker-compose.yml -f docker-compose.dashboard.yml \
+#     --profile whatsapp up -d waha
+#
+# Then open http://127.0.0.1:3000/dashboard (dashboard) or http://127.0.0.1:3000/
+# (Swagger UI), user "admin". Bound to localhost only — never the LAN, and never
+# the tunnel. Take it back down with:
+#
+#   docker compose --profile whatsapp up -d waha
+#
+# Leave WAHA_DASHBOARD_PASSWORD unset and WAHA generates one and prints it to the
+# container log, which is exactly the behaviour the base compose file pins away.
+services:
+  waha:
+    environment:
+      WAHA_DASHBOARD_ENABLED: "true"
+      WHATSAPP_SWAGGER_ENABLED: "true"
+    ports:
+      - "127.0.0.1:3000:3000"

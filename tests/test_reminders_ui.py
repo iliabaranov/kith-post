@@ -85,3 +85,61 @@ def test_no_revert_after_all_replied(client):
     page = client.get(f"/events/{eid}").text
     assert "Once you send" not in page
     assert "Nothing pending" in page
+
+
+def test_each_planned_time_is_listed_once_however_many_guests(client):
+    """The bug: a reminder row is per recipient while the schedule is per event,
+    so the card listed the same three timestamps once per waiting guest — six
+    guests turned three planned nudges into eighteen identical lines."""
+    import re
+
+    eid = _make(
+        client,
+        recipients="a@example.com, b@example.com, c@example.com, "
+                   "d@example.com, e@example.com, f@example.com",
+        block_date="on", event_date="2030-01-01",
+    )
+    client.post(f"/events/{eid}/send")
+    page = client.get(f"/events/{eid}").text
+
+    listed = re.search(r'<ul class="reminders-list">(.*?)</ul>', page, re.S).group(1)
+    items = re.findall(r"<li>(.*?)</li>", listed, re.S)
+    times = [re.sub(r"<[^>]+>", "", i).split("·")[0].strip() for i in items]
+    assert len(times) == len(set(times)), f"duplicate times listed: {times}"
+    # Three offsets are configured, and six guests must not multiply them.
+    assert len(times) <= 3, f"expected at most 3 planned times, got {times}"
+
+    # Instead of repeating, a time says how many people it covers.
+    assert "to 6 people" in page
+    assert "Nudging 6 people who haven" in page
+
+
+def test_a_single_guest_reads_naturally(client):
+    eid = _make(client, block_date="on", event_date="2030-01-01")
+    client.post(f"/events/{eid}/send")
+    page = client.get(f"/events/{eid}").text
+    assert "Nudging 1 person who haven" in page
+    assert "to 1 people" not in page      # no count for a single recipient
+
+
+def test_a_distant_reminder_names_its_year(client):
+    """The halfway slot for an event years out lands in a different year, and
+    without the year the list reads as though it were out of order."""
+    eid = _make(client, block_date="on", event_date="2030-01-01")
+    client.post(f"/events/{eid}/send")
+    page = client.get(f"/events/{eid}").text
+    assert "2029" in page or "2028" in page or "2027" in page
+
+
+def test_a_reminder_this_year_stays_terse(client):
+    from datetime import date, timedelta
+
+    soon = (date.today() + timedelta(days=20)).isoformat()
+    eid = _make(client, block_date="on", event_date=soon)
+    client.post(f"/events/{eid}/send")
+    page = client.get(f"/events/{eid}").text
+    import re
+
+    listed = re.search(r'<ul class="reminders-list">(.*?)</ul>', page, re.S)
+    if listed:  # a near event may have no slots left, which is fine
+        assert str(date.today().year) not in listed.group(1)

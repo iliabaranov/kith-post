@@ -24,10 +24,20 @@
   </div>
   {% endif %}
 
+  {% if wa_sending %}
+  <p class="sent-note">Sending the WhatsApp invitations now — they go out five to
+    twenty seconds apart, so they look like you typing rather than a machine.
+    Refresh to watch them land.</p>
+  {% endif %}
+
+  {% if wa_blocked_msg %}
+  <p class="sent-note wa-blocked">{{ wa_blocked_msg }}</p>
+  {% endif %}
+
   {% if sent or failed %}
   <p class="sent-note">
     {% if sent %}✓ Sent {{ sent }} {{ noun }}{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}
-    {% if failed %} {{ failed }} couldn't be sent{% if send_mode != 'dry-run' and not user.refresh_token %} — sign in with Google first.{% else %} — check the server logs.{% endif %}{% endif %}
+    {% if failed %} {{ failed }} couldn't be sent{% if send_mode != 'dry-run' and not user.refresh_token and needs_google %} — sign in with Google first.{% else %} — check the server logs.{% endif %}{% endif %}
   </p>
   {% endif %}
 
@@ -72,6 +82,19 @@
       <span class="btn btn-quiet is-disabled" aria-disabled="true">{{ 'Nothing to send' if recipient_count == 0 else 'All sent' }}</span>
     {% endif %}
   </div>
+
+  {% if wa_quota_note %}
+  <p class="sent-note wa-blocked">{{ wa_quota_note }} Email invitations are unaffected.</p>
+  {% endif %}
+
+  {% if wa_preview %}
+  <details class="faq wa-preview">
+    <summary>What the WhatsApp message will say</summary>
+    <pre class="wa-preview-text">{{ wa_preview }}</pre>
+    <p class="field-hint">Sent from your own WhatsApp{% if event.asset_id %}, with the card
+      itself as the picture and this as its caption{% endif %}. Each guest gets their own link.</p>
+  </details>
+  {% endif %}
 
   {% if schedule_error %}
   <p class="form-error">Pick a future date and time, and make sure there's someone still to send to.</p>
@@ -131,9 +154,11 @@
         (up to {{ reminders.max_per_recipient }}, and they stop the moment someone replies).
       </p>
       {% elif reminders.planned %}
-      <p class="reminders-body">Nudging people who haven’t replied. Planned:</p>
+      {% set who = reminders.awaiting ~ (' person' if reminders.awaiting == 1 else ' people') %}
+      <p class="reminders-body">Nudging {{ who }} who haven’t replied. Planned:</p>
       <ul class="reminders-list">
-        {% for p in reminders.planned %}<li>{{ p }}</li>{% endfor %}
+        {% for p in reminders.planned %}<li>{{ p.when }}{% if p.people > 1 %}
+          <span class="reminders-count">· to {{ p.people }} people</span>{% endif %}</li>{% endfor %}
       </ul>
       {% if reminders.sent %}<p class="reminders-body">{{ reminders.sent }} reminder{{ '' if reminders.sent == 1 else 's' }} sent so far.</p>{% endif %}
       {% else %}
@@ -155,7 +180,9 @@
     <li class="rsvp-row">
       <span class="rsvp-who">
         <span class="rsvp-name">{{ r.name }}</span>
-        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}</span>{% endif %}
+        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}{% if r.channel == 'whatsapp' %} <span class="via-wa" title="Sent over WhatsApp">· WhatsApp</span>{% endif %}</span>
+        {% elif r.channel == 'whatsapp' %}<span class="rsvp-email"><span class="via-wa">· WhatsApp</span></span>{% endif %}
+        {% if r.receipt %}<span class="rsvp-receipt">{{ r.receipt }}</span>{% endif %}
         {% if r.allergies %}<span class="rsvp-note"><b>Allergies:</b> {{ r.allergies }}</span>{% endif %}
         {% if r.note %}<span class="rsvp-note"><b>Note:</b> {{ r.note }}</span>{% endif %}
       </span>

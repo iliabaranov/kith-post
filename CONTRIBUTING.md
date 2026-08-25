@@ -34,8 +34,10 @@ make typecheck          # mypy (optional but appreciated)
 
 ## Scope and philosophy
 
-- **Privacy first.** No trackers, no third-party analytics, no data sent anywhere
-  except the host's own Gmail. PII and tokens stay Fernet-encrypted at rest.
+- **Privacy first.** No trackers, no third-party analytics, and no data sent
+  anywhere except the host's own Gmail — or, where the operator enables the opt-in
+  WhatsApp channel, the host's own WhatsApp account, and therefore Meta. PII and
+  tokens stay Fernet-encrypted at rest.
 - **Self-hostable by one person.** No new required infrastructure (the reminder
   sweep is an in-process task, storage is SQLite). Prefer a boring dependency-free
   solution over a clever one.

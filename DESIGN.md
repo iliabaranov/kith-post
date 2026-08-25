@@ -47,7 +47,8 @@ export-and-delete. It is free, offered as-is with no warranty.
   schedule (halfway / 1 wk / 3 days out) — and stop the instant they engage.
 - **Privacy by default.** Minimal data, encrypted PII at rest, user-owned
   export/delete, heavy assets auto-purged.
-- **Cheap & self-hostable.** One container, one volume, no paid dependencies.
+- **Cheap & self-hostable.** One container and one volume (a second of each only
+  if you opt into WhatsApp), no paid dependencies.
   Free TLS via a Cloudflare Tunnel.
 - **Clean architecture.** Pure-logic core, thin framework glue, testable with
   pytest.
@@ -62,7 +63,9 @@ export-and-delete. It is free, offered as-is with no warranty.
   invited guests, and never in a sent email.)*
 - Rich drag-and-drop card *designer* (we accept a finished image; we are not
   Canva). A future "templates" feature is out of scope for MVP.
-- SMS / WhatsApp / push delivery. Email only.
+- SMS or push delivery. Email is the default channel; **WhatsApp** was added
+  later as an opt-in second channel (§6a) — off unless the operator turns it on,
+  because it needs an unofficial client and carries real account risk.
 - Mobile native apps. Responsive web only.
 - Multi-language / i18n in v1 (English only).
 
@@ -187,16 +190,164 @@ create event ─► build recipient rows ─► [Send]
 
 ---
 
+## 6a. WhatsApp Channel (opt-in, via WAHA)
+
+A second delivery channel alongside Gmail, added after v1. Same shape as the
+email model — the host links **their own** WhatsApp account once and the server
+sends on their behalf, so guests see a message from someone they know, not from a
+service.
+
+```
+kith ──HTTP (compose network, X-Api-Key)──► WAHA container ──► WhatsApp
+                                            one session per kith user
+                                            /app/.sessions (named volume)
+```
+
+**Recipients get the card itself as a picture**, captioned with a short text and
+their same `/i/{token}` link (text-only when the card has no image, or its inline
+file has been purged). The picture travels as base64 over the compose network
+rather than as a URL, so WhatsApp is never handed a link to the recipient's own
+invitation page — but it does mean the image reaches Meta's servers, which an
+emailed card never does. Tracking is
+therefore *unchanged*: Opened, RSVP, headcount and allergies all come from the
+invitation page, which is channel-agnostic. Nothing is added to the message —
+no parameter, no redirect, no shortener.
+
+### Why it is off by default
+
+WAHA is an **unofficial** WhatsApp client. Using it is against WhatsApp's terms
+of service, and a linked account can be restricted or banned. At personal-invite
+volume to people who already have your number the practical risk is low, but it
+is real, so:
+
+- the operator must switch the channel on (`KITH_WHATSAPP_ENABLED`), and
+- each host must accept an in-app warning naming the risk before any session is
+  created. This gate is a product requirement, not a nicety.
+
+### Where the credentials live
+
+In WAHA's own volume, never in our database. kith stores only the session name,
+the last status it saw, the linked number (encrypted), and WhatsApp's restriction
+state — enough to render a page and explain a pause. Deleting an account unlinks
+first, so a pairing can't outlive the account it belongs to. The volume sits
+outside `./data` on purpose: the off-box backup covers `./data`, and these are
+live WhatsApp credentials in the clear. Losing them costs a QR re-scan.
+
+### Restrictions are instructions
+
+WhatsApp shadow-restricts accounts that message too many unknown contacts — the
+"reachout timelock" behind error 463, which leaves the session looking `WORKING`
+while sends fail. WAHA surfaces it (and the separate per-cycle new-chat quota) on
+the session, so:
+
+- every batch is pre-flighted once, and a timelock or exhausted quota **stops**
+  it, leaving recipients `queued` rather than burning attempt after attempt —
+  each further attempt makes the account look worse;
+- **never restart or re-pair** during a timelock. It follows the WhatsApp
+  account, not the session, so re-pairing only adds churn;
+- numbers are checked against WhatsApp before a first send, so a wrong digit
+  costs one recipient instead of the host's ability to send;
+- **sends are spaced out by a random 5-20s** each
+  (`KITH_WAHA_SEND_GAP_MIN_SECONDS` / `..._MAX_SECONDS`). Random, not fixed: an
+  exactly-even cadence is as machine-like as no gap at all, only slower, and the
+  aim is to look like a person working down a list. This is why a WhatsApp batch
+  runs **after** the response as a background task — a dozen invitations takes
+  minutes, longer than an HTTP request should live and longer than the tunnel will
+  hold one open. Recipients stay `queued` until the batch reaches them, so the
+  dashboard shows real progress on a refresh, and a single-process guard stops a
+  second Send from double-messaging people mid-batch. Reminders are paced the same
+  way, since a sweep can find a dozen due at once.
+- **The queue is durable without being a queue.** A message still to go is already
+  a durable row — a `Recipient` with status `queued` — so the only thing missing
+  was noticing that a card is owed a batch nobody is running. `Event.wa_batch_started_at`
+  is that record: set when a send is handed off, cleared when a batch completes a
+  full pass, and left set when one is stopped by a restriction. The maintenance
+  sweep resumes any card that has been owed a batch for more than two minutes and
+  less than a day, so a redeploy mid-list finishes itself, and invitations held by
+  a timelock go out when it lifts. It only ever resumes a send that was actually
+  started, which is what keeps a draft from being sent by a background job.
+
+### Receipts (opt-in)
+
+Set `KITH_WAHA_WEBHOOK_SECRET` and WAHA will POST `message.ack` and
+`session.status` back to `http://kith:8000/wa/webhook` — the compose-network
+address, since a public URL would leave the box and return through the tunnel for
+nothing. Each POST carries `X-Webhook-Hmac`, a hex HMAC-SHA512 of the exact body
+keyed with that secret (verified against a live container by pointing a real
+session's webhook at a listener). It is the only endpoint in the app a machine
+talks to, so it is the only one authenticated by a secret rather than a cookie;
+without the secret no webhook is configured and the endpoint 404s.
+
+Two things it buys: delivery/read receipts per recipient, and knowing a session
+died *between* page visits, which is what makes the dashboard's "your WhatsApp
+connection has dropped" banner timely rather than incidental.
+
+### Engine choice
+
+Pinned to the **GOWS** build (browserless Go engine, ~850 MB vs ~1.15 GB for the
+Chromium one). This is not cosmetic: payload shapes differ between engines, **and
+the session store is per-engine** (`/app/.sessions/<engine>/<name>`), so
+switching engines re-pairs every user. WEBJS is the fallback if GOWS misbehaves;
+re-test the send path if you switch.
+
+### Operational notes worth remembering
+
+Every WAHA call is bounded by an explicit timeout. Against a session that isn't
+paired WAHA does not reliably fail fast — a wedged session can make `sendText`,
+`contacts/check-exists` and `sessions/{s}/timelock` hang indefinitely (a clean
+state mismatch returns a tidy 422 instead). Without that bound, one wedged
+session could tie up a request handler or the reminder sweep. Restriction state
+is read from the cheap `GET /api/sessions/{s}` (`me.reachoutTimelock`,
+`me.messageCapping`); the dedicated `timelock`/`capping` endpoints force a
+blocking fetch from WhatsApp and are only used as an explicit refresh.
+
+Pairing has more than one path: 2026.8.1 added `PASSKEY_REQUIRED` and
+`PASSKEY_CONFIRMATION_REQUIRED` next to `SCAN_QR_CODE`, and an unpaired session
+drifts to `FAILED` on its own, so the linking UI handles all seven states.
+
+QR pairing also has a hole worth naming: the code has to be scanned *by* the
+phone, so it is useless *on* the phone — and a host who opens the linking page on
+their phone is the common case, not the edge one. So the page offers WhatsApp's
+own "link with phone number instead" path as an equal option:
+`POST /api/{session}/auth/request-code` with the host's number and no `method`
+returns an 8-character code they type into WhatsApp. That request is only valid
+while the session is in `SCAN_QR_CODE`, so the route checks the state first
+rather than surfacing WAHA's developer-facing 422.
+
+---
+
 ## 7. Tracking Design
 
 **No tracking pixel.** All signals come from explicit, first-party HTTP requests
 the recipient's browser makes to *our* server — nothing hidden in the email body.
 
+**WhatsApp receipts are not opens.** With receipts enabled (§6a), WAHA pushes
+WhatsApp's own delivery and read acks back to us. Those are the channel's facts
+about the message — the same ticks the host can already see on their phone — so
+they live in their own columns (`wa_delivered_at`, `wa_read_at`, `wa_ack`) and
+appear as their own line, never folded into Opened and never able to cancel a
+reminder. Opened stays "a person loaded the invitation page". A read receipt is
+also worth nothing as an absence, since recipients can switch them off.
+
+**Automated fetches don't count as opens.** When a chat app is handed a URL it
+fetches the page itself to build a preview card, so *sending* an invitation
+produces a request for it. On the first real WhatsApp send this recorded an open
+**0.4 s before the message finished sending** — the signal was reporting Meta's
+crawler, not a guest. `core.tracking.is_automated_fetch` now excludes known
+preview crawlers and declared prefetches (the page still renders — a preview is
+useful to the recipient — we simply don't record it). The list over-matches on
+purpose: an undercount is already accepted by design, an invented open is not.
+This matters beyond the dashboard, because Opened is one of the signals that
+cancels a reminder.
+
+Signals are **channel-independent**: they come from the invitation page, so a
+WhatsApp guest (§6a) is tracked exactly like an email one.
+
 | Signal | Mechanism | Reliability |
 |--------|-----------|-------------|
-| **Sent** | Gmail API returns a message id | High |
-| **Opened** | Recipient clicks **"View invitation"** → landing page rendered at `/i/{token}` (logged as `landing_view`) | High *for those who click through* |
-| **Accepted / Declined** | RSVP buttons → `/t/rsvp/{token}?a=yes\|no` → confirm step | High (explicit user action) |
+| **Sent** | Gmail API returns a message id (or WAHA a WhatsApp message id) | High |
+| **Opened** | Recipient opens their invitation page at `/i/{token}`, **excluding automated fetches** (preview crawlers, declared prefetches, requests with no User-Agent, and anything within `OPEN_GRACE_SECONDS` of the send) | High *for those who click through* |
+| **Accepted / Declined** | RSVP buttons → `POST /i/{token}/rsvp` → confirm step | High (explicit user action) |
 
 **Honest caveat (stated plainly in the UI):** because the card image is **inlined
 in the email**, a recipient can read the whole invitation without ever clicking
@@ -231,9 +382,8 @@ answer feel expected, not like an error path:
   passes, the page goes read-only ("This event has passed") so late flips don't
   mislead the host.
 - **Data:** `Recipient.status` holds the *latest* answer and `rsvp_at` its time;
-  every change also **appends a `TrackingEvent`** (accept/decline), so the host's
-  history is preserved and the dashboard can show "changed their mind 2× · now
-  Coming." Nothing is overwritten silently.
+  only the latest state is kept, with no per-signal audit log (see G4) — a flip
+  updates `status` and `rsvp_at` in place.
 - The sender's dashboard reflects the change on next page load; the running
   reminder logic already treats accept/decline as "engaged → stop," and a flip
   back to non-responded does **not** restart reminders (avoids nagging).
@@ -303,7 +453,7 @@ in tests).
 ```toml
 [reminders]
 enabled           = true            # sane default: on
-target            = "not-clicked"   # or "no-rsvp"
+target            = "no-rsvp"       # or "not-clicked"
 offsets           = ["halfway", "7d", "3d"]
 send_hour_local   = 9               # ~9am sender-local, not the exact instant
 min_gap_hours     = 24              # merge reminders closer than this
@@ -344,13 +494,8 @@ Recipient                # one row per (event, person)
   party_size?            note? 🔒    sent_at?  first_open_at?  rsvp_at?
   # party_size = total people coming, from the headcount stepper (if enabled).
   # status = LATEST answer (mutable); rsvp_at updates on each change.
-  # Every change also appends a TrackingEvent, so history is never lost.
   msg_id_hdr?  thread_id?   # RFC822 Message-ID + Gmail thread of the first send,
                             # so reminders thread as replies (In-Reply-To/References)
-
-TrackingEvent            # append-only audit of signals
-  id  recipient_id→Recipient   kind[sent|landing_view|accept|decline|bounce]
-  at   user_agent?   ip_hash?   (raw IP never stored; hashed + truncated)
 
 Reminder                 # one scheduled nudge for a non-responder (§8)
   id  recipient_id→Recipient   slot[halfway|7d|3d|manual]   scheduled_for (UTC)
@@ -406,11 +551,12 @@ with the "store little to no data" goal. We resolve it deliberately:
 
 - **Scope of persistence:** only the *user's own* account, their saved contacts,
   their events, and the per-recipient tracking needed to power the dashboard.
-- **Encrypt PII at rest:** recipient names/emails, contact entries, location,
-  notes, the user's own email, and OAuth refresh token are Fernet-encrypted with
+- **Encrypt PII at rest:** recipient names/emails/phone numbers, contact entries,
+  location, notes, the user's own email and linked WhatsApp number, and the OAuth
+  refresh token are Fernet-encrypted with
   a key from env (never in git, never in the DB). DB-at-rest leak ≠ PII leak.
-- **Minimize third-party data:** recipients get no account and no cookie; raw IPs
-  are never stored (only a salted, truncated hash for basic abuse signals); no
+- **Minimize third-party data:** recipients get no account and no cookie; IPs are
+  never stored at all — they serve only as an in-memory rate-limiting key; no
   external analytics or trackers.
 - **Auto-purge heavy/ephemeral data:** hosted images and (optionally) whole past
   events expire on a schedule.
@@ -437,8 +583,9 @@ with the "store little to no data" goal. We resolve it deliberately:
   minimal base image, pinned deps.
 - **Exposure:** the Cloudflare Tunnel terminates TLS at the edge and forwards to
   the app over the container network — no inbound ports are opened on the host;
-  the admin/dashboard requires auth; only `/i/...` and `/t/...` (recipient-facing,
-  token-gated) are effectively public.
+  the admin/dashboard requires auth; only `/i/{token}` and its sub-paths
+  (recipient-facing, token-gated) and, where receipts are enabled,
+  `POST /wa/webhook` (HMAC-authenticated, no cookie) are effectively public.
 - **Rate limiting** on tracking + RSVP endpoints to blunt token-guessing/abuse.
 
 ---
@@ -619,11 +766,29 @@ Each gate is a working, committed, tested increment.
   toggle. Also **edit reconciliation** (edits no longer wipe RSVPs) and a
   **details-changed → re-send & re-collect** flow (date/time/location change prompts
   an opt-in re-send that clears prior RSVPs and reschedules). 148 tests.
+
+> Test counts in the gates above are historical — what the suite stood at when
+> that gate landed. `make test` is the current number (473 at the time of
+> writing); don't read a gate's figure as today's.
 - **G6 — Polish, deploy & legal.** *(Partial.)* **✅ Done:** contacts address book,
-  export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups, and
-  auto-purge of heavy full-res images past a retention window. **Remaining:**
-  Privacy/ToS/disclaimer pages and a subtle "buy me a coffee" donation link
-  (signed-in only, after the first event; links out, no payment data stored).
+  export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups,
+  auto-purge of heavy full-res images past a retention window, and the
+  Privacy/ToS/disclaimer pages (`/privacy`, `/terms`). **Remaining:** a subtle
+  "buy me a coffee" donation link (signed-in only, after the first event; links
+  out, no payment data stored).
+- **G8 — WhatsApp delivery channel.** A second channel alongside Gmail (§6a):
+  invitations and reminders sent from each host's own WhatsApp account via a
+  self-hosted WAHA container, one session per user. **✅ Done** — pinned GOWS
+  image on the compose network only, `services/waha` client (every call bounded)
+  + `services/wa_session` for the kith-side link, risk-gated linking flow at
+  `/account/whatsapp` with both QR and typed-code pairing, a second recipient box
+  in compose plus a per-contact channel choice in the address book, the card sent
+  as a picture captioned with the invitation link, per-channel send and reminders
+  with timelock/quota back-off, sends paced a random 5–20s apart from a background
+  batch, opt-in delivery/read receipts over an HMAC-signed webhook, and
+  unlink-on-account-delete. Off by default (`KITH_WHATSAPP_ENABLED` +
+  `KITH_WAHA_API_KEY`). "Opened" is unchanged and still means a person loaded the
+  invitation page — receipts are shown separately and never counted as one.
 - **G7 — Richer RSVP & contacts.** **✅ Done** — optional reply note + allergies
   toggle, adults/kids headcount split, address-book group tags (filter + add a
   whole group at once), and non-destructive edit reconciliation with a

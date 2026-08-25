@@ -3,6 +3,20 @@
 {% block content %}
 {% if user %}
 <section class="dash">
+  {% if wa_broken %}
+  <div class="ask-note reconnect">
+    <span>{% if wa_pairing %}Your WhatsApp isn't finished linking{% else %}Your WhatsApp connection has dropped{% endif %},
+      so WhatsApp invitations are paused. Email still works.</span>
+    <a class="btn btn-primary btn-sm" href="/account/whatsapp">Fix WhatsApp</a>
+  </div>
+  {% elif wa_timelock_until %}
+  <div class="ask-note">
+    <span>WhatsApp has paused new conversations from your account until
+      {{ wa_timelock_until.strftime('%b %-d') }}. Email invitations are unaffected, and
+      nothing needs fixing — waiting is the fix.</span>
+  </div>
+  {% endif %}
+
   {% if user.reconnect_needed %}
   <div class="ask-note reconnect">
     <span>Your Google connection has expired, so sending is paused. Reconnect to keep sending invitations and reminders.</span>
@@ -70,7 +84,8 @@
         else. {{ settings.app_name }} can't read, search, or delete anything in your inbox.</dd>
 
       <dt>Who actually sends the invites?</dt>
-      <dd>You do. They go out from your own Gmail and land in your Sent folder, so they
+      <dd>You do. They go out from your own Gmail{% if settings.whatsapp_configured %} — or,
+        if you link it, your own WhatsApp{% endif %} and land in your Sent folder, so they
         arrive as a personal note from you.</dd>
 
       <dt>What do you store about me?</dt>

@@ -6,6 +6,11 @@
   <p class="eyebrow">your people</p>
   <p class="field-hint">People here can be imported into any card, then edited per invite without changing this list. Use groups (e.g. family, local, work) to add whole circles at once.</p>
 
+  {% if invalid %}
+  <p class="form-error">We need either an email address or a WhatsApp number with
+    its country code (like +1 555 123 4567) to reach someone by.</p>
+  {% endif %}
+
   {% if added or skipped %}
   <p class="sent-note">
     {% if added %}Added {{ added }}{% if skipped %}, {% endif %}{% endif %}{% if skipped %}skipped {{ skipped }} already in your book{% endif %}.
@@ -16,10 +21,19 @@
     <p class="panel-title">Add someone</p>
     <form class="add-contact" method="post" action="/contacts/add">
       <input type="text" name="name" placeholder="Name (optional)" aria-label="Name">
-      <input type="email" name="email" placeholder="email@example.com" required aria-label="Email">
+      <input type="email" name="email" placeholder="email@example.com"
+             {% if not settings.whatsapp_configured %}required{% endif %} aria-label="Email">
+      {% if settings.whatsapp_configured %}
+      <input type="tel" name="phone" placeholder="+1 555 123 4567 (WhatsApp)"
+             inputmode="tel" autocomplete="tel" aria-label="WhatsApp number">
+      {% endif %}
       <input type="text" name="groups" placeholder="groups (comma-separated)" aria-label="Groups">
       <button class="btn btn-primary" type="submit">Add</button>
     </form>
+    {% if settings.whatsapp_configured %}
+    <p class="field-hint">An email, a WhatsApp number, or both — whichever you have.
+      Numbers need their country code.</p>
+    {% endif %}
 
     <div class="or-divider">or import a batch</div>
 
@@ -27,7 +41,7 @@
       <div class="import-col">
         <p class="import-title">Paste a list</p>
         <form method="post" action="/contacts/import">
-          <textarea name="people" rows="4" placeholder="One email per line, or comma-separated. Optionally: Name &lt;email&gt;"></textarea>
+          <textarea name="people" rows="4" placeholder="{% if settings.whatsapp_configured %}One email or WhatsApp number per line. Optionally: Name &lt;address&gt;{% else %}One email per line, or comma-separated. Optionally: Name &lt;email&gt;{% endif %}"></textarea>
           <button class="btn btn-quiet btn-sm" type="submit">Import list</button>
         </form>
       </div>
@@ -37,8 +51,11 @@
           <input type="file" name="file" accept=".csv,text/csv" required>
           <button class="btn btn-quiet btn-sm" type="submit">Import CSV</button>
         </form>
-        <p class="field-hint">Columns: <code>name, email, groups</code> (groups optional;
-          quote multiples, e.g. <code>"family, local"</code>).</p>
+        <p class="field-hint">Columns: <code>name, email{% if settings.whatsapp_configured %}, phone{% endif %}, groups</code>
+          (all but one address optional; quote multiple groups, e.g.
+          <code>"family, local"</code>).{% if settings.whatsapp_configured %} With a header row the
+          columns can be in any order; without one they're read as
+          <code>name, email, groups</code>.{% endif %}</p>
         <p class="field-hint"><a class="link" href="/contacts/template.csv">Download a template</a></p>
       </div>
     </div>
@@ -61,7 +78,14 @@
     <li class="contact-row" data-groups="{{ (c.groups or [])|join('|')|lower }}">
       <form class="contact-form" method="post" action="/contacts/{{ c.id }}/edit">
         <input class="contact-name" type="text" name="name" value="{{ c.name or '' }}" placeholder="Name" aria-label="Name">
-        <input class="contact-email" type="email" name="email" value="{{ c.email }}" required aria-label="Email">
+        <input class="contact-email" type="email" name="email" value="{{ c.email }}"
+               placeholder="email@example.com"
+               {% if not settings.whatsapp_configured %}required{% endif %} aria-label="Email">
+        {% if settings.whatsapp_configured %}
+        <input class="contact-phone" type="tel" name="phone" value="{{ c.phone or '' }}"
+               placeholder="+1 555 123 4567" inputmode="tel" autocomplete="tel"
+               aria-label="WhatsApp number">
+        {% endif %}
         <input class="contact-groups" type="text" name="groups" value="{{ (c.groups or [])|join(', ') }}" placeholder="groups" aria-label="Groups">
         <button class="btn btn-quiet btn-sm" type="submit">Save</button>
       </form>

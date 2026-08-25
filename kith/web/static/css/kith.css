@@ -338,6 +338,27 @@ code {
 .import-col .field-hint { margin: 0; }
 @media (max-width: 34rem) {
   .add-contact, .import-grid { grid-template-columns: 1fr; }
+
+  /* One line can't hold name + email + number + groups + Save at phone width —
+     everything truncates mid-word. Stack the fields full-width instead. */
+  .contact-row { align-items: flex-start; padding: .55rem; gap: .5rem; }
+  .contact-form { flex-direction: column; align-items: stretch; gap: .4rem; }
+  /* Stacked fields need visible edges: without the row to imply them, the
+     hover-only hairline leaves four values floating in a card. */
+  .contact-form input {
+    border-color: var(--line); background: var(--paper); width: 100%;
+    flex: 0 0 auto; font-size: .95rem;
+  }
+  .contact-form .btn { width: 100%; }
+  /* Pin "remove" to the card's corner. Centred beside a stack of fields it sat
+     next to the phone number and read as "delete this number" — when it actually
+     deletes the person. */
+  .contact-row { position: relative; }
+  .contact-row .row-del { position: absolute; top: .55rem; right: .55rem; opacity: 1; }
+  .contact-name { padding-right: 2.6rem; }   /* keep long names clear of it */
+
+  /* Filter chips wrap rather than squeeze. */
+  .group-filter { gap: .35rem; }
 }
 
 .book-divider { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0 1.2rem; }
@@ -358,7 +379,7 @@ code {
 }
 .contact-form input:hover { border-color: var(--line); }
 .contact-form input:focus-visible { background: var(--paper); }
-.contact-name { flex: 1 1 7rem; min-width: 0; }
+.contact-name { flex: 1 1 9rem; min-width: 0; }
 .contact-email { flex: 2 1 11rem; min-width: 0; }
 .btn-sm { padding: .4rem .8rem; font-size: .85rem; border-radius: 9px; }
 .contact-row .row-del { margin-right: 0; opacity: .55; }
@@ -375,12 +396,25 @@ code {
   margin-bottom: .7rem;
 }
 .book-email { color: var(--ink-soft); font-size: .85em; }
+/* a picker row: the tickbox + who they are, with the channel choice on the right */
+.book-row { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.book-row > .chk { flex: 1 1 auto; min-width: 0; }
+.book-ch {
+  font: inherit; font-size: .78rem; padding: .15rem .35rem; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-soft);
+  flex: 0 0 auto;
+}
+.book-ch-fixed {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-soft); flex: 0 0 auto;
+}
 .book-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .book-group, .contact-groups {
   font: inherit; padding: .3rem .5rem; border-radius: 8px;
   border: 1px solid var(--line); background: var(--card); color: var(--ink);
 }
-.contact-groups { flex: 1 1 7rem; min-width: 5rem; }
+.contact-groups { flex: 1 1 6rem; min-width: 4.5rem; }
+.contact-phone { flex: 1 1 8.5rem; min-width: 0; }
 
 /* address-book group filter chips */
 .group-filter { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; }
@@ -518,3 +552,50 @@ textarea { resize: vertical; }
   .event-link:hover { transform: none; }
   .toggle { transition: none; }
 }
+
+/* ---- WhatsApp linking (/account/whatsapp) ---- */
+/* The risk warning is prose, not a one-line banner, so let it stack and read. */
+.ask-note.wa-warn { display: block; text-align: left; margin: 1.6rem 0; }
+.ask-note.wa-warn p { margin: 0 0 .6rem; line-height: 1.55; }
+.ask-note.wa-warn p:last-child { margin-bottom: 0; }
+.wa-actions {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: .9rem; margin: 1.4rem 0 0;
+}
+/* The QR sits on card stock, not on the warm page ground: scanners want the
+   quiet-zone white, and a border keeps it from floating. */
+.wa-qr {
+  display: inline-block; margin: 1.2rem auto .4rem; padding: .8rem;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+}
+.wa-qr img { display: block; width: 264px; height: 264px; image-rendering: pixelated; }
+.wa-account-row { margin-top: 1.2rem; }
+/* A WhatsApp batch stopped by WhatsApp itself — explain, don't alarm. */
+.sent-note.wa-blocked { border-color: rgba(196, 69, 105, .5); background: rgba(196, 69, 105, .1); }
+/* The typed pairing code — the only thing on the page worth reading character by
+   character, so give it room and never let it wrap mid-code. */
+.wa-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(1.6rem, 7vw, 2.4rem); letter-spacing: .12em; font-weight: 600;
+  margin: 1.4rem auto .4rem; padding: .8rem 1.2rem; display: inline-block;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  color: var(--ink); white-space: nowrap; user-select: all;
+}
+.wa-bynumber { max-width: 24rem; margin: 0 auto; text-align: left; }
+.wa-bynumber .panel-title { margin: 0 0 .3rem; }
+.wa-bynumber .btn { margin-top: .9rem; width: 100%; }
+/* which channel a recipient was reached on, next to their address */
+.via-wa { color: var(--sage); font-size: .95em; }
+/* WhatsApp's own delivery receipt — quieter than the status chip, because it
+   says what the channel knows, not whether anyone opened the invitation. */
+.rsvp-receipt { display: block; font-size: .8rem; color: var(--ink-soft); }
+/* the exact WhatsApp text, shown to the host before they send it */
+.wa-preview { max-width: 34rem; }
+.wa-preview-text {
+  white-space: pre-wrap; word-break: break-word; margin: .6rem 0 .4rem;
+  padding: .8rem 1rem; background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; font-size: .92rem; line-height: 1.5; color: var(--ink);
+  font-family: inherit;
+}
+/* how many people a single planned reminder time covers */
+.reminders-count { color: var(--ink-soft); font-size: .9em; }

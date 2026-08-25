@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -12,16 +14,17 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
-from kith.core import images
+from kith.core import eventkind, images, wamessage
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
-from kith.services import scheduler, send, storage
+from kith.services import scheduler, send, storage, waha
 from kith.web.deps import get_db, load_user, templates
 
 router = APIRouter()
@@ -99,6 +102,161 @@ def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergi
     }
 
 
+# Why a WhatsApp batch stopped, in words a host can act on. Deliberately blames
+# WhatsApp where WhatsApp is at fault, and never suggests re-linking during a
+# timelock — that only makes the account look worse.
+_WA_BLOCKED = {
+    "timelock": (
+        "WhatsApp has paused new conversations from your account, so those "
+        "invitations weren't sent. They're still queued — try again once it lifts. "
+        "Re-linking won't help and makes it look worse."
+    ),
+    "capped": (
+        "You've used up WhatsApp's allowance for starting new conversations this "
+        "cycle. Those invitations are still queued for the next one."
+    ),
+    "not-linked": (
+        "Your WhatsApp isn't linked right now, so those invitations weren't sent. "
+        "They're still queued."
+    ),
+    "unavailable": (
+        "The WhatsApp service didn't answer, so those invitations weren't sent. "
+        "They're still queued — check the server logs."
+    ),
+}
+
+
+def _wa_send_preview(
+    db: Session, ev: Event, user, rows: Sequence[Recipient]  # noqa: ANN001
+) -> dict:
+    """The message a WhatsApp guest will receive, and any quota caution."""
+    settings = get_settings()
+    queued_wa = [r for r in rows if r.phone and r.status == "queued"]
+    if not settings.whatsapp_configured or not queued_wa:
+        return {"wa_preview": None, "wa_quota_note": None}
+    r = queued_wa[0]
+    preview = wamessage.invite_text(
+        title=ev.title,
+        host_name=user.display_name or "A friend",
+        view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
+        recipient_name=r.name,
+        when=wamessage.when_line(ev.event_date, ev.event_time),
+        rsvp=bool((ev.blocks or {}).get("rsvp")),
+        invitation=eventkind.is_invitation(ev.blocks, ev.event_date),
+    )
+    # Warn before a big send, not after: WhatsApp caps how many *new* chats an
+    # account may start per cycle, and the cap is what a party-sized list runs into.
+    note = None
+    cap = user.wa_capping or {}
+    left = None
+    if (
+        isinstance(cap.get("total"), int)
+        and isinstance(cap.get("used"), int)
+        and cap["total"] >= 0          # -1 means the account has no cap
+    ):
+        left = max(0, cap["total"] - cap["used"])
+    if cap.get("status") == "CAPPED":
+        note = "WhatsApp won't let this account start new conversations this cycle."
+    elif left is not None and left < len(queued_wa):
+        note = (
+            f"WhatsApp will only let you start {left} more conversation"
+            f"{'' if left == 1 else 's'} this cycle, and {len(queued_wa)} are queued."
+        )
+    elif cap.get("status") in ("FIRST_WARNING", "SECOND_WARNING"):
+        note = "You're near WhatsApp's limit on starting new conversations."
+    return {"wa_preview": preview, "wa_quota_note": note}
+
+
+def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN001
+    """The reason this card's WhatsApp invitations can't go out, if there is one."""
+    settings = get_settings()
+    if not settings.whatsapp_configured:
+        return None
+    if not any(r.phone and r.status == "queued" for r in rows):
+        return None          # nothing waiting, so nothing to explain
+    if not user.wa_session or user.wa_status != waha.STATUS_WORKING:
+        return _WA_BLOCKED["not-linked"]
+    if user.wa_timelock_until and _as_aware(user.wa_timelock_until) > datetime.now(UTC):
+        return _WA_BLOCKED["timelock"]
+    if (user.wa_capping or {}).get("status") == "CAPPED":
+        return _WA_BLOCKED["capped"]
+    return None
+
+
+def _as_aware(dt: datetime) -> datetime:
+    """SQLite hands back naive datetimes; treat them as the UTC they are."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _wa_batch_task(request: Request, ev: Event, result) -> BackgroundTask | None:  # noqa: ANN001
+    """Hand an event's WhatsApp sends to a task that runs after the response.
+
+    Messages are paced 5-20s apart, so a family-sized list takes minutes — far
+    longer than an HTTP request should live, and longer than the tunnel will hold
+    one open. Starlette runs a sync background task in a threadpool once the
+    connection is closed, and recipients stay 'queued' until the batch reaches
+    them, so the dashboard shows real progress on any refresh.
+    """
+    if not result.wa_pending:
+        return None
+    factory, settings = request.app.state.session_factory, get_settings()
+
+    async def _run() -> None:
+        # Runs after the response, on the WhatsApp pool rather than the threadpool
+        # that serves sync route handlers — a multi-minute batch must not hold a
+        # worker the rest of the site needs. Awaited here so the loop tracks it
+        # (and so tests stay deterministic) without occupying a thread.
+        await asyncio.wrap_future(
+            send.submit_whatsapp_batch(factory, ev.id, settings)
+        )
+
+    return BackgroundTask(_run)
+
+
+def _touch_book(db: Session, user_id: str, event_id: str) -> None:
+    """Bump last_used_at for contacts this card just used.
+
+    services.contacts.mark_used had no callers at all, so last_used_at was never
+    set and the address book's "most recently used first" ordering silently
+    sorted by creation date instead.
+    """
+    rows = db.execute(
+        select(Recipient).where(Recipient.event_id == event_id)
+    ).scalars().all()
+    book.mark_used(
+        db, user_id,
+        [r.email for r in rows if r.email],
+        [r.phone for r in rows if r.phone],
+    )
+
+
+def _needs_google(db: Session, event_id: str, statuses: tuple[str, ...]) -> bool:
+    """Does this send actually need the Gmail connection?
+
+    Only email recipients do. A card addressed entirely over WhatsApp must not be
+    held hostage to a Google connection the host may never have made — and a host
+    whose Google token has expired can still reach their WhatsApp guests.
+    """
+    rows = db.execute(
+        select(Recipient).where(
+            Recipient.event_id == event_id, Recipient.status.in_(statuses)
+        )
+    ).scalars().all()
+    return any(not r.phone for r in rows)
+
+
+def _wa_flags(user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
+    """Whether to offer the WhatsApp box on the compose form.
+
+    ``wa_ready`` = the channel is on and this host has a live session, so the box
+    is usable. ``wa_offer`` = the channel is on but they haven't linked, so point
+    them at it once rather than showing a field that can't send.
+    """
+    on = settings.whatsapp_configured
+    linked = bool(user is not None and user.wa_session and user.wa_status == waha.STATUS_WORKING)
+    return {"wa_ready": on and linked, "wa_offer": on and not linked}
+
+
 def _owned_event(db: Session, user_id: str, event_id: str) -> Event | None:
     ev = db.get(Event, event_id)
     return ev if ev and ev.user_id == user_id else None
@@ -153,8 +311,25 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
             when = r.rsvp_at.strftime("%b %d")
         elif state == "opened" and r.first_open_at:
             when = r.first_open_at.strftime("%b %d")
+        # A WhatsApp recipient carries email == "" (the NOT NULL sentinel), so the
+        # address to show is whichever they actually have — otherwise an unnamed
+        # WhatsApp guest rendered as a blank row.
+        address = r.phone or r.email
+        # WhatsApp's own receipts, kept as their own line rather than folded into
+        # the status chip: "read" is the channel telling the host what it knows,
+        # not evidence anyone opened the invitation.
+        receipt = ""
+        if r.phone:
+            if r.wa_ack == -1:
+                receipt = "WhatsApp couldn't deliver it"
+            elif r.wa_read_at:
+                receipt = "Read on WhatsApp"
+            elif r.wa_delivered_at:
+                receipt = "Delivered on WhatsApp"
         recipients.append({
-            "name": r.name or r.email, "email": r.email,
+            "name": r.name or address, "email": address,
+            "channel": rcpt.CHANNEL_WHATSAPP if r.phone else rcpt.CHANNEL_EMAIL,
+            "receipt": receipt,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
             "adults": r.adults, "kids": r.kids,
@@ -163,22 +338,50 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
     return stats, recipients
 
 
-_SEND_UI = {
-    "dry-run": ("Send (dry run)", "Writes .eml files to data/outbox — no real email is sent.",
-                "Write {n} dry-run email(s) to the outbox?"),
-    "self-only": ("Send a test to yourself", "Sends only to your own inbox, for testing.",
-                  "Send {n} test email(s) to your own inbox?"),
-    "live": ("Send to {n} now", "Sends from your Gmail to everyone still queued.",
-             "Send {n} real {noun}(s) from your Gmail now?"),
-}
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _send_ui(mode: str, queued_rows: list[Recipient], noun: str) -> tuple[str, str, str]:
+    """Label, hint and confirmation for the send button.
+
+    The wording names the channels this particular card will actually use. Saying
+    "from your Gmail" over a card addressed entirely by WhatsApp is the kind of
+    detail that makes a host distrust the button they're about to press.
+    """
+    n = len(queued_rows)
+    wa = sum(1 for r in queued_rows if r.phone)
+    em = n - wa
+    if em and wa:
+        via, dest = "by email and WhatsApp", "your Gmail and WhatsApp"
+    elif wa:
+        via, dest = "over WhatsApp", "your WhatsApp"
+    else:
+        via, dest = "by email", "your Gmail"
+    thing = _plural(n, noun)
+
+    if mode == "self-only":
+        return (
+            "Send a test to yourself",
+            f"Sends only to you ({via}), for testing.",
+            f"Send {thing} to yourself as a test?",
+        )
+    if mode == "live":
+        return (
+            f"Send to {n} now",
+            f"Sends from {dest} to everyone still queued.",
+            f"Send {thing} from {dest} now?",
+        )
+    return (
+        "Send (dry run)",
+        "Writes each message to data/outbox — nothing is really sent.",
+        f"Write {thing} to the outbox as a dry run?",
+    )
 
 
 def _event_noun(ev) -> str:  # noqa: ANN001 — a DB Event
-    """Host-facing noun. Something that asks for a reply or is pinned to a date is
-    an 'invitation'; a plain image/title/message greeting is a 'card'."""
-    blocks = ev.blocks or {}
-    is_invite = bool(blocks.get("rsvp") or (blocks.get("date") and ev.event_date))
-    return "invitation" if is_invite else "card"
+    """Host-facing noun: 'invitation' or 'card' (see core.eventkind)."""
+    return eventkind.noun(ev.blocks, ev.event_date)
 
 
 @dataclass
@@ -189,37 +392,49 @@ class ReconcileResult:
     invalid: list[str]
 
 
-def _reconcile_recipients(db: Session, event_id: str, text: str) -> ReconcileResult:
+def _reconcile_recipients(
+    db: Session, event_id: str, text: str, phone_text: str = ""
+) -> ReconcileResult:
     """Update an event's recipient list without discarding existing rows.
 
-    Match by normalized email: add new addresses (fresh token, queued), keep
-    matched rows untouched (only fill an empty name), remove absent ones. Keeping
-    rows preserves each recipient's token, sent/RSVP state, and mail threading —
-    unlike a delete-and-recreate, which wiped all of that on every edit.
+    Match by identity — the email, or "tel:<e164>" for a WhatsApp recipient: add
+    new people (fresh token, queued, on the channel their box says), keep matched
+    rows untouched (only fill an empty name), remove absent ones. Keeping rows
+    preserves each recipient's token, sent/RSVP state, and mail threading — unlike
+    a delete-and-recreate, which wiped all of that on every edit.
+
+    The two boxes are reconciled together, so moving someone from one to the other
+    is a remove plus an add: a different channel means a different conversation,
+    and carrying an RSVP across would misreport which invite they answered.
     """
     valid, invalid = rcpt.parse_recipients(text)
+    ph_valid, ph_invalid = rcpt.parse_phones(phone_text)
+    valid, invalid = valid + ph_valid, invalid + ph_invalid
     existing = db.execute(
         select(Recipient).where(Recipient.event_id == event_id)
     ).scalars().all()
-    by_email: dict[str, Recipient] = {}
-    stale: list[Recipient] = []  # legacy duplicate rows for the same email
+    by_id: dict[str, Recipient] = {}
+    stale: list[Recipient] = []  # legacy duplicate rows for the same person
     for r in existing:
-        key = rcpt.normalize(r.email)
-        (stale.append(r) if key in by_email else by_email.setdefault(key, r))
-    wanted = {p.email: p for p in valid}  # p.email is already normalized
+        key = rcpt.identity_of(r.email, r.phone)
+        (stale.append(r) if key in by_id else by_id.setdefault(key, r))
+    wanted = {p.identity: p for p in valid}  # already normalized
 
     added = kept = removed = 0
-    for email, p in wanted.items():
-        row = by_email.get(email)
+    for identity, p in wanted.items():
+        row = by_id.get(identity)
         if row is None:
-            db.add(Recipient(event_id=event_id, email=p.email, name=p.name, token=new_token()))
+            db.add(Recipient(
+                event_id=event_id, email=p.email, name=p.name, token=new_token(),
+                channel=p.channel, phone=p.phone,
+            ))
             added += 1
         else:
             if p.name and not row.name:  # fill a missing name, never overwrite
                 row.name = p.name
             kept += 1
-    for email, row in by_email.items():
-        if email not in wanted:
+    for identity, row in by_id.items():
+        if identity not in wanted:
             db.delete(row)  # FK cascade drops any reminders for this recipient
             removed += 1
     for row in stale:
@@ -242,7 +457,9 @@ def new_event(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     ctx = {
         "settings": get_settings(), "user": user, "event": None,
-        "blocks": DEFAULT_BLOCKS, "recipients_text": "", "cc_text": "", "error": None,
+        "blocks": DEFAULT_BLOCKS, "recipients_text": "", "wa_recipients_text": "",
+        **_wa_flags(user, get_settings()),
+        "cc_text": "", "error": None,
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(None),
     }
@@ -264,6 +481,7 @@ async def create_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
+    wa_recipients: str = Form(""),
     cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -286,7 +504,8 @@ async def create_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": None, "blocks": blocks,
-            "recipients_text": recipients, "cc_text": cc, "error": str(e),
+            "recipients_text": recipients, "wa_recipients_text": wa_recipients,
+            "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -313,7 +532,8 @@ async def create_event(
     db.add(ev)
     db.commit()
     db.refresh(ev)
-    _reconcile_recipients(db, ev.id, recipients)
+    _reconcile_recipients(db, ev.id, recipients, wa_recipients)
+    _touch_book(db, user.id, ev.id)
     return RedirectResponse(f"/events/{ev.id}?ask_contacts=1", status_code=303)
 
 
@@ -350,11 +570,32 @@ def _reminders_ui(db: Session, ev: Event, settings, recipients: list[Recipient])
         except Exception:
             tz = None
 
+    this_year = date.today().year
+
     def _fmt(dt) -> str:
         d = scheduler._as_utc(dt)
         if tz is not None:
             d = d.astimezone(tz)
-        return d.strftime("%a, %b %d at %I:%M %p").replace(" 0", " ")
+        # Name the year when it isn't this one. The halfway slot for a distant
+        # event lands years out, and without a year the list reads as though it
+        # were out of order ("Jul 20" ahead of "Jun 7" — different years).
+        fmt = "%a, %b %d at %I:%M %p" if d.year == this_year else "%a, %b %d %Y at %I:%M %p"
+        return d.strftime(fmt).replace(" 0", " ")
+
+    # One line per *time*, not per row. A reminder row is per recipient, and the
+    # schedule is per event, so every waiting guest contributes an identical
+    # timestamp — listing rows turned "three nudges planned" into thirty
+    # indistinguishable lines. Group them and say how many people each covers.
+    planned: list[dict] = []
+    by_when: dict[str, dict] = {}
+    for r in pending:
+        when = _fmt(r.scheduled_for)
+        slot = by_when.get(when)
+        if slot is None:
+            slot = {"when": when, "people": 0}
+            by_when[when] = slot
+            planned.append(slot)
+        slot["people"] += 1
 
     return {
         "available": bool(ev.event_date) and bool((ev.blocks or {}).get("rsvp")),
@@ -364,7 +605,10 @@ def _reminders_ui(db: Session, ev: Event, settings, recipients: list[Recipient])
         "sent_any": any(r.status in ("sent", "coming", "declined") for r in recipients),
         "scheduled": len(pending),
         "sent": sum(1 for r in rows if r.status == "sent"),
-        "planned": [_fmt(r.scheduled_for) for r in pending],
+        "planned": planned,
+        # How many people are still waiting on a nudge, which is the number the
+        # host actually wants — not how many rows are in the table.
+        "awaiting": len({r.recipient_id for r in pending}),
         "schedule_desc": _describe_schedule(cfg),
         "max_per_recipient": cfg.max_per_recipient,
     }
@@ -375,6 +619,7 @@ def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
     sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
     details_changed: int = 0, scheduled: int = 0, schedule_error: int = 0,
+    wa_blocked: str = "", wa_pending: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -399,12 +644,14 @@ def event_detail(
         select(Recipient).where(Recipient.event_id == ev.id).order_by(Recipient.created_at)
     ).scalars().all()
     queued = sum(1 for r in rows if r.status == "queued")
-    label, hint, confirm = _SEND_UI.get(settings.send_mode.value, _SEND_UI["dry-run"])
     noun = _event_noun(ev)
+    label, hint, confirm = _send_ui(
+        settings.send_mode.value, [r for r in rows if r.status == "queued"], noun
+    )
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
     if ask_contacts:
-        parsed = [rcpt.Parsed(name=r.name, email=r.email) for r in rows]
+        parsed = [rcpt.Parsed(name=r.name, email=r.email, phone=r.phone) for r in rows]
         new_contacts = len(book.new_among(db, user.id, parsed))
     stats, recipients = _rsvp_summary(rows)
     resendable = sum(1 for r in rows if r.status in ("sent", "coming", "declined"))
@@ -412,9 +659,23 @@ def event_detail(
         "settings": settings, "user": user, "event": ev,
         "recipient_count": len(rows), "queued_count": queued,
         "send_mode": settings.send_mode.value,
-        "send_label": label.format(n=queued), "send_hint": hint,
-        "send_confirm": confirm.format(n=queued, noun=noun), "noun": noun,
+        # The exact words a WhatsApp guest will get. Composed from a real
+        # recipient, because a fake one would hide the personalisation — and the
+        # host should be able to read it before it goes to their family.
+        **_wa_send_preview(db, ev, user, rows),
+        # Only suggest fixing Google when email is actually involved — a WhatsApp
+        # card failing has nothing to do with a Gmail connection.
+        "needs_google": any(not r.phone for r in rows if r.status == "queued"),
+        "send_label": label, "send_hint": hint,
+        "send_confirm": confirm, "noun": noun,
         "sent": sent, "failed": failed,
+        # Why WhatsApp invitations are stuck, worked out from the account's
+        # current state rather than echoed from the send that just happened: the
+        # batch runs after the response now, so a timelock is discovered too late
+        # to put in a redirect — and this stays true on every later page load.
+        "wa_blocked_msg": _wa_stuck_note(user, rows) or _WA_BLOCKED.get(wa_blocked),
+        "wa_sending": send.wa_batch_running(ev.id) or bool(wa_pending),
+        "wa_pending": wa_pending,
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
@@ -435,15 +696,24 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
     if ev is None:
         return RedirectResponse("/", status_code=303)
     settings = get_settings()
-    if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+    if (
+        settings.send_mode != SendMode.dry_run
+        and not user.refresh_token
+        and _needs_google(db, ev.id, ("queued",))
+    ):
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
-    result = send.send_event(db, ev, user, settings)
+    result = send.send_event(db, ev, user, settings, wa_defer=True)
     scheduler.schedule_event_reminders(db, ev, settings)  # nudge non-responders (G5)
     ev.scheduled_send_at = None  # sending now supersedes any pending schedule
     db.commit()
-    return RedirectResponse(
-        f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
-    )
+    url = f"/events/{ev.id}?sent={result.sent}&failed={result.failed}"
+    if result.wa_blocked:
+        # A WhatsApp batch stopped as a whole needs explaining, or the host just
+        # sees invitations that didn't go anywhere.
+        url += f"&wa_blocked={result.wa_blocked}"
+    if result.wa_pending:
+        url += f"&wa_pending={result.wa_pending}"
+    return RedirectResponse(url, status_code=303, background=_wa_batch_task(request, ev, result))
 
 
 def _schedule_to_utc(d: date | None, hhmm: str, tzname: str | None) -> datetime | None:
@@ -529,7 +799,11 @@ def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db
     if ev is None:
         return RedirectResponse("/", status_code=303)
     settings = get_settings()
-    if settings.send_mode != SendMode.dry_run and not user.refresh_token:
+    if (
+        settings.send_mode != SendMode.dry_run
+        and not user.refresh_token
+        and _needs_google(db, ev.id, ("sent", "coming", "declined"))
+    ):
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
     targets = db.execute(
         select(Recipient).where(
@@ -549,12 +823,14 @@ def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db
     scheduler.cancel_all_pending_for_event(db, ev.id, reason="resend")
     db.commit()
     result = send.send_event(
-        db, ev, user, settings, note="Some details have changed — here's the latest."
+        db, ev, user, settings, note="Some details have changed — here's the latest.",
+        wa_defer=True,
     )
     scheduler.schedule_event_reminders(db, ev, settings)
-    return RedirectResponse(
-        f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
-    )
+    url = f"/events/{ev.id}?sent={result.sent}&failed={result.failed}"
+    if result.wa_pending:
+        url += f"&wa_pending={result.wa_pending}"
+    return RedirectResponse(url, status_code=303, background=_wa_batch_task(request, ev, result))
 
 
 @router.post("/events/{event_id}/delete")
@@ -584,7 +860,9 @@ def save_contacts(event_id: str, request: Request, db: Session = Depends(get_db)
     if ev is None:
         return RedirectResponse("/", status_code=303)
     rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
-    added = sum(book.add_contact(db, user.id, r.email, r.name)[1] for r in rows)
+    added = sum(
+        book.add_contact(db, user.id, r.email, r.name, phone=r.phone)[1] for r in rows
+    )
     return RedirectResponse(f"/events/{ev.id}?saved={added}", status_code=303)
 
 
@@ -597,13 +875,17 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     if ev is None:
         return RedirectResponse("/", status_code=303)
     rows = db.execute(select(Recipient).where(Recipient.event_id == ev.id)).scalars().all()
-    recipients_text = "\n".join(
-        (f"{r.name} <{r.email}>" if r.name else r.email) for r in rows
-    )
+
+    def _lines(people, addr) -> str:
+        return "\n".join((f"{r.name} <{addr(r)}>" if r.name else addr(r)) for r in people)
+
+    recipients_text = _lines([r for r in rows if not r.phone], lambda r: r.email)
+    wa_recipients_text = _lines([r for r in rows if r.phone], lambda r: r.phone)
     ctx = {
         "settings": get_settings(), "user": user, "event": ev,
         "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text,
-        "cc_text": _cc_text(ev), "error": None,
+        "wa_recipients_text": wa_recipients_text,
+        "cc_text": _cc_text(ev), "error": None, **_wa_flags(user, get_settings()),
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
     }
@@ -626,6 +908,7 @@ async def update_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
+    wa_recipients: str = Form(""),
     cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -651,7 +934,8 @@ async def update_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
-            "recipients_text": recipients, "cc_text": cc, "error": str(e),
+            "recipients_text": recipients, "wa_recipients_text": wa_recipients,
+            "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -676,7 +960,8 @@ async def update_event(
         ev.asset_id = storage.store_asset(db, user.id, derived).id
     details_changed = before != (ev.event_date, ev.event_time, ev.event_end_time, ev.location)
     db.commit()
-    _reconcile_recipients(db, ev.id, recipients)
+    _reconcile_recipients(db, ev.id, recipients, wa_recipients)
+    _touch_book(db, user.id, ev.id)
     already_sent = db.execute(
         select(func.count()).select_from(Recipient).where(
             Recipient.event_id == ev.id, Recipient.status.in_(("sent", "coming", "declined"))

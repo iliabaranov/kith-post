@@ -206,6 +206,20 @@ scattered effects.
   first event**. **Never** on any recipient-facing page, in the sent email, or to a
   guest in any form. `ink-soft`, no button chrome, never a modal or nag.
 
+- **The WhatsApp risk warning** (`/account/whatsapp`) is the one place the app
+  deliberately slows a host down. It is prose in a `berry`-tinted note, not a
+  one-line banner and never a modal: it says plainly that this uses an unofficial
+  client, that it breaks WhatsApp's terms, and that an account can be restricted
+  or banned — then that a few personal invitations are a world away from what gets
+  accounts banned, so the host can judge for themselves. The button says what it
+  does (**"I understand — let me link WhatsApp"**), and declining is a plain link,
+  not a greyed-out afterthought. No session exists until it's accepted.
+- **Pairing** shows the QR on white card stock (scanners want the quiet zone), with
+  the phone's own menu path spelled out. Polling is an enhancement; a "Check
+  again" link does the same job with no JavaScript. A restriction from WhatsApp is
+  explained in the host's terms — what's paused, until when, and explicitly *not*
+  to re-link, which only makes it look worse.
+
 ## 9. Copy voice
 
 Plain, warm, active, sentence case. Copy is design material (per the design

@@ -19,6 +19,11 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+# The built-in session key. Fine for a laptop; on a public URL it means anyone
+# holding this repo can forge a signed-in cookie, so `check_production_ready`
+# refuses to start with it.
+DEV_SECRET_KEY = "dev-insecure-change-me"
+
 
 class SendMode(StrEnum):
     dry_run = "dry-run"      # compose real MIME -> data/outbox/*.eml, no Gmail call
@@ -53,7 +58,9 @@ class Settings(BaseSettings):
     base_url: str = "http://localhost:8000"
     send_mode: SendMode = SendMode.dry_run
     data_dir: Path = Path("data")
-    secret_key: str = "dev-insecure-change-me"
+    # Deliberately a recognisable placeholder, so the startup check below can
+    # tell "never configured" from "configured to something".
+    secret_key: str = DEV_SECRET_KEY
 
     # Encryption of PII + OAuth refresh tokens at rest (Fernet). Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -71,6 +78,34 @@ class Settings(BaseSettings):
     # Shown to people who can't get in, so they know who to ask for access.
     contact_email: str = ""
 
+    # --- WhatsApp channel (via a self-hosted WAHA container) ---
+    # Off by default: WAHA is an unofficial WhatsApp client, so the channel only
+    # appears once the operator has read the warning and opted in on the box.
+    whatsapp_enabled: bool = False
+    waha_url: str = "http://waha:3000"
+    waha_api_key: str = ""
+    # Every WAHA call is bounded. Calls against a session that isn't WORKING do
+    # not fail fast — sendText and contacts/check-exists were observed hanging
+    # indefinitely, and sessions/{s}/timelock blocked for minutes before a 500 —
+    # so a timeout is the only thing standing between a stuck session and a
+    # wedged request handler (or a wedged reminder sweep).
+    waha_timeout_seconds: float = 20.0
+    # Where WAHA should POST delivery/read receipts and session-status changes.
+    # The compose-network address, not base_url: a public URL would leave the box
+    # and come back through the tunnel for no reason. Empty secret = no webhooks
+    # configured at all, and the endpoint refuses everything.
+    waha_webhook_url: str = "http://kith:8000/wa/webhook"
+    waha_webhook_secret: str = ""
+
+    # Pause between consecutive WhatsApp sends, drawn fresh at random from this
+    # range each time. Messaging many contacts in a burst is what triggers
+    # WhatsApp's reachout timelock (error 463) — and a metronome-steady gap is
+    # its own tell that a machine is typing, since a person working through a
+    # list takes a breath of a different length between each one. Both 0 sends
+    # flat out (tests do that).
+    waha_send_gap_min_seconds: float = 5.0
+    waha_send_gap_max_seconds: float = 20.0
+
     reminders: ReminderSettings = ReminderSettings()
 
     # Per-client rate limiting on the public + auth endpoints. On by default;
@@ -81,6 +116,17 @@ class Settings(BaseSettings):
     # for dateless/orphaned cards, after creation). The small inline copy is kept
     # so the card still renders. 0 disables auto-purge.
     asset_retention_days: int = 30
+
+    @property
+    def waha_webhooks_configured(self) -> bool:
+        """Receipts are opt-in: they need a shared secret to be trustworthy."""
+        return bool(self.whatsapp_enabled and self.waha_webhook_url
+                    and self.waha_webhook_secret)
+
+    @property
+    def whatsapp_configured(self) -> bool:
+        """The channel is usable: enabled, and we know where WAHA is + how to auth."""
+        return bool(self.whatsapp_enabled and self.waha_url and self.waha_api_key)
 
     @property
     def google_configured(self) -> bool:
@@ -99,6 +145,30 @@ class Settings(BaseSettings):
         made it through Google (i.e. Google's test-user list is the gate)."""
         allow = self.allowed_email_set
         return not allow or (email or "").strip().lower() in allow
+
+    def check_production_ready(self) -> list[str]:
+        """Configuration mistakes that must not run on a public URL.
+
+        Only enforced when base_url is https, i.e. when the deployment is
+        actually reachable: a local http run is allowed to be insecure, which is
+        the point of the defaults.
+        """
+        if not self.https_only:
+            return []
+        problems = []
+        if self.secret_key == DEV_SECRET_KEY or not self.secret_key:
+            problems.append(
+                "KITH_SECRET_KEY is still the built-in default — session cookies "
+                "would be forgeable by anyone with a copy of this repo. Generate "
+                'one: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+            )
+        if not self.fernet_key:
+            problems.append(
+                "KITH_FERNET_KEY is unset — PII would be encrypted with a "
+                "throwaway key written under the data dir, and a lost key means "
+                "unreadable rows. Generate one and back it up."
+            )
+        return problems
 
     @property
     def https_only(self) -> bool:
