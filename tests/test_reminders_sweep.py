@@ -272,7 +272,7 @@ def test_the_sweep_paces_whatsapp_nudges(tmp_path, monkeypatch):
     class FakeWaha:
         def get_session(self, name):
             return waha.SessionState(name=name, status=waha.STATUS_WORKING,
-                                     phone="+16500000000")
+                                     phone="+15550008888")
 
         def send_text(self, name, to, text, *, link_preview=True, chat_id=None,
                       reply_to=None):

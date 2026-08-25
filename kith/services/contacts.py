@@ -202,7 +202,7 @@ CSV_TEMPLATE = (
     "name,email,phone,groups\n"
     'Alex Rivera,alex@example.com,,"family, local"\n'
     "Sam Chen,sam@example.com,+15551234567,work\n"
-    "Jordan Lee,,+14085559090,\n"
+    "Jordan Lee,,+15554440000,\n"
     "Robin Ng,robin@example.com,,\n"
 )
 

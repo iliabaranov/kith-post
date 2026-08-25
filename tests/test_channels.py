@@ -130,7 +130,7 @@ def test_find_by_phone(client):
     db, user = _user(client)
     book.add_contact(db, user.id, "mara@example.com", "Mara", phone="+15551110000")
     assert book.find_by_phone(db, user.id, "+15551110000").name == "Mara"
-    assert book.find_by_phone(db, user.id, "+15559999999") is None
+    assert book.find_by_phone(db, user.id, "+15557770000") is None
 
 
 def test_a_contact_with_neither_address_is_refused(client):
@@ -333,24 +333,24 @@ def test_a_number_can_be_added_to_an_existing_contact_from_the_page(wa_client):
     # The row's edit form carries the number field, pre-filled.
     assert 'class="contact-phone"' in wa_client.get("/contacts").text
     wa_client.post(f"/contacts/{c.id}/edit", data={
-        "name": "Ali", "email": "ali@example.com", "phone": "+14085559090", "groups": "",
+        "name": "Ali", "email": "ali@example.com", "phone": "+15554440000", "groups": "",
     })
     db2, _ = _db_and_user()
-    assert db2.get(Contact, c.id).phone == "+14085559090"
+    assert db2.get(Contact, c.id).phone == "+15554440000"
 
 
 def test_a_whatsapp_only_contact_can_be_added_without_an_email(wa_client):
     wa_client.post("/contacts/add", data={
-        "name": "Gillian", "email": "", "phone": "+14085559090", "groups": "family",
+        "name": "Gillian", "email": "", "phone": "+15554440000", "groups": "family",
     })
     db, user = _db_and_user()
-    c = book.find_by_phone(db, user.id, "+14085559090")
+    c = book.find_by_phone(db, user.id, "+15554440000")
     assert c is not None and c.name == "Gillian" and c.email == ""
 
 
 def test_a_number_can_be_cleared_from_the_page(wa_client):
     db, user = _db_and_user()
-    c, _ = book.add_contact(db, user.id, "ali@example.com", "Ali", phone="+14085559090")
+    c, _ = book.add_contact(db, user.id, "ali@example.com", "Ali", phone="+15554440000")
     wa_client.post(f"/contacts/{c.id}/edit", data={
         "name": "Ali", "email": "ali@example.com", "phone": "", "groups": "",
     })

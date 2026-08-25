@@ -67,11 +67,11 @@ def wa_off():
 
 def test_pasting_a_mixed_list_sorts_people_by_what_they_gave(wa):
     wa.post("/contacts/import", data={"people":
-        "Ali <ali@example.com>\n+1 555 111 0000\nMara <+14085559090>\nnonsense"})
+        "Ali <ali@example.com>\n+1 555 111 0000\nMara <+15554440000>\nnonsense"})
     db, user = _db_and_user()
     assert book.find_by_email(db, user.id, "ali@example.com") is not None
     assert book.find_by_phone(db, user.id, "+15551110000") is not None
-    assert book.find_by_phone(db, user.id, "+14085559090").name == "Mara"
+    assert book.find_by_phone(db, user.id, "+15554440000").name == "Mara"
 
 
 def test_parse_mixed_reports_what_it_could_not_read():
@@ -98,11 +98,11 @@ def _csv(client, text):
 def test_csv_with_a_header_takes_a_phone_column(wa):
     _csv(wa, "name,email,phone,groups\n"
              "Ali,ali@example.com,+15551110000,family\n"
-             "Mara,,+14085559090,family\n")
+             "Mara,,+15554440000,family\n")
     db, user = _db_and_user()
     ali = book.find_by_email(db, user.id, "ali@example.com")
     assert ali.phone == "+15551110000" and ali.groups == ["family"]
-    mara = book.find_by_phone(db, user.id, "+14085559090")
+    mara = book.find_by_phone(db, user.id, "+15554440000")
     assert mara.name == "Mara" and mara.email == ""
 
 
@@ -143,11 +143,11 @@ def test_the_template_and_export_round_trip_numbers(wa):
     # A phone-only row in the template must actually import.
     _csv(wa, template)
     db, user = _db_and_user()
-    assert book.find_by_phone(db, user.id, "+14085559090") is not None
+    assert book.find_by_phone(db, user.id, "+15554440000") is not None
 
     exported = wa.get("/contacts/export").text
     assert exported.splitlines()[0] == "name,email,phone,groups"
-    assert "+14085559090" in exported
+    assert "+15554440000" in exported
     # ...and re-importing an export adds nobody new (it's the same people).
     before = len(book.list_contacts(db, user.id))
     _csv(wa, exported)
@@ -160,14 +160,14 @@ def test_the_template_and_export_round_trip_numbers(wa):
 def test_the_picker_offers_numbers_and_a_channel_choice(wa):
     db, user = _db_and_user()
     book.add_contact(db, user.id, "both@example.com", "Both", phone="+15551110000")
-    book.add_contact(db, user.id, "", "PhoneOnly", phone="+14085559090")
+    book.add_contact(db, user.id, "", "PhoneOnly", phone="+15554440000")
     book.add_contact(db, user.id, "mail@example.com", "MailOnly")
     body = wa.get("/events/new").text
     assert 'data-phone="+15551110000"' in body      # a contact with both
-    assert 'data-phone="+14085559090"' in body      # ...and one with only a number
+    assert 'data-phone="+15554440000"' in body      # ...and one with only a number
     assert 'class="book-ch"' in body                # the choice, for the one with both
     assert "book-ch-fixed" in body                  # "WhatsApp", for the phone-only one
-    assert "+14085559090" in body                   # shown, not hidden behind a blank
+    assert "+15554440000" in body                   # shown, not hidden behind a blank
 
 
 def test_the_picker_hides_numbers_when_the_host_cannot_send_them(wa_off):
