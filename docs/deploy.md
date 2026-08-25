@@ -200,6 +200,12 @@ misbehaves — but payload shapes differ between engines **and the session store
 per-engine** (`/app/.sessions/<engine>/<name>`), so switching engines makes every
 host re-pair, and the send path needs re-testing.
 
+**Pacing.** WhatsApp invitations go out a random 5-20 seconds apart, so a batch
+runs in the background after the page responds rather than during the request —
+a dozen guests takes a few minutes. The event page says so and fills in as the
+batch works through the list. If a deploy interrupts a batch, the recipients it
+hadn't reached are still `queued`: press Send again and it picks them up.
+
 **Delivery + read receipts (optional).** Add a secret and WAHA will report back:
 
 ```bash

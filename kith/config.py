@@ -90,9 +90,14 @@ class Settings(BaseSettings):
     waha_webhook_url: str = "http://kith:8000/wa/webhook"
     waha_webhook_secret: str = ""
 
-    # Pause between consecutive WhatsApp sends. Messaging many unknown contacts
-    # in a burst is what triggers WhatsApp's reachout timelock (error 463).
-    waha_send_gap_seconds: float = 2.0
+    # Pause between consecutive WhatsApp sends, drawn fresh at random from this
+    # range each time. Messaging many contacts in a burst is what triggers
+    # WhatsApp's reachout timelock (error 463) — and a metronome-steady gap is
+    # its own tell that a machine is typing, since a person working through a
+    # list takes a breath of a different length between each one. Both 0 sends
+    # flat out (tests do that).
+    waha_send_gap_min_seconds: float = 5.0
+    waha_send_gap_max_seconds: float = 20.0
 
     reminders: ReminderSettings = ReminderSettings()
 

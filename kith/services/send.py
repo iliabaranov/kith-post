@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import json
 import logging
+import random
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -44,6 +46,19 @@ log = logging.getLogger("kith")
 _SUBTYPE = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
 
 
+def next_send_gap(settings: Settings, rng: random.Random | None = None) -> float:
+    """A fresh random pause, in seconds, to put between two WhatsApp sends.
+
+    Uniform over the configured range. The randomness is the point: a fixed gap
+    is as machine-like as no gap at all, only slower.
+    """
+    lo = max(0.0, settings.waha_send_gap_min_seconds)
+    hi = max(lo, settings.waha_send_gap_max_seconds)
+    if hi <= 0:
+        return 0.0
+    return (rng or random).uniform(lo, hi)
+
+
 @dataclass
 class SendResult:
     """Totals across both channels, plus what WhatsApp did (or refused to do)."""
@@ -53,6 +68,10 @@ class SendResult:
     mode: str
     wa_sent: int = 0
     wa_failed: int = 0
+    # Handed off to a background batch rather than sent during the request. With
+    # a 5-20s pause between messages a family-sized list takes minutes, which is
+    # far longer than an HTTP request should live.
+    wa_pending: int = 0
     # Set when the WhatsApp batch was stopped as a whole (not linked, timelocked,
     # capped, WAHA unreachable). Distinct from wa_failed, which counts individual
     # recipients — this is "we stopped on purpose", and it's what the UI explains.
@@ -78,7 +97,8 @@ def _write_wa_outbox(
 
 
 def send_event(
-    db: Session, event: Event, user: User, settings: Settings, *, note: str | None = None
+    db: Session, event: Event, user: User, settings: Settings, *,
+    note: str | None = None, wa_defer: bool = False,
 ) -> SendResult:
     queued = db.execute(
         select(Recipient).where(Recipient.event_id == event.id, Recipient.status == "queued")
@@ -172,6 +192,14 @@ def send_event(
             failed += 1  # leave as 'queued' so a retry can pick it up
             db.commit()
 
+    if wa_recipients and wa_defer:
+        # Email is quick and stays inline; WhatsApp is paced and goes to a
+        # background batch. Recipients stay 'queued' until it reaches them, so the
+        # dashboard shows progress on any refresh.
+        return SendResult(
+            sent=sent, failed=failed, mode=settings.send_mode.value,
+            wa_pending=len(wa_recipients),
+        )
     wa = (
         _send_whatsapp(
             db, event, user, settings, wa_recipients, note=note,
@@ -188,6 +216,74 @@ def send_event(
         wa_failed=wa.failed,
         wa_blocked=wa.blocked,
     )
+
+
+# Events with a WhatsApp batch in flight. A single-process guard: the app runs as
+# one uvicorn worker, and the alternative — a host pressing Send twice while a
+# paced batch is still working through the list — means duplicate messages, which
+# over WhatsApp is both rude and exactly the behaviour that gets accounts limited.
+_wa_in_flight: set[str] = set()
+_wa_lock = threading.Lock()
+
+
+def wa_batch_running(event_id: str) -> bool:
+    with _wa_lock:
+        return event_id in _wa_in_flight
+
+
+def send_whatsapp_batch(session_factory, event_id: str, settings: Settings) -> None:
+    """Deliver an event's queued WhatsApp invitations, paced, in its own session.
+
+    Written to be run off the request path (a Starlette BackgroundTask), so it
+    takes a session factory rather than a session and never raises at the caller.
+    """
+    with _wa_lock:
+        if event_id in _wa_in_flight:
+            log.info("whatsapp: a batch for event %s is already running", event_id)
+            return
+        _wa_in_flight.add(event_id)
+    db: Session = session_factory()
+    try:
+        event = db.get(Event, event_id)
+        user = db.get(User, event.user_id) if event else None
+        if event is None or user is None:
+            return
+        queued = db.execute(
+            select(Recipient).where(
+                Recipient.event_id == event.id, Recipient.status == "queued"
+            )
+        ).scalars().all()
+        recipients = [r for r in queued if r.phone]
+        if not recipients:
+            return
+        asset = db.get(Asset, event.asset_id) if event.asset_id else None
+        card: bytes | None = None
+        if asset:
+            try:
+                card = Path(asset.inline_path).read_bytes()
+            except OSError:
+                log.warning("whatsapp batch: inline image missing for asset %s", asset.id)
+        out = _send_whatsapp(
+            db, event, user, settings, recipients,
+            card=card, card_mime=(asset.mime if asset else "image/jpeg"),
+        )
+        log.info(
+            "whatsapp batch for event %s: sent=%d failed=%d blocked=%s",
+            event_id, out.sent, out.failed, out.blocked,
+        )
+        # Reminders hang off sent_at, which only exists now that the batch has
+        # run. The route schedules them for the email half; if we didn't do it
+        # here, a WhatsApp guest would never be nudged.
+        if out.sent:
+            from kith.services import scheduler  # local: scheduler imports us
+
+            scheduler.schedule_event_reminders(db, event, settings)
+    except Exception:
+        log.exception("whatsapp batch failed for event %s", event_id)
+    finally:
+        db.close()
+        with _wa_lock:
+            _wa_in_flight.discard(event_id)
 
 
 @dataclass
@@ -317,9 +413,13 @@ def _send_whatsapp(
             log.exception("whatsapp send failed for recipient %s (event %s)", r.id, event.id)
             failed += 1  # left 'queued' so a retry can pick it up
             db.commit()
-        # Space the sends out; a burst to people who've never had a message from
-        # this number is exactly the pattern WhatsApp restricts.
-        if not dry and i + 1 < len(recipients) and settings.waha_send_gap_seconds > 0:
-            time.sleep(settings.waha_send_gap_seconds)
+        # Space the sends out, by a different amount every time. A burst is what
+        # WhatsApp restricts accounts for, and an exactly-even cadence is its own
+        # signature — neither looks like a person working through a list.
+        if not dry and i + 1 < len(recipients):
+            gap = next_send_gap(settings)
+            if gap > 0:
+                log.info("whatsapp: pausing %.1fs before the next send", gap)
+                time.sleep(gap)
 
     return _WaOutcome(sent, failed, None)

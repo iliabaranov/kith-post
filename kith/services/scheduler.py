@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -285,12 +286,23 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
             select(Reminder).where(Reminder.status == "pending").order_by(Reminder.scheduled_for)
         ).scalars().all()
         due = [r for r in pending if _as_utc(r.scheduled_for) <= now]
+        from kith.services import send  # local import avoids an import cycle
+
         sent = skipped = 0
-        for reminder in due:
-            if send_one_reminder(db, reminder, settings):
-                sent += 1
-            else:
-                skipped += 1
+        for i, reminder in enumerate(due):
+            ok = send_one_reminder(db, reminder, settings)
+            sent += 1 if ok else 0
+            skipped += 0 if ok else 1
+            # Pace WhatsApp nudges the same way a first send is paced: a sweep
+            # can find a dozen due at once, and firing them back to back is the
+            # burst we're trying to avoid. The sweep already runs in its own
+            # thread, so sleeping here costs nothing but time.
+            if ok and i + 1 < len(due):
+                r = db.get(Recipient, reminder.recipient_id)
+                if r is not None and r.phone and settings.send_mode != SendMode.dry_run:
+                    gap = send.next_send_gap(settings)
+                    if gap > 0:
+                        time.sleep(gap)
         purged = purge_expired_assets(db, settings, now=now)
         return SweepResult(
             considered=len(due), sent=sent, skipped=skipped, purged=purged, scheduled=scheduled

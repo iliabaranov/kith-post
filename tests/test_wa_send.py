@@ -88,7 +88,8 @@ def wa(monkeypatch):
     monkeypatch.setenv("KITH_WHATSAPP_ENABLED", "true")
     monkeypatch.setenv("KITH_WAHA_API_KEY", "test-key")
     monkeypatch.setenv("KITH_SEND_MODE", "live")
-    monkeypatch.setenv("KITH_WAHA_SEND_GAP_SECONDS", "0")
+    monkeypatch.setenv("KITH_WAHA_SEND_GAP_MIN_SECONDS", "0")
+    monkeypatch.setenv("KITH_WAHA_SEND_GAP_MAX_SECONDS", "0")
     get_settings.cache_clear()
     fake = FakeWaha()
     monkeypatch.setattr(link, "client", lambda settings: fake)
@@ -569,3 +570,155 @@ def test_a_reminder_quotes_the_invitation_it_is_nudging_about(wa):
     fake.replies.clear()
     _due_reminder(db, ev)
     assert fake.replies == [original_id], "the nudge should reply to the invitation"
+
+
+# --- pacing -------------------------------------------------------------------
+
+def test_the_gap_is_random_inside_the_configured_range():
+    """A fixed gap is as machine-like as no gap, only slower."""
+    import random as _random
+
+    from kith.config import Settings
+
+    s = Settings(waha_send_gap_min_seconds=5, waha_send_gap_max_seconds=20)
+    gaps = [sender.next_send_gap(s, _random.Random(seed)) for seed in range(200)]
+    assert all(5 <= g <= 20 for g in gaps)
+    assert len(set(round(g, 3) for g in gaps)) > 150, "gaps should not repeat"
+    # Spread across the range, not clustered at one end.
+    assert min(gaps) < 8 and max(gaps) > 17
+
+
+def test_the_gap_can_be_switched_off():
+    from kith.config import Settings
+
+    s = Settings(waha_send_gap_min_seconds=0, waha_send_gap_max_seconds=0)
+    assert sender.next_send_gap(s) == 0.0
+
+
+def test_a_reversed_range_does_not_explode():
+    from kith.config import Settings
+
+    s = Settings(waha_send_gap_min_seconds=30, waha_send_gap_max_seconds=5)
+    assert sender.next_send_gap(s) == 30.0     # clamped to the lower bound
+
+
+def test_the_default_range_is_five_to_twenty():
+    from kith.config import Settings
+
+    s = Settings()
+    assert (s.waha_send_gap_min_seconds, s.waha_send_gap_max_seconds) == (5.0, 20.0)
+
+
+def test_sends_actually_wait_between_recipients(wa, monkeypatch):
+    """The pause has to happen between messages, and not before the first or
+    after the last."""
+    client, fake = wa
+    monkeypatch.setenv("KITH_WAHA_SEND_GAP_MIN_SECONDS", "5")
+    monkeypatch.setenv("KITH_WAHA_SEND_GAP_MAX_SECONDS", "20")
+    get_settings.cache_clear()
+    slept: list[float] = []
+    monkeypatch.setattr("kith.services.send.time.sleep", lambda s: slept.append(s))
+
+    ev = _make_event(client, "+15551110000\n+15552220000\n+15553330000")
+    _, res = _send(ev)
+    assert res.wa_sent == 3
+    assert len(slept) == 2, "three sends means two pauses"
+    assert all(5 <= s <= 20 for s in slept)
+
+
+def test_a_single_recipient_is_not_delayed(wa, monkeypatch):
+    client, fake = wa
+    monkeypatch.setenv("KITH_WAHA_SEND_GAP_MIN_SECONDS", "5")
+    get_settings.cache_clear()
+    slept: list[float] = []
+    monkeypatch.setattr("kith.services.send.time.sleep", lambda s: slept.append(s))
+    _send(_make_event(client, "+15551110000"))
+    assert slept == []
+
+
+def test_a_dry_run_does_not_wait(wa, monkeypatch):
+    client, fake = wa
+    monkeypatch.setenv("KITH_SEND_MODE", "dry-run")
+    monkeypatch.setenv("KITH_WAHA_SEND_GAP_MIN_SECONDS", "5")
+    get_settings.cache_clear()
+    slept: list[float] = []
+    monkeypatch.setattr("kith.services.send.time.sleep", lambda s: slept.append(s))
+    _send(_make_event(client, "+15551110000\n+15552220000"))
+    assert slept == [], "composing to the outbox has nothing to pace"
+
+
+# --- the batch runs off the request path --------------------------------------
+
+def test_the_request_does_not_wait_for_the_whatsapp_batch(wa):
+    """At 5-20s a family-sized list takes minutes, which is longer than an HTTP
+    request should live — and longer than the tunnel holds one open."""
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000")
+    db, user = _db_and_user()
+    event = db.get(Event, ev)
+    res = sender.send_event(db, event, user, get_settings(), wa_defer=True)
+    assert res.wa_pending == 2
+    assert (res.wa_sent, res.wa_failed) == (0, 0)
+    assert fake.sent == [] and fake.images == []
+    assert all(r.status == "queued" for r in _recipients(db, ev))
+
+
+def test_the_deferred_batch_then_sends_and_schedules_reminders(wa):
+    from kith.db.session import make_engine, make_session_factory
+
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000")
+    factory = make_session_factory(make_engine(get_settings().db_path))
+    sender.send_whatsapp_batch(factory, ev, get_settings())
+    db, _ = _db_and_user()
+    rows = _recipients(db, ev)
+    assert all(r.status == "sent" and r.sent_at for r in rows)
+    assert len(fake.sent) == 2
+    # Reminders hang off sent_at, so they can only be scheduled once the batch ran.
+    from kith.db.models import Reminder
+
+    assert db.execute(select(Reminder).where(Reminder.event_id == ev)).scalars().all()
+
+
+def test_two_batches_for_one_card_cannot_overlap(wa, monkeypatch):
+    """A host pressing Send twice during a paced batch would double-message
+    people — rude, and exactly what gets an account limited."""
+    from kith.db.session import make_engine, make_session_factory
+
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    factory = make_session_factory(make_engine(get_settings().db_path))
+
+    seen = []
+    real = sender._send_whatsapp
+
+    def reentrant(db, event, user, settings, recipients, **kw):
+        # While the first batch is mid-flight, a second must decline.
+        seen.append(sender.wa_batch_running(event.id))
+        sender.send_whatsapp_batch(factory, event.id, settings)
+        return real(db, event, user, settings, recipients, **kw)
+
+    monkeypatch.setattr(sender, "_send_whatsapp", reentrant)
+    sender.send_whatsapp_batch(factory, ev, get_settings())
+    assert seen == [True]
+    assert len(fake.sent) == 1, "the second batch must not have sent anything"
+
+
+def test_the_page_says_the_batch_is_under_way(wa):
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    body = client.post(f"/events/{ev}/send", follow_redirects=True).text
+    assert "Sending the WhatsApp invitations now" in body
+
+
+def test_a_timelock_is_still_explained_after_the_batch_runs(wa):
+    """The reason is found in the background now, so the page has to work it out
+    from the account's state rather than from the redirect."""
+    client, fake = wa
+    fake.timelock = waha.Timelock.parse(
+        {"isActive": True, "timeEnforcementEnds": 4102444800, "enforcementType": "DEFAULT"}
+    )
+    ev = _make_event(client, "+15551110000")
+    body = client.post(f"/events/{ev}/send", follow_redirects=True).text
+    assert "paused new conversations" in body
+    assert "still queued" in body

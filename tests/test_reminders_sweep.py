@@ -245,3 +245,79 @@ def test_cancel_pending_reminders(tmp_path):
     assert _pending(db) == []
     canceled = db.execute(select(Reminder).where(Reminder.status == "canceled")).scalars().all()
     assert len(canceled) >= 1
+
+
+def test_the_sweep_paces_whatsapp_nudges(tmp_path, monkeypatch):
+    """A sweep can find several nudges due at once, and firing them back to back
+    is the burst the pacing exists to avoid. Live mode, since a dry run has
+    nothing to pace."""
+    from kith.services import send as sender
+    from kith.services import wa_session as link
+    from kith.services import waha
+
+    f = _factory(tmp_path)
+    db = f()
+    u, ev, r1 = _seed(db)
+    r1.phone, r1.email = "+15551110000", ""
+    r2 = Recipient(event_id=ev.id, email="", phone="+15552220000", name="Ali",
+                   token=new_token(), status="sent",
+                   sent_at=datetime(2026, 1, 1, tzinfo=UTC))
+    db.add(r2)
+    db.commit()
+    db.refresh(r2)
+    _reminder(db, ev, r1, PAST)
+    _reminder(db, ev, r2, PAST)
+    db.close()
+
+    class FakeWaha:
+        def get_session(self, name):
+            return waha.SessionState(name=name, status=waha.STATUS_WORKING,
+                                     phone="+16500000000")
+
+        def send_text(self, name, to, text, *, link_preview=True, chat_id=None,
+                      reply_to=None):
+            return {"id": "msg"}
+
+    monkeypatch.setattr(link, "client", lambda settings: FakeWaha())
+    slept: list[float] = []
+    monkeypatch.setattr("kith.services.scheduler.time.sleep", lambda s: slept.append(s))
+
+    settings = Settings(
+        send_mode=SendMode.live, data_dir=tmp_path / "data", base_url="https://x",
+        google_client_id="c", google_client_secret="s",
+        whatsapp_enabled=True, waha_api_key="k",
+        waha_send_gap_min_seconds=5, waha_send_gap_max_seconds=20,
+    )
+    db2 = f()
+    u2 = db2.get(User, u.id)
+    u2.wa_session, u2.wa_status = "utest", waha.STATUS_WORKING
+    db2.commit()
+    db2.close()
+
+    res = scheduler.sweep_tick(f, settings, now=NOW)
+    assert res.sent == 2
+    assert len(slept) == 1, "two nudges means one pause between them"
+    assert 5 <= slept[0] <= 20
+    assert sender.next_send_gap(settings) >= 5   # same helper as the first send
+
+
+def test_the_sweep_does_not_pace_email_nudges(tmp_path, monkeypatch):
+    """Gmail has its own quota story and no reachout timelock; only WhatsApp
+    needs the human-looking cadence."""
+    f = _factory(tmp_path)
+    db = f()
+    u, ev, r1 = _seed(db)
+    r2 = Recipient(event_id=ev.id, email="b@example.com", name="Ali",
+                   token=new_token(), status="sent",
+                   sent_at=datetime(2026, 1, 1, tzinfo=UTC))
+    db.add(r2)
+    db.commit()
+    _reminder(db, ev, r1, PAST)
+    _reminder(db, ev, r2, PAST)
+    db.close()
+
+    slept: list[float] = []
+    monkeypatch.setattr("kith.services.scheduler.time.sleep", lambda s: slept.append(s))
+    res = scheduler.sweep_tick(f, _settings(tmp_path), now=NOW)
+    assert res.sent == 2
+    assert slept == []

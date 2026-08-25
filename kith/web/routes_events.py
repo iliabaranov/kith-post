@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
@@ -163,6 +164,46 @@ def _wa_send_preview(
     elif cap.get("status") in ("FIRST_WARNING", "SECOND_WARNING"):
         note = "You're near WhatsApp's limit on starting new conversations."
     return {"wa_preview": preview, "wa_quota_note": note}
+
+
+def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN001
+    """The reason this card's WhatsApp invitations can't go out, if there is one."""
+    settings = get_settings()
+    if not settings.whatsapp_configured:
+        return None
+    if not any(r.phone and r.status == "queued" for r in rows):
+        return None          # nothing waiting, so nothing to explain
+    if not user.wa_session or user.wa_status != waha.STATUS_WORKING:
+        return _WA_BLOCKED["not-linked"]
+    if user.wa_timelock_until and _as_aware(user.wa_timelock_until) > datetime.now(UTC):
+        return _WA_BLOCKED["timelock"]
+    if (user.wa_capping or {}).get("status") == "CAPPED":
+        return _WA_BLOCKED["capped"]
+    return None
+
+
+def _as_aware(dt: datetime) -> datetime:
+    """SQLite hands back naive datetimes; treat them as the UTC they are."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _wa_batch_task(request: Request, ev: Event, result) -> BackgroundTask | None:  # noqa: ANN001
+    """Hand an event's WhatsApp sends to a task that runs after the response.
+
+    Messages are paced 5-20s apart, so a family-sized list takes minutes — far
+    longer than an HTTP request should live, and longer than the tunnel will hold
+    one open. Starlette runs a sync background task in a threadpool once the
+    connection is closed, and recipients stay 'queued' until the batch reaches
+    them, so the dashboard shows real progress on any refresh.
+    """
+    if not result.wa_pending:
+        return None
+    return BackgroundTask(
+        send.send_whatsapp_batch,
+        request.app.state.session_factory,
+        ev.id,
+        get_settings(),
+    )
 
 
 def _touch_book(db: Session, user_id: str, event_id: str) -> None:
@@ -571,7 +612,7 @@ def event_detail(
     event_id: str, request: Request, db: Session = Depends(get_db),
     sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
     details_changed: int = 0, scheduled: int = 0, schedule_error: int = 0,
-    wa_blocked: str = "",
+    wa_blocked: str = "", wa_pending: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -621,7 +662,13 @@ def event_detail(
         "send_label": label, "send_hint": hint,
         "send_confirm": confirm, "noun": noun,
         "sent": sent, "failed": failed,
-        "wa_blocked_msg": _WA_BLOCKED.get(wa_blocked),
+        # Why WhatsApp invitations are stuck, worked out from the account's
+        # current state rather than echoed from the send that just happened: the
+        # batch runs after the response now, so a timelock is discovered too late
+        # to put in a redirect — and this stays true on every later page load.
+        "wa_blocked_msg": _wa_stuck_note(user, rows) or _WA_BLOCKED.get(wa_blocked),
+        "wa_sending": send.wa_batch_running(ev.id) or bool(wa_pending),
+        "wa_pending": wa_pending,
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
@@ -648,7 +695,7 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
         and _needs_google(db, ev.id, ("queued",))
     ):
         return RedirectResponse(f"/events/{ev.id}?failed=1", status_code=303)
-    result = send.send_event(db, ev, user, settings)
+    result = send.send_event(db, ev, user, settings, wa_defer=True)
     scheduler.schedule_event_reminders(db, ev, settings)  # nudge non-responders (G5)
     ev.scheduled_send_at = None  # sending now supersedes any pending schedule
     db.commit()
@@ -657,7 +704,9 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
         # A WhatsApp batch stopped as a whole needs explaining, or the host just
         # sees invitations that didn't go anywhere.
         url += f"&wa_blocked={result.wa_blocked}"
-    return RedirectResponse(url, status_code=303)
+    if result.wa_pending:
+        url += f"&wa_pending={result.wa_pending}"
+    return RedirectResponse(url, status_code=303, background=_wa_batch_task(request, ev, result))
 
 
 def _schedule_to_utc(d: date | None, hhmm: str, tzname: str | None) -> datetime | None:
@@ -767,12 +816,14 @@ def resend_updated(event_id: str, request: Request, db: Session = Depends(get_db
     scheduler.cancel_all_pending_for_event(db, ev.id, reason="resend")
     db.commit()
     result = send.send_event(
-        db, ev, user, settings, note="Some details have changed — here's the latest."
+        db, ev, user, settings, note="Some details have changed — here's the latest.",
+        wa_defer=True,
     )
     scheduler.schedule_event_reminders(db, ev, settings)
-    return RedirectResponse(
-        f"/events/{ev.id}?sent={result.sent}&failed={result.failed}", status_code=303
-    )
+    url = f"/events/{ev.id}?sent={result.sent}&failed={result.failed}"
+    if result.wa_pending:
+        url += f"&wa_pending={result.wa_pending}"
+    return RedirectResponse(url, status_code=303, background=_wa_batch_task(request, ev, result))
 
 
 @router.post("/events/{event_id}/delete")

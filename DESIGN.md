@@ -241,7 +241,16 @@ the session, so:
   account, not the session, so re-pairing only adds churn;
 - numbers are checked against WhatsApp before a first send, so a wrong digit
   costs one recipient instead of the host's ability to send;
-- sends are spaced out (`KITH_WAHA_SEND_GAP_SECONDS`).
+- **sends are spaced out by a random 5-20s** each
+  (`KITH_WAHA_SEND_GAP_MIN_SECONDS` / `..._MAX_SECONDS`). Random, not fixed: an
+  exactly-even cadence is as machine-like as no gap at all, only slower, and the
+  aim is to look like a person working down a list. This is why a WhatsApp batch
+  runs **after** the response as a background task — a dozen invitations takes
+  minutes, longer than an HTTP request should live and longer than the tunnel will
+  hold one open. Recipients stay `queued` until the batch reaches them, so the
+  dashboard shows real progress on a refresh, and a single-process guard stops a
+  second Send from double-messaging people mid-batch. Reminders are paced the same
+  way, since a sweep can find a dozen due at once.
 
 ### Receipts (opt-in)
 
