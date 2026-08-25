@@ -257,6 +257,15 @@ the session, so:
   dashboard shows real progress on a refresh, and a single-process guard stops a
   second Send from double-messaging people mid-batch. Reminders are paced the same
   way, since a sweep can find a dozen due at once.
+- **The queue is durable without being a queue.** A message still to go is already
+  a durable row — a `Recipient` with status `queued` — so the only thing missing
+  was noticing that a card is owed a batch nobody is running. `Event.wa_batch_started_at`
+  is that record: set when a send is handed off, cleared when a batch completes a
+  full pass, and left set when one is stopped by a restriction. The maintenance
+  sweep resumes any card that has been owed a batch for more than two minutes and
+  less than a day, so a redeploy mid-list finishes itself, and invitations held by
+  a timelock go out when it lifts. It only ever resumes a send that was actually
+  started, which is what keeps a draft from being sent by a background job.
 
 ### Receipts (opt-in)
 

@@ -840,3 +840,144 @@ def test_a_recipient_removed_mid_batch_is_not_messaged(wa):
         monkey.undo()
     sent_to = [to for _, to, _, _ in fake.sent]
     assert rows[1].phone not in sent_to, "messaged a recipient who was removed"
+
+
+# --- resuming an interrupted batch (the durable half of the queue) ------------
+
+def _factory():
+    from kith.db.session import make_engine, make_session_factory
+
+    return make_session_factory(make_engine(get_settings().db_path))
+
+
+def _sweep(factory, *, minutes_ago=5):
+    """Run a sweep as if the batch was handed off `minutes_ago` minutes back."""
+    from datetime import UTC, datetime, timedelta
+
+    from kith.services import scheduler
+
+    res = scheduler.sweep_tick(
+        factory, get_settings(), now=datetime.now(UTC) + timedelta(minutes=minutes_ago)
+    )
+    # A resumed batch runs on the WhatsApp pool, so wait for it before asserting.
+    assert sender.wait_for_batches(timeout=30), "a resumed batch did not finish"
+    return res
+
+
+def test_a_card_that_was_never_sent_is_never_auto_sent(wa):
+    """The one mistake this must not make. A draft with queued WhatsApp
+    recipients looks exactly like an interrupted batch apart from the marker."""
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000")
+    db, _ = _db_and_user()
+    assert db.get(Event, ev).wa_batch_started_at is None, "nothing was handed off"
+
+    res = _sweep(_factory())
+    assert res.resumed == 0
+    assert fake.sent == [] and fake.images == []
+    db2, _ = _db_and_user()
+    assert all(r.status == "queued" for r in _recipients(db2, ev))
+
+
+def test_an_interrupted_batch_is_picked_up_by_the_sweep(wa):
+    """A redeploy mid-batch leaves recipients queued and a marker set; the host
+    shouldn't have to notice and press Send again."""
+    client, fake = wa
+    ev = _make_event(client, "+15551110000\n+15552220000")
+    db, _ = _db_and_user()
+    event = db.get(Event, ev)
+    # Exactly the state a killed batch leaves behind.
+    from datetime import UTC, datetime
+
+    event.wa_batch_started_at = datetime.now(UTC)
+    db.commit()
+
+    res = _sweep(_factory())
+    assert res.resumed == 1
+    assert len(fake.sent) == 2
+    db2, _ = _db_and_user()
+    assert all(r.status == "sent" for r in _recipients(db2, ev))
+    # ...and the job releases itself, so the next sweep does nothing.
+    assert db2.get(Event, ev).wa_batch_started_at is None
+    fake.sent.clear()
+    assert _sweep(_factory()).resumed == 0
+    assert fake.sent == []
+
+
+def test_a_send_marks_the_job_and_a_finished_batch_clears_it(wa):
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    db, user = _db_and_user()
+    event = db.get(Event, ev)
+    res = sender.send_event(db, event, user, get_settings(), wa_defer=True)
+    assert res.wa_pending == 1
+    assert db.get(Event, ev).wa_batch_started_at is not None, "the work is owed"
+
+    sender.send_whatsapp_batch(_factory(), ev, get_settings())
+    db2, _ = _db_and_user()
+    assert db2.get(Event, ev).wa_batch_started_at is None, "and released when done"
+
+
+def test_a_blocked_batch_stays_owed_so_it_resumes_when_the_block_lifts(wa):
+    """A timelock is temporary. Leaving the job owed is what gets the invitations
+    out when it expires, instead of leaving them queued for good."""
+    client, fake = wa
+    fake.timelock = waha.Timelock.parse(
+        {"isActive": True, "timeEnforcementEnds": 4102444800, "enforcementType": "DEFAULT"}
+    )
+    ev = _make_event(client, "+15551110000")
+    db, user = _db_and_user()
+    event = db.get(Event, ev)
+    sender.send_event(db, event, user, get_settings(), wa_defer=True)
+    sender.send_whatsapp_batch(_factory(), ev, get_settings())
+    db2, _ = _db_and_user()
+    assert fake.sent == []
+    assert db2.get(Event, ev).wa_batch_started_at is not None, "still owed"
+
+    # The restriction lifts; the sweep gets them out with no host involvement.
+    fake.timelock = None
+    res = _sweep(_factory())
+    assert res.resumed == 1
+    assert len(fake.sent) == 1
+
+
+def test_a_permanent_per_recipient_failure_does_not_loop_forever(wa):
+    """A wrong number won't come right by trying again — a completed pass
+    releases the job even with someone still queued."""
+    client, fake = wa
+    fake.exists = False          # not on WhatsApp
+    ev = _make_event(client, "+15551110000")
+    db, user = _db_and_user()
+    event = db.get(Event, ev)
+    sender.send_event(db, event, user, get_settings(), wa_defer=True)
+    sender.send_whatsapp_batch(_factory(), ev, get_settings())
+    db2, _ = _db_and_user()
+    assert db2.get(Event, ev).wa_batch_started_at is None
+    assert _sweep(_factory()).resumed == 0
+
+
+def test_a_batch_still_running_is_not_resumed_underneath_itself(wa):
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    db, _ = _db_and_user()
+    from datetime import UTC, datetime
+
+    db.get(Event, ev).wa_batch_started_at = datetime.now(UTC)
+    db.commit()
+    # Too recent to be considered stopped.
+    assert _sweep(_factory(), minutes_ago=0).resumed == 0
+
+
+def test_a_long_abandoned_job_is_given_up_on(wa):
+    client, fake = wa
+    ev = _make_event(client, "+15551110000")
+    db, _ = _db_and_user()
+    from datetime import UTC, datetime
+
+    db.get(Event, ev).wa_batch_started_at = datetime.now(UTC)
+    db.commit()
+    res = _sweep(_factory(), minutes_ago=60 * 30)   # 30 hours later
+    assert res.resumed == 0
+    assert fake.sent == []
+    db2, _ = _db_and_user()
+    assert db2.get(Event, ev).wa_batch_started_at is None, "stopped asking"

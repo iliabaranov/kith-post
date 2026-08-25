@@ -150,6 +150,14 @@ class Event(Base):
         ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(String, default="draft")
+    # Set when a WhatsApp send for this card is handed off, cleared when a batch
+    # completes a full pass. While it is set with recipients still queued, a batch
+    # is owed — which is how an interrupted one is resumed after a restart. This
+    # is the whole durable-queue mechanism: the work itself is already durable,
+    # since a pending recipient is a row with status 'queued'.
+    wa_batch_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     reminder_cfg: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # per-event (G5)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

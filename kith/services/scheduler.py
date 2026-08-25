@@ -234,6 +234,7 @@ class SweepResult:
     skipped: int
     purged: int = 0
     scheduled: int = 0
+    resumed: int = 0     # interrupted WhatsApp batches re-queued
 
 
 def send_due_scheduled(db: Session, settings: Settings, *, now: datetime | None = None) -> int:
@@ -290,12 +291,71 @@ def send_due_scheduled(db: Session, settings: Settings, *, now: datetime | None 
     return fired
 
 
+# A batch is only resumed once it has plainly stopped (not one still running) and
+# while it's still worth resuming. Beyond the upper bound the host can press Send.
+RESUME_AFTER = timedelta(minutes=2)
+RESUME_WITHIN = timedelta(hours=24)
+
+
+def resume_interrupted_wa_batches(
+    db: Session, session_factory, settings: Settings, *, now: datetime
+) -> int:
+    """Re-queue WhatsApp batches that were interrupted or blocked. Returns how many.
+
+    The durable half of the send queue. A pending message is already a durable
+    row — a Recipient with status 'queued' — so all this adds is noticing that a
+    card is owed a batch nobody is running: after a redeploy killed one mid-list,
+    or after a restriction that has since lifted.
+
+    Only ever resumes a card whose send was actually started. `wa_batch_started_at`
+    is set by the send path and by nothing else, so a card the host has never sent
+    can't be picked up here — which is the one mistake this must not make.
+    """
+    from kith.services import send  # local import avoids an import cycle
+
+    if not settings.whatsapp_configured:
+        return 0
+    candidates = db.execute(
+        select(Event).where(Event.wa_batch_started_at.is_not(None))
+    ).scalars().all()
+    resumed = 0
+    for ev in candidates:
+        if ev.wa_batch_started_at is None:   # the query excludes these; mypy can't tell
+            continue
+        started = _as_utc(ev.wa_batch_started_at)
+        if now - started < RESUME_AFTER:
+            continue                      # may well still be running
+        if now - started > RESUME_WITHIN:
+            ev.wa_batch_started_at = None  # stale; leave it to the host
+            db.commit()
+            continue
+        if send.wa_batch_running(ev.id):
+            continue
+        owed = db.execute(
+            select(func.count()).select_from(Recipient).where(
+                Recipient.event_id == ev.id,
+                Recipient.status == "queued",
+                Recipient.phone.is_not(None),
+            )
+        ).scalar_one()
+        if not owed:
+            ev.wa_batch_started_at = None
+            db.commit()
+            continue
+        log.info("whatsapp: resuming an interrupted batch for event %s (%d owed)",
+                 ev.id, owed)
+        send.submit_whatsapp_batch(session_factory, ev.id, settings)
+        resumed += 1
+    return resumed
+
+
 def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = None) -> SweepResult:
     """Periodic maintenance: fire due scheduled sends + reminders, then purge assets."""
     now = now or datetime.now(UTC)
     db: Session = session_factory()
     try:
         scheduled = send_due_scheduled(db, settings, now=now)
+        resumed = resume_interrupted_wa_batches(db, session_factory, settings, now=now)
         pending = db.execute(
             select(Reminder).where(Reminder.status == "pending").order_by(Reminder.scheduled_for)
         ).scalars().all()
@@ -319,7 +379,8 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
                         time.sleep(gap)
         purged = purge_expired_assets(db, settings, now=now)
         return SweepResult(
-            considered=len(due), sent=sent, skipped=skipped, purged=purged, scheduled=scheduled
+            considered=len(due), sent=sent, skipped=skipped, purged=purged,
+            scheduled=scheduled, resumed=resumed,
         )
     finally:
         db.close()

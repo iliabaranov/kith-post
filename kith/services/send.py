@@ -233,6 +233,11 @@ def send_event(
             sent=sent, failed=failed, mode=settings.send_mode.value,
             wa_pending=len(wa_recipients),
         )
+    if wa_recipients:
+        # Mark the work owed before anything is sent, so a crash between here and
+        # the last message leaves a record the sweep can act on.
+        event.wa_batch_started_at = datetime.now(UTC)
+        db.commit()
     if wa_recipients and wa_defer:
         # Email is quick and stays inline; WhatsApp is paced and goes to a
         # background batch. Recipients stay 'queued' until it reaches them, so the
@@ -271,9 +276,29 @@ def send_event(
 _wa_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wa-batch")
 
 
+_wa_futures: set = set()
+
+
 def submit_whatsapp_batch(session_factory, event_id: str, settings: Settings):
     """Queue a batch on the WhatsApp pool and hand back its Future."""
-    return _wa_pool.submit(send_whatsapp_batch, session_factory, event_id, settings)
+    fut = _wa_pool.submit(send_whatsapp_batch, session_factory, event_id, settings)
+    # Tracked so callers that need to know when the work is done — tests, and a
+    # graceful shutdown — have something to wait on. Discarded on completion so
+    # the set stays the size of what's actually outstanding.
+    _wa_futures.add(fut)
+    fut.add_done_callback(_wa_futures.discard)
+    return fut
+
+
+def wait_for_batches(timeout: float = 30.0) -> bool:
+    """Block until every queued batch has finished. True if they all did."""
+    from concurrent.futures import wait
+
+    pending = set(_wa_futures)
+    if not pending:
+        return True
+    done, not_done = wait(pending, timeout=timeout)
+    return not not_done
 
 
 # Events with a WhatsApp batch in flight. A single-process guard: the app runs as
@@ -542,4 +567,10 @@ def _send_whatsapp(
                     pass    # can't tell; treat it as this one recipient's problem
         _pace(settings, dry, i, len(recipients))
 
+    # A full pass finished. Whatever is still queued failed for its own reasons —
+    # a wrong number won't come right by trying again — so release the job rather
+    # than have the sweep retry it forever. A batch stopped by a restriction
+    # returns earlier and deliberately leaves the marker set.
+    event.wa_batch_started_at = None
+    db.commit()
     return _WaOutcome(sent, failed, None)
