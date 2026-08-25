@@ -148,9 +148,11 @@
         (up to {{ reminders.max_per_recipient }}, and they stop the moment someone replies).
       </p>
       {% elif reminders.planned %}
-      <p class="reminders-body">Nudging people who haven’t replied. Planned:</p>
+      {% set who = reminders.awaiting ~ (' person' if reminders.awaiting == 1 else ' people') %}
+      <p class="reminders-body">Nudging {{ who }} who haven’t replied. Planned:</p>
       <ul class="reminders-list">
-        {% for p in reminders.planned %}<li>{{ p }}</li>{% endfor %}
+        {% for p in reminders.planned %}<li>{{ p.when }}{% if p.people > 1 %}
+          <span class="reminders-count">· to {{ p.people }} people</span>{% endif %}</li>{% endfor %}
       </ul>
       {% if reminders.sent %}<p class="reminders-body">{{ reminders.sent }} reminder{{ '' if reminders.sent == 1 else 's' }} sent so far.</p>{% endif %}
       {% else %}

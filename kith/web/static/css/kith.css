@@ -597,3 +597,5 @@ textarea { resize: vertical; }
   border-radius: 12px; font-size: .92rem; line-height: 1.5; color: var(--ink);
   font-family: inherit;
 }
+/* how many people a single planned reminder time covers */
+.reminders-count { color: var(--ink-soft); font-size: .9em; }

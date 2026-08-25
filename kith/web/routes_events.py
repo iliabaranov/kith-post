@@ -522,11 +522,32 @@ def _reminders_ui(db: Session, ev: Event, settings, recipients: list[Recipient])
         except Exception:
             tz = None
 
+    this_year = date.today().year
+
     def _fmt(dt) -> str:
         d = scheduler._as_utc(dt)
         if tz is not None:
             d = d.astimezone(tz)
-        return d.strftime("%a, %b %d at %I:%M %p").replace(" 0", " ")
+        # Name the year when it isn't this one. The halfway slot for a distant
+        # event lands years out, and without a year the list reads as though it
+        # were out of order ("Jul 20" ahead of "Jun 7" — different years).
+        fmt = "%a, %b %d at %I:%M %p" if d.year == this_year else "%a, %b %d %Y at %I:%M %p"
+        return d.strftime(fmt).replace(" 0", " ")
+
+    # One line per *time*, not per row. A reminder row is per recipient, and the
+    # schedule is per event, so every waiting guest contributes an identical
+    # timestamp — listing rows turned "three nudges planned" into thirty
+    # indistinguishable lines. Group them and say how many people each covers.
+    planned: list[dict] = []
+    by_when: dict[str, dict] = {}
+    for r in pending:
+        when = _fmt(r.scheduled_for)
+        slot = by_when.get(when)
+        if slot is None:
+            slot = {"when": when, "people": 0}
+            by_when[when] = slot
+            planned.append(slot)
+        slot["people"] += 1
 
     return {
         "available": bool(ev.event_date) and bool((ev.blocks or {}).get("rsvp")),
@@ -536,7 +557,10 @@ def _reminders_ui(db: Session, ev: Event, settings, recipients: list[Recipient])
         "sent_any": any(r.status in ("sent", "coming", "declined") for r in recipients),
         "scheduled": len(pending),
         "sent": sum(1 for r in rows if r.status == "sent"),
-        "planned": [_fmt(r.scheduled_for) for r in pending],
+        "planned": planned,
+        # How many people are still waiting on a nudge, which is the number the
+        # host actually wants — not how many rows are in the table.
+        "awaiting": len({r.recipient_id for r in pending}),
         "schedule_desc": _describe_schedule(cfg),
         "max_per_recipient": cfg.max_per_recipient,
     }
