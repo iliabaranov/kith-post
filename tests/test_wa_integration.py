@@ -267,7 +267,9 @@ def test_a_card_is_not_announced_as_an_invitation():
         view_url="https://kithpo.st/i/abc", rsvp=False, invitation=False,
     )
     assert "You're invited" not in text
-    assert "I've sent you a card: Love you." in text
+    # A card doesn't name itself — the picture carries the title.
+    assert "I've sent you this card." in text
+    assert "Love you" not in text
 
 
 def test_an_invitation_still_reads_as_one():
@@ -275,7 +277,7 @@ def test_an_invitation_still_reads_as_one():
         title="Joe's 3rd Birthday", host_name="Ilia",
         view_url="https://kithpo.st/i/abc", rsvp=True, invitation=True,
     )
-    assert "You're invited to Joe's 3rd Birthday." in text
+    assert "I've sent you this invite to Joe's 3rd Birthday." in text
 
 
 def test_a_dated_card_without_rsvp_is_an_invitation_that_asks_nothing():
@@ -288,7 +290,7 @@ def test_a_dated_card_without_rsvp_is_an_invitation_that_asks_nothing():
         title="Our wedding", host_name="Ilia", view_url="https://x/i/a",
         when="Fri, Jan 01", rsvp=False, invitation=True,
     )
-    assert "You're invited to Our wedding." in text
+    assert "I've sent you this invite to Our wedding." in text
     assert "let me know" not in text     # no RSVP to give
 
 
@@ -297,8 +299,8 @@ def test_a_reminder_about_a_card_does_not_call_it_an_invitation():
         title="", host_name="Ilia", view_url="https://x/i/a",
         rsvp=False, invitation=False,
     )
-    assert "invitation" not in text
-    assert "the card I sent" in text
+    assert "invite" not in text
+    assert "just a nudge about the card" in text
 
 
 def test_the_link_preview_matches_what_was_sent(wa):
@@ -628,3 +630,66 @@ def test_using_a_contact_marks_it_recently_used(wa):
     # ...and the ordering that depended on it now works.
     order = [x.id for x in book.list_contacts(db2, user2.id)]
     assert order.index(a.id) < order.index(c.id)
+
+
+# --- the voice of the message -------------------------------------------------
+
+def test_the_host_is_named_by_their_first_name_only(wa):
+    """WhatsApp already shows who a message is from, so the full name Google holds
+    is both redundant and the stiffest thing in it."""
+    text = wamessage.invite_text(
+        title="Party", host_name="Ilia Baranov", recipient_name="Mara",
+        view_url="https://x/i/a",
+    )
+    assert text.startswith("Hi Mara, it's Ilia, ")
+    assert "Baranov" not in text
+
+
+def test_a_mononym_survives_intact():
+    assert wamessage.first_name("Prince") == "Prince"
+
+
+def test_a_placeholder_name_is_not_shortened_to_a_letter():
+    """Other channels fall back to "A friend" for a nameless account; first-naming
+    that would greet people as "it's A"."""
+    for placeholder in ("A friend", "a friend", "Friend", "someone", "", None):
+        assert wamessage.first_name(placeholder) == ""
+    text = wamessage.invite_text(
+        title="Party", host_name="A friend", recipient_name="Mara",
+        view_url="https://x/i/a",
+    )
+    assert "it's A" not in text
+    assert text.startswith("Hi Mara, I've sent you this invite")
+
+
+def test_an_unnamed_guest_and_a_named_host(wa):
+    text = wamessage.invite_text(
+        title="Party", host_name="Ilia Baranov", view_url="https://x/i/a",
+    )
+    assert text.startswith("Hi, it's Ilia, I've sent you this invite to Party.")
+
+
+def test_no_emoji_anywhere(wa):
+    """One template carries birthday invitations and condolence cards; there is no
+    emoji that suits both."""
+    import unicodedata
+
+    texts = [
+        wamessage.invite_text(title="Party", host_name="Ilia", recipient_name="Mara",
+                              view_url="https://x/i/a", when="Sat, Jun 14"),
+        wamessage.invite_text(title="Thinking of you", host_name="Ilia",
+                              view_url="https://x/i/a", rsvp=False, invitation=False),
+        wamessage.reminder_text(title="Party", host_name="Ilia", view_url="https://x/i/a"),
+    ]
+    for t in texts:
+        for ch in t:
+            assert unicodedata.category(ch) != "So", f"emoji {ch!r} in: {t}"
+
+
+def test_the_reminder_matches_the_invitation_voice(wa):
+    text = wamessage.reminder_text(
+        title="Party", host_name="Ilia Baranov", recipient_name="Mara",
+        view_url="https://x/i/a",
+    )
+    assert text.startswith("Hi Mara, it's Ilia, just a nudge about Party")
+    assert "gentle nudge" not in text      # the older, stiffer phrasing

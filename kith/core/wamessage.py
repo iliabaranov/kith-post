@@ -1,8 +1,17 @@
 """Compose the WhatsApp text for an invitation or a nudge — pure, testable.
 
-A WhatsApp message is not a small email. It lands in a personal chat, so it stays
-short, is addressed to the person by name where we know it, and says who it's
-from — a bare link from a number reads like spam even when the number is a friend.
+A WhatsApp message is not a small email. It lands in a personal chat, next to
+messages from the host's actual friends, so it reads like one of those: first name
+only, one sentence, no announcement voice. "You're invited to Joe's 3rd Birthday"
+is a printed card; "Hi Mara, it's Ilia, I've sent you this invite to Joe's 3rd
+Birthday" is a person with a phone.
+
+The host's **first name** is deliberate. WhatsApp already shows who a message is
+from — it arrives from their own number — so spelling out the full name Google
+happens to hold is both redundant and the stiffest thing in the message.
+
+No emoji. The same template carries a birthday invitation and a condolence card,
+and there is no emoji that is right for both.
 
 Nothing here tracks anything. The link is the same per-recipient invitation URL
 the email uses, and every signal (opened, RSVP, headcount, allergies) is collected
@@ -34,16 +43,30 @@ def when_line(event_date: date | None, event_time: str | None) -> str | None:
     return f"{day} at {pretty_time(event_time)}"
 
 
-def _greeting(recipient_name: str | None, host_name: str) -> str:
+def first_name(name: str | None) -> str:
+    """"Ilia Baranov" -> "Ilia". Empty for anything unusable as a name.
+
+    A chat message wants what friends call the host, not the name on their Google
+    account. A mononym comes back as itself; the stand-ins other channels use for
+    a nameless account would be mangled into "A", so they're rejected instead.
+    """
+    n = (name or "").strip()
+    if not n or n.lower() in {"a friend", "friend", "someone"}:
+        return ""
+    return n.split()[0]
+
+
+def _opening(recipient_name: str | None, host_name: str | None) -> str:
+    """"Hi Mara, it's Ilia," — as much of that as we actually know."""
     who = (recipient_name or "").strip()
-    host = (host_name or "").strip()
+    host = first_name(host_name)
     if who and host:
-        return f"Hi {who} — it's {host}."
+        return f"Hi {who}, it's {host},"
     if who:
-        return f"Hi {who}!"
+        return f"Hi {who},"
     if host:
-        return f"Hi! It's {host}."
-    return "Hi!"
+        return f"Hi, it's {host},"
+    return "Hi,"
 
 
 def invite_text(
@@ -59,25 +82,31 @@ def invite_text(
 ) -> str:
     """The first message: who it's from, what it is, when, and the link.
 
-    ``invitation`` decides the phrasing (see ``core.eventkind``) and ``rsvp``
-    decides whether we ask for an answer — a dated card can be an invitation
-    without collecting RSVPs.
+    ``invitation`` decides whether this is an invite or a card (see
+    ``core.eventkind``); ``rsvp`` decides whether we ask for an answer, since a
+    dated card can be an invitation without collecting RSVPs.
+
+    A card doesn't name itself. The picture *is* the message and carries the title
+    already, and restating it reads badly when the title is a sentiment — "Thinking
+    of you — for you."
     """
     what = (title or "").strip()
-    lines = [_greeting(recipient_name, host_name)]
+    opening = _opening(recipient_name, host_name)
     if invitation:
-        lines.append(f"You're invited to {what}." if what else "You're invited.")
+        body = (
+            f"I've sent you this invite to {what}." if what else "I've sent you this invite."
+        )
     else:
-        # A card, not an event. "You're invited to Love you." is how you sound
-        # when you've mistaken a note for a party.
-        lines.append(f"I've sent you a card: {what}." if what else "I've sent you a card.")
+        body = "I've sent you this card."
+
+    lines = [f"{opening} {body}"]
     if when:
         lines.append(when)
     if note:
         lines += ["", note.strip()]
     lines += [
         "",
-        ("Have a look and let me know if you can make it:" if rsvp else "Have a look:"),
+        ("Have a look and let me know if you can come:" if rsvp else "Have a look:"),
         view_url,
     ]
     return "\n".join(lines)
@@ -94,17 +123,15 @@ def reminder_text(
     invitation: bool = True,
 ) -> str:
     """A follow-up in the same chat. Softer, shorter, and never a second pitch."""
-    what = (title or "").strip() or ("my invitation" if invitation else "the card I sent")
-    who = (recipient_name or "").strip()
-    opener = f"Hi {who} — " if who else "Hi — "
-    lines = [
-        opener
-        + (
-            f"just a gentle nudge about {what}. Still hoping you can come!"
-            if rsvp
-            else f"just a gentle nudge about {what}, in case it got buried."
-        )
-    ]
+    what = (title or "").strip()
+    opening = _opening(recipient_name, host_name)
+    thing = what or ("the invite" if invitation else "the card")
+    body = (
+        f"just a nudge about {thing} — still hoping you can come!"
+        if rsvp
+        else f"just a nudge about {thing}, in case it got buried."
+    )
+    lines = [f"{opening} {body}"]
     if when:
         lines.append(when)
     lines += ["", view_url]

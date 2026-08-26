@@ -232,6 +232,14 @@ process), not decoration.
   *"That image is a bit big — under 10 MB works best."*
 - Reminders read like a nudge from a friend, not a system: *"Just making sure you
   saw Mara's invite 🙂"*
+- **A WhatsApp message is looser than the app's own voice**, because it lands in a
+  personal chat between two people rather than on a page: *"Hi Mara, it's Ilia,
+  I've sent you this invite to Nikolai's 3rd Birthday."* First name only — WhatsApp
+  already shows who it's from, so the full name on someone's Google account is the
+  stiffest thing in the message. A card doesn't name itself: the picture carries
+  the title, and repeating it reads badly when the title is a sentiment
+  ("Thinking of you — for you."). **No emoji in this channel** — the same template
+  carries a birthday invitation and a condolence card, and no emoji suits both.
 
 ## 10. Quality floor (non-negotiable, never announced)
 

@@ -359,7 +359,7 @@ def test_a_reminder_goes_to_the_same_whatsapp_chat(wa):
     assert ok and rem.status == "sent"
     _, to, text, _ = fake.sent[0]
     assert to == "+15551110000"
-    assert "gentle nudge" in text
+    assert "just a nudge" in text
     assert "Joe's 3rd Birthday" in text
 
 
@@ -389,7 +389,7 @@ def test_a_dry_run_reminder_is_written_not_sent(wa, monkeypatch):
     rem, ok = _due_reminder(db, ev)
     assert ok and fake.sent == []
     written = list((get_settings().outbox_dir / ev / "whatsapp" / "reminders").glob("*.txt"))
-    assert len(written) == 1 and "gentle nudge" in written[0].read_text()
+    assert len(written) == 1 and "just a nudge" in written[0].read_text()
 
 
 # --- copy ---------------------------------------------------------------------
@@ -408,7 +408,7 @@ def test_an_unnamed_recipient_still_gets_a_greeting():
         title="Party", host_name="Ilia", view_url="https://example.com/i/abc",
         recipient_name=None,
     )
-    assert text.startswith("Hi! It's Ilia.")
+    assert text.startswith("Hi, it's Ilia,")
 
 
 def test_the_note_from_a_resend_is_included():

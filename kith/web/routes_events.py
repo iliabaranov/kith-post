@@ -137,7 +137,7 @@ def _wa_send_preview(
     r = queued_wa[0]
     preview = wamessage.invite_text(
         title=ev.title,
-        host_name=user.display_name or "A friend",
+        host_name=user.display_name or "",
         view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
         recipient_name=r.name,
         when=wamessage.when_line(ev.event_date, ev.event_time),
