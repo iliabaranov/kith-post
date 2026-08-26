@@ -42,7 +42,7 @@ def _send_wa_reminder(
     """
     text = wamessage.reminder_text(
         title=ev.title,
-        host_name=user.display_name or "A friend",
+        host_name=user.display_name or "",   # see send.py: first-name, not a stand-in
         view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
         recipient_name=r.name,
         when=wamessage.when_line(ev.event_date, ev.event_time),

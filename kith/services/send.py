@@ -421,7 +421,10 @@ def _send_whatsapp(
     """
     rsvp = bool((event.blocks or {}).get("rsvp"))
     base = settings.base_url.rstrip("/")
-    host_name = user.display_name or "A friend"
+    # The raw display name, not the email path's "A friend" stand-in: a chat
+    # message uses the host's first name, and first_name() needs to be able to
+    # tell "no name" from a placeholder it would otherwise shorten to "A".
+    host_name = user.display_name or ""
     when = wamessage.when_line(event.event_date, event.event_time)
     invitation = eventkind.is_invitation(event.blocks, event.event_date)
     dry = settings.send_mode == SendMode.dry_run
