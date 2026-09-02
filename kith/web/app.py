@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from kith.config import get_settings
+from kith.core.channels import channel_of
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
 from kith.services import google_auth, scheduler, storage, waha
@@ -348,6 +349,55 @@ def create_app() -> FastAPI:
             return RedirectResponse("/", status_code=303)
         events = db.execute(select(Event).where(Event.user_id == user.id)).scalars().all()
         contacts = db.execute(select(Contact).where(Contact.user_id == user.id)).scalars().all()
+        # Recipients per event. "Download my data" that omitted the guest list
+        # and everyone's replies would be an export of the shell of a card, not
+        # of the card — and the per-channel receipt and opt-out columns only
+        # exist here, so leaving them out would hide the one fact a recipient is
+        # most entitled to have recorded: that they asked not to be texted.
+        by_event: dict[str, list[Recipient]] = {}
+        if events:
+            rows = db.execute(
+                select(Recipient)
+                .where(Recipient.event_id.in_([e.id for e in events]))
+                .order_by(Recipient.created_at)
+            ).scalars().all()
+            for r in rows:
+                by_event.setdefault(r.event_id, []).append(r)
+
+        def _recipient(r: Recipient) -> dict:
+            return {
+                "channel": channel_of(r),
+                "email": r.email or None,
+                "phone": r.phone,
+                "name": r.name,
+                "status": r.status,
+                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+                "first_open_at": r.first_open_at.isoformat() if r.first_open_at else None,
+                "rsvp_at": r.rsvp_at.isoformat() if r.rsvp_at else None,
+                "party_size": r.party_size,
+                "adults": r.adults,
+                "kids": r.kids,
+                "note": r.note,
+                "allergies": r.allergies,
+                # Each channel's own delivery facts, kept apart from
+                # first_open_at above, which is the only "opened" there is.
+                "whatsapp": {
+                    "message_id": r.wa_message_id,
+                    "delivered_at": (
+                        r.wa_delivered_at.isoformat() if r.wa_delivered_at else None
+                    ),
+                    "read_at": r.wa_read_at.isoformat() if r.wa_read_at else None,
+                    "ack": r.wa_ack,
+                },
+                "sms": {
+                    "message_id": r.sms_message_id,
+                    "delivered_at": (
+                        r.sms_delivered_at.isoformat() if r.sms_delivered_at else None
+                    ),
+                    "opted_out": bool(r.opted_out),
+                },
+            }
+
         data = {
             "id": user.id,
             "google_sub": user.google_sub,
@@ -360,8 +410,19 @@ def create_app() -> FastAPI:
                 "number": user.wa_number,
                 "linked_at": user.wa_linked_at.isoformat() if user.wa_linked_at else None,
             },
+            "sms": {
+                # Instance-level, so there is nothing per-account to export
+                # beyond whether the channel was available to this host at all.
+                "configured": settings.sms_configured,
+                "provider": settings.sms_provider if settings.sms_configured else None,
+            },
             "contacts": [
-                {"name": c.name, "email": c.email, "phone": c.phone} for c in contacts
+                {
+                    "name": c.name, "email": c.email, "phone": c.phone,
+                    "groups": c.groups or [],
+                    "opted_out_sms": bool(c.opted_out_sms),
+                }
+                for c in contacts
             ],
             "events": [
                 {
@@ -370,6 +431,7 @@ def create_app() -> FastAPI:
                     "event_time": e.event_time, "event_end_time": e.event_end_time,
                     "location": e.location, "signoff": e.signoff, "blocks": e.blocks,
                     "headcount_max": e.headcount_max, "timezone": e.timezone,
+                    "recipients": [_recipient(r) for r in by_event.get(e.id, [])],
                 }
                 for e in events
             ],
