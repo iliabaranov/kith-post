@@ -34,6 +34,15 @@
   <p class="sent-note wa-blocked">{{ wa_blocked_msg }}</p>
   {% endif %}
 
+  {% if sms_sending %}
+  <p class="sent-note">Sending the text invitations now — they go out a few seconds
+    apart so the carrier doesn't treat them as a burst. Refresh to watch them land.</p>
+  {% endif %}
+
+  {% if sms_blocked_msg %}
+  <p class="sent-note wa-blocked">{{ sms_blocked_msg }}</p>
+  {% endif %}
+
   {% if sent or failed %}
   <p class="sent-note">
     {% if sent %}✓ Sent {{ sent }} {{ noun }}{{ '' if sent == 1 else 's' }}{% if send_mode == 'dry-run' %} (dry run — written to <code>data/outbox/</code>){% endif %}.{% endif %}
@@ -93,6 +102,17 @@
     <pre class="wa-preview-text">{{ wa_preview }}</pre>
     <p class="field-hint">Sent from your own WhatsApp{% if event.asset_id %}, with the card
       itself as the picture and this as its caption{% endif %}. Each guest gets their own link.</p>
+  </details>
+  {% endif %}
+
+  {% if sms_preview %}
+  <details class="faq wa-preview">
+    <summary>What the text will say</summary>
+    <pre class="wa-preview-text">{{ sms_preview }}</pre>
+    <p class="field-hint">{{ sms_segments }} segment{{ '' if sms_segments == 1 else 's' }} —
+      a text is billed and split in chunks of about 160 characters, so a longer note costs
+      more of them. Text only: no card picture{% if event.asset_id %}, though the card is
+      on the page the link opens{% endif %}. Each guest gets their own link.</p>
   </details>
   {% endif %}
 
@@ -180,8 +200,9 @@
     <li class="rsvp-row">
       <span class="rsvp-who">
         <span class="rsvp-name">{{ r.name }}</span>
-        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}{% if r.channel == 'whatsapp' %} <span class="via-wa" title="Sent over WhatsApp">· WhatsApp</span>{% endif %}</span>
-        {% elif r.channel == 'whatsapp' %}<span class="rsvp-email"><span class="via-wa">· WhatsApp</span></span>{% endif %}
+        {% if r.name != r.email %}<span class="rsvp-email">{{ r.email }}{% if r.channel == 'whatsapp' %} <span class="via-wa" title="Sent over WhatsApp">· WhatsApp</span>{% elif r.channel == 'sms' %} <span class="via-wa" title="Sent by text">· SMS</span>{% endif %}</span>
+        {% elif r.channel == 'whatsapp' %}<span class="rsvp-email"><span class="via-wa">· WhatsApp</span></span>
+        {% elif r.channel == 'sms' %}<span class="rsvp-email"><span class="via-wa">· SMS</span></span>{% endif %}
         {% if r.receipt %}<span class="rsvp-receipt">{{ r.receipt }}</span>{% endif %}
         {% if r.allergies %}<span class="rsvp-note"><b>Allergies:</b> {{ r.allergies }}</span>{% endif %}
         {% if r.note %}<span class="rsvp-note"><b>Note:</b> {{ r.note }}</span>{% endif %}

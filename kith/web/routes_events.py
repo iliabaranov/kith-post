@@ -18,10 +18,15 @@ from starlette.background import BackgroundTask
 
 from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
-from kith.core import eventkind, images, wamessage
+from kith.core import eventkind, images, smsmessage, wamessage
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
-from kith.core.channels import CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, channel_of
+from kith.core.channels import (
+    CHANNEL_EMAIL,
+    CHANNEL_SMS,
+    CHANNEL_WHATSAPP,
+    channel_of,
+)
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
@@ -103,6 +108,22 @@ def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergi
     }
 
 
+# Why an SMS batch stopped, in words a host can act on. Both cases are the
+# operator's to fix, not the host's — SMS is configured for the whole site — so
+# the copy says who to ask rather than offering a button that would do nothing.
+_SMS_BLOCKED = {
+    "not-configured": (
+        "Text messages aren't set up on this site, so those invitations weren't "
+        "sent. They're still queued — ask whoever runs it to finish setting the "
+        "channel up."
+    ),
+    "auth": (
+        "The text-message service rejected this site's credentials, so those "
+        "invitations weren't sent. They're still queued — ask whoever runs it to "
+        "check the settings."
+    ),
+}
+
 # Why a WhatsApp batch stopped, in words a host can act on. Deliberately blames
 # WhatsApp where WhatsApp is at fault, and never suggests re-linking during a
 # timelock — that only makes the account look worse.
@@ -168,6 +189,35 @@ def _wa_send_preview(
     elif cap.get("status") in ("FIRST_WARNING", "SECOND_WARNING"):
         note = "You're near WhatsApp's limit on starting new conversations."
     return {"wa_preview": preview, "wa_quota_note": note}
+
+
+def _sms_send_preview(
+    db: Session, ev: Event, user, rows: Sequence[Recipient]  # noqa: ANN001
+) -> dict:
+    """The text an SMS guest will receive, and what it costs to send.
+
+    The segment count is the point of showing it: a host can shorten the title
+    or drop a note while they can still see the number, and cannot once the
+    texts have gone. Nothing here is a quota caution — SMS has no equivalent of
+    WhatsApp's new-chat cap.
+    """
+    settings = get_settings()
+    queued_sms = [
+        r for r in rows if channel_of(r) == CHANNEL_SMS and r.status == "queued"
+    ]
+    if not settings.sms_configured or not queued_sms:
+        return {"sms_preview": None, "sms_segments": None}
+    r = queued_sms[0]
+    preview = smsmessage.invite_text(
+        title=ev.title,
+        host_name=user.display_name or "A friend",
+        view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
+        recipient_name=r.name,
+        when=smsmessage.when_line(ev.event_date, ev.event_time),
+        rsvp=bool((ev.blocks or {}).get("rsvp")),
+        invitation=eventkind.is_invitation(ev.blocks, ev.event_date),
+    )
+    return {"sms_preview": preview, "sms_segments": smsmessage.segments(preview)}
 
 
 def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN001
@@ -261,6 +311,16 @@ def _needs_google(db: Session, event_id: str, statuses: tuple[str, ...]) -> bool
     return any(channel_of(r) == CHANNEL_EMAIL for r in rows)
 
 
+def _sms_flags(settings) -> dict:  # noqa: ANN001 — a Settings
+    """Whether to show the SMS box on the compose form.
+
+    One flag, and no offer to set anything up: SMS is instance-level, configured
+    once by the operator, so there is nothing a host can do about it being off.
+    An invitation to link something that isn't theirs to link would be a dead end.
+    """
+    return {"sms_ready": settings.sms_configured}
+
+
 def _wa_flags(user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
     """Whether to offer the WhatsApp box on the compose form.
 
@@ -331,20 +391,24 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
         # address to show is whichever they actually have — otherwise an unnamed
         # WhatsApp guest rendered as a blank row.
         address = r.phone or r.email
-        # WhatsApp's own receipts, kept as their own line rather than folded into
-        # the status chip: "read" is the channel telling the host what it knows,
-        # not evidence anyone opened the invitation.
+        # A channel's own receipts, kept as their own line rather than folded
+        # into the status chip: "read" is the channel telling the host what it
+        # knows, not evidence anyone opened the invitation. SMS has no read
+        # receipt at all, so it can only ever say "delivered".
         receipt = ""
-        if channel_of(r) == CHANNEL_WHATSAPP:
+        channel = channel_of(r)
+        if channel == CHANNEL_WHATSAPP:
             if r.wa_ack == -1:
                 receipt = "WhatsApp couldn't deliver it"
             elif r.wa_read_at:
                 receipt = "Read on WhatsApp"
             elif r.wa_delivered_at:
                 receipt = "Delivered on WhatsApp"
+        elif channel == CHANNEL_SMS and r.sms_delivered_at:
+            receipt = "Delivered by text"
         recipients.append({
             "name": r.name or address, "email": address,
-            "channel": channel_of(r),
+            "channel": channel,
             "receipt": receipt,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
@@ -358,22 +422,61 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+# How the send button names each channel. Two forms, because a channel reads
+# differently alone than in a list: "over WhatsApp" stands on its own, while the
+# same channel in company is just "...and WhatsApp".
+_VIA_ALONE = {
+    CHANNEL_EMAIL: "by email",
+    CHANNEL_WHATSAPP: "over WhatsApp",
+    CHANNEL_SMS: "by text",
+}
+_VIA_JOINED = {CHANNEL_EMAIL: "email", CHANNEL_WHATSAPP: "WhatsApp", CHANNEL_SMS: "text"}
+# What the messages are sent *from*. SMS is the odd one out: it goes from a
+# number the operator configured for the whole site, not from anything of the
+# host's, and saying "your" about it would be a small lie.
+_DEST_ALONE = {
+    CHANNEL_EMAIL: "your Gmail",
+    CHANNEL_WHATSAPP: "your WhatsApp",
+    CHANNEL_SMS: "this site's text number",
+}
+_DEST_JOINED = {CHANNEL_EMAIL: "your Gmail", CHANNEL_WHATSAPP: "WhatsApp", CHANNEL_SMS: "text"}
+
+# Fixed order, so the wording is stable rather than dependent on who was typed
+# into which box first.
+_CHANNEL_ORDER = (CHANNEL_EMAIL, CHANNEL_WHATSAPP, CHANNEL_SMS)
+
+
+def _and_list(parts: list[str]) -> str:
+    """"a", "a and b", "a, b and c"."""
+    if len(parts) < 2:
+        return parts[0] if parts else ""
+    return f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
 def _send_ui(mode: str, queued_rows: list[Recipient], noun: str) -> tuple[str, str, str]:
     """Label, hint and confirmation for the send button.
 
     The wording names the channels this particular card will actually use. Saying
     "from your Gmail" over a card addressed entirely by WhatsApp is the kind of
-    detail that makes a host distrust the button they're about to press.
+    detail that makes a host distrust the button they're about to press — and the
+    same is true of a card going out by text.
     """
     n = len(queued_rows)
-    wa = sum(1 for r in queued_rows if channel_of(r) == CHANNEL_WHATSAPP)
-    em = sum(1 for r in queued_rows if channel_of(r) == CHANNEL_EMAIL)
-    if em and wa:
-        via, dest = "by email and WhatsApp", "your Gmail and WhatsApp"
-    elif wa:
-        via, dest = "over WhatsApp", "your WhatsApp"
+    present = [
+        ch for ch in _CHANNEL_ORDER
+        if any(channel_of(r) == ch for r in queued_rows)
+    ] or [CHANNEL_EMAIL]
+    if len(present) == 1:
+        via, dest = _VIA_ALONE[present[0]], _DEST_ALONE[present[0]]
     else:
-        via, dest = "by email", "your Gmail"
+        # The first channel keeps its standalone form so the phrase still opens
+        # with "your ..."; the rest are the shorter joined names.
+        via = "by " + _and_list(
+            [_VIA_JOINED[present[0]]] + [_VIA_JOINED[c] for c in present[1:]]
+        )
+        dest = _and_list(
+            [_DEST_ALONE[present[0]]] + [_DEST_JOINED[c] for c in present[1:]]
+        )
     thing = _plural(n, noun)
 
     if mode == "self-only":
@@ -513,7 +616,8 @@ def new_event(request: Request, db: Session = Depends(get_db)):
     ctx = {
         "settings": get_settings(), "user": user, "event": None,
         "blocks": DEFAULT_BLOCKS, "recipients_text": "", "wa_recipients_text": "",
-        **_wa_flags(user, get_settings()),
+        "sms_recipients_text": "",
+        **_wa_flags(user, get_settings()), **_sms_flags(get_settings()),
         "cc_text": "", "error": None,
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(None),
@@ -566,6 +670,7 @@ async def create_event(
             "recipients_text": recipients, "wa_recipients_text": wa_recipients or "",
             "sms_recipients_text": sms_recipients or "",
             "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
+            **_sms_flags(get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -680,6 +785,7 @@ def event_detail(
     sent: int = 0, failed: int = 0, ask_contacts: int = 0, saved: int = 0,
     details_changed: int = 0, scheduled: int = 0, schedule_error: int = 0,
     wa_blocked: str = "", wa_pending: int = 0,
+    sms_blocked: str = "", sms_pending: int = 0,
 ):
     user = load_user(request, db)
     if user is None:
@@ -723,6 +829,7 @@ def event_detail(
         # recipient, because a fake one would hide the personalisation — and the
         # host should be able to read it before it goes to their family.
         **_wa_send_preview(db, ev, user, rows),
+        **_sms_send_preview(db, ev, user, rows),
         # Only suggest fixing Google when email is actually involved — a WhatsApp
         # card failing has nothing to do with a Gmail connection.
         "needs_google": any(
@@ -738,6 +845,9 @@ def event_detail(
         "wa_blocked_msg": _wa_stuck_note(user, rows) or _WA_BLOCKED.get(wa_blocked),
         "wa_sending": send.wa_batch_running(ev.id) or bool(wa_pending),
         "wa_pending": wa_pending,
+        "sms_sending": send.sms_batch_running(ev.id) or bool(sms_pending),
+        "sms_pending": sms_pending,
+        "sms_blocked_msg": _SMS_BLOCKED.get(sms_blocked),
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
@@ -773,6 +883,8 @@ def send_invitations(event_id: str, request: Request, db: Session = Depends(get_
         # A WhatsApp batch stopped as a whole needs explaining, or the host just
         # sees invitations that didn't go anywhere.
         url += f"&wa_blocked={result.wa_blocked}"
+    if result.sms_blocked:
+        url += f"&sms_blocked={result.sms_blocked}"
     if result.wa_pending:
         url += f"&wa_pending={result.wa_pending}"
     if result.sms_pending:
@@ -945,8 +1057,8 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     def _lines(people, addr) -> str:
         return "\n".join((f"{r.name} <{addr(r)}>" if r.name else addr(r)) for r in people)
 
-    # Each box shows its own channel's rows. Splitting on "has a phone" would
-    # list an SMS guest in the WhatsApp box — and the next save would move them.
+    # Split by channel: both phone channels carry a number, so "has a phone"
+    # would list an SMS guest in the WhatsApp box and move them on the next save.
     recipients_text = _lines(
         [r for r in rows if channel_of(r) == CHANNEL_EMAIL], lambda r: r.email
     )
@@ -962,6 +1074,7 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
         "wa_recipients_text": wa_recipients_text,
         "sms_recipients_text": sms_recipients_text,
         "cc_text": _cc_text(ev), "error": None, **_wa_flags(user, get_settings()),
+        **_sms_flags(get_settings()),
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
     }
@@ -1017,6 +1130,7 @@ async def update_event(
             "recipients_text": recipients, "wa_recipients_text": wa_recipients or "",
             "sms_recipients_text": sms_recipients or "",
             "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
+            **_sms_flags(get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
