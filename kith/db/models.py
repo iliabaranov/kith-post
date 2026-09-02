@@ -167,8 +167,10 @@ class Recipient(Base):
 
     A recipient is reached over exactly one channel. ``channel`` is NULL on every
     row written before the WhatsApp channel existed, which is why NULL means
-    email — see ``CHANNEL_EMAIL``. For a WhatsApp recipient ``email`` is "" and
-    ``phone`` holds the E.164 number; ``email`` stays NOT NULL because the
+    email — see ``CHANNEL_EMAIL``. For a WhatsApp or SMS recipient ``email`` is
+    "" and ``phone`` holds the E.164 number, which is why the channel column
+    rather than the number is what says which of the two it is;
+    ``email`` stays NOT NULL because the
     additive schema sync (and SQLite) can't loosen an existing column, and a
     table rebuild on a live database isn't worth it for a sentinel.
     """
@@ -180,7 +182,7 @@ class Recipient(Base):
         ForeignKey("events.id", ondelete="CASCADE"), index=True
     )
     email: Mapped[str] = mapped_column(EncryptedString)
-    # "email" (or NULL, for rows that predate the channel) | "whatsapp"
+    # "email" (or NULL, for rows that predate the channel) | "whatsapp" | "sms"
     channel: Mapped[str | None] = mapped_column(String, nullable=True)
     phone: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
@@ -209,6 +211,19 @@ class Recipient(Base):
     )
     # Highest ack seen: -1 error, 0 pending, 1 server, 2 device, 3 read, 4 played.
     wa_ack: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The provider's own id for an SMS send, so a delivery receipt arriving later
+    # can be matched back to the recipient it belongs to.
+    sms_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The carrier said it arrived. There is no read receipt for SMS, so this is
+    # the only delivery fact the channel offers — and, like the wa_* pair above,
+    # it is kept well away from `first_open_at`: a delivery is not an open.
+    sms_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # This person replied STOP. Compliance-critical and enforced on every send
+    # path, so it is here rather than derived. NULL means nobody has said so;
+    # the durable per-contact half of the flag arrives with the STOP webhook.
+    opted_out: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # Gmail resource id
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True)   # Gmail threadId
     # RFC822 Message-ID we stamp on the first send; reminders/re-sends reference it
