@@ -45,7 +45,7 @@ from kith.core.channels import (
     CHANNEL_WHATSAPP,
     channel_of,
 )
-from kith.db.models import Asset, Event, Recipient, User
+from kith.db.models import Asset, Contact, Event, Recipient, User
 from kith.services import sms as sms_channel
 from kith.services import wa_session as wa_link
 from kith.services import waha
@@ -155,6 +155,51 @@ def _write_wa_outbox(
     card = f"Card: {card_bytes} bytes, sent as the image with this as its caption\n" \
         if card_bytes else "Card: none — text only\n"
     (d / f"{recipient_id}.txt").write_text(f"To: {to}\n{card}\n{text}\n")
+
+
+def opted_out_numbers(db: Session, user_id: str) -> set[str]:
+    """Every E.164 number of this user's that has ever replied STOP.
+
+    An opt-out is permanent and applies to every future card, so it cannot be
+    read off the recipient row alone — a card composed after the STOP has a
+    fresh row that knows nothing about it. Two sources, together covering every
+    way a number can reach us:
+
+    * contacts flagged ``opted_out_sms`` — the address-book half;
+    * recipient rows flagged ``opted_out`` — which catches a number typed
+      straight into the compose box and never saved as a contact. A number that
+      texted STOP was necessarily messaged first, so it always has one.
+
+    Returned as plaintext numbers rather than blind indexes because the caller
+    is holding a decrypted recipient and comparing is cheaper than hashing. The
+    set is small: it only ever holds people who asked to be left alone.
+    """
+    numbers = {
+        c.phone for c in db.execute(
+            select(Contact).where(
+                Contact.user_id == user_id, Contact.opted_out_sms.is_(True)
+            )
+        ).scalars().all()
+        if c.phone
+    }
+    numbers |= {
+        r.phone for r in db.execute(
+            select(Recipient)
+            .join(Event, Event.id == Recipient.event_id)
+            .where(Event.user_id == user_id, Recipient.opted_out.is_(True))
+        ).scalars().all()
+        if r.phone
+    }
+    return numbers
+
+
+def is_opted_out(r: Recipient, opted_out: set[str]) -> bool:
+    """Whether this recipient must not be texted.
+
+    The row's own flag first, so a STOP that arrived mid-batch is honoured
+    before the set is even consulted.
+    """
+    return bool(r.opted_out) or (bool(r.phone) and r.phone in opted_out)
 
 
 def _write_sms_outbox(
@@ -669,6 +714,11 @@ def _send_sms(
         return _stopped(0, 0, "no-self-number")
 
     provider = None if dry else sms_channel.get_provider(settings)
+    # Read once for the batch. Enforced even in dry-run: an operator checking
+    # the outbox should see the same set of texts a live send would produce, and
+    # a dry-run that quietly includes an opted-out number is a dry run that
+    # hides the bug.
+    opted_out = opted_out_numbers(db, user.id)
 
     sent = failed = 0
     for i, r in enumerate(recipients):
@@ -688,6 +738,13 @@ def _send_sms(
         if not still_queued:
             log.info("sms: recipient %s is no longer queued (%s); skipping", r.id, r.status)
             _pace(settings, dry, i, len(recipients), CHANNEL_SMS)
+            continue
+        if is_opted_out(r, opted_out):
+            # Left 'queued' rather than marked failed or sent: neither is true.
+            # Nothing will retry it, because every later send re-checks this.
+            log.info(
+                "sms: recipient %s replied STOP; not texting them again", r.id
+            )
             continue
         text = smsmessage.invite_text(
             title=event.title,

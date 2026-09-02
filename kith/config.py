@@ -173,6 +173,31 @@ class Settings(BaseSettings):
                     and self.waha_webhook_secret)
 
     @property
+    def sms_webhooks_configured(self) -> bool:
+        """Receipts and STOP handling are opt-in, and need a secret to be on.
+
+        The secret is the master switch for both endpoints. The gateway path
+        also uses it as its signing key; the Twilio path verifies Twilio's own
+        signature with the account auth token instead, but is gated on the same
+        setting so that "receipts are off" means off for the whole channel
+        rather than something an operator has to reason about per provider.
+        """
+        return bool(self.sms_enabled and self.sms_webhook_secret)
+
+    @property
+    def sms_status_callback_url(self) -> str:
+        """Where Twilio should POST delivery receipts, or "" for none.
+
+        The public base_url, unlike the WhatsApp webhook's compose-internal
+        address: this callback arrives from Twilio's servers over the internet,
+        so it has to be reachable from outside the box. Empty when receipts are
+        off, which is what stops a callback URL being registered at all.
+        """
+        if not self.sms_webhooks_configured:
+            return ""
+        return f"{self.base_url.rstrip('/')}/sms/webhook/twilio"
+
+    @property
     def sms_configured(self) -> bool:
         """The channel is usable: enabled, with a provider that can actually send.
 

@@ -19,11 +19,86 @@ know they exist.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
+import time
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 log = logging.getLogger("kith")
+
+# How the capcom6 gateway signs its webhook POSTs (docs.sms-gate.app): a hex
+# HMAC-SHA256 over the raw body concatenated with the timestamp header, keyed
+# with the signing key from the app's Settings -> Webhooks. Twilio signs
+# completely differently — see services.sms_twilio.verify_twilio_signature —
+# and the two must never be checked with each other's scheme.
+GATEWAY_SIGNATURE_HEADER = "x-signature"
+GATEWAY_TIMESTAMP_HEADER = "x-timestamp"
+
+# How far out of date a signed webhook may be. The signature alone stops
+# forgery but not replay: without this, one captured "delivered" POST could be
+# re-sent forever. Five minutes is the gateway docs' own suggestion, and is
+# generous enough for a phone with a lazy clock.
+WEBHOOK_MAX_AGE_SECONDS = 300
+
+
+def verify_gateway_webhook(
+    secret: str,
+    raw_body: bytes,
+    signature: str | None,
+    timestamp: str | None,
+    *,
+    now: float | None = None,
+    max_age: int = WEBHOOK_MAX_AGE_SECONDS,
+) -> bool:
+    """Constant-time check that this POST really came from our gateway.
+
+    Verifies HMAC-SHA256(secret, body + timestamp) against the hex signature,
+    then that the timestamp is recent. Both halves matter: the HMAC proves the
+    sender holds the key, the freshness check stops a captured POST being
+    replayed.
+    """
+    if not secret or not signature or not timestamp:
+        return False
+    try:
+        sent_at = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    # Absolute difference, so a clock that is ahead is as suspect as one behind.
+    if abs((now if now is not None else time.time()) - sent_at) > max_age:
+        return False
+    expected = hmac.new(
+        secret.encode(), raw_body + timestamp.encode(), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature.strip().lower())
+
+
+# The opt-out keywords a carrier expects to be honoured, plus the ones people
+# actually type. Matched on the whole trimmed, case-folded message: someone
+# writing "stop by any time!" is making conversation, not unsubscribing.
+STOP_KEYWORDS = frozenset({
+    "stop", "stopall", "unsubscribe", "cancel", "end", "quit", "stop all",
+})
+# The documented way back in. Honoured because a number that opted out by
+# accident otherwise has no route back at all — the host cannot clear it either.
+START_KEYWORDS = frozenset({"start", "unstop", "yes", "subscribe"})
+
+
+def opt_out_intent(body: str) -> str | None:
+    """"stop", "start", or None for an ordinary reply.
+
+    Punctuation is stripped so "STOP." and "Stop!" count; anything with other
+    words in it does not, because a message is only an opt-out if that is all
+    it says.
+    """
+    word = (body or "").strip().strip(".!?,;:").casefold()
+    word = " ".join(word.split())
+    if word in STOP_KEYWORDS:
+        return "stop"
+    if word in START_KEYWORDS:
+        return "start"
+    return None
 
 
 class SmsError(Exception):
@@ -141,6 +216,7 @@ def get_provider(settings) -> SmsProvider:  # noqa: ANN001 — a Settings
             settings.sms_twilio_auth_token,
             from_number=settings.sms_twilio_from,
             messaging_service_sid=settings.sms_twilio_messaging_service_sid,
+            status_callback=settings.sms_status_callback_url,
             timeout=settings.sms_timeout_seconds,
         )
     if settings.sms_provider == "gateway":

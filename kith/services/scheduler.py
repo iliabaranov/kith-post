@@ -222,7 +222,20 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
     rsvp = bool((ev.blocks or {}).get("rsvp"))
     host_name = user.display_name or "A friend"
     view_url = f"{settings.base_url.rstrip('/')}/i/{r.token}"
-    if channel_of(r) == CHANNEL_WHATSAPP:
+    from kith.services import send  # local import avoids an import cycle
+
+    channel = channel_of(r)
+    if channel == CHANNEL_SMS:
+        # Compliance-critical, and checked here as well as on the first send: a
+        # STOP that arrives between the invitation and the nudge has to stop the
+        # nudge. Skipped, not sent — an opted-out number is never texted again.
+        if send.is_opted_out(r, send.opted_out_numbers(db, user.id)):
+            reminder.status, reminder.skip_reason = "skipped", "opted_out"
+            db.commit()
+            log.info("reminder: recipient %s replied STOP; not nudging them", r.id)
+            return False
+        return _send_sms_reminder(db, reminder, r, ev, user, settings, rsvp=rsvp)
+    if channel == CHANNEL_WHATSAPP:
         return _send_wa_reminder(db, reminder, r, ev, user, settings, rsvp=rsvp)
     if channel_of(r) == CHANNEL_SMS:
         # An SMS row's email is the NOT NULL sentinel "". Without this branch
@@ -453,12 +466,14 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
             # thread, so sleeping here costs nothing but time.
             if ok and i + 1 < len(due):
                 r = db.get(Recipient, reminder.recipient_id)
-                if (
-                    r is not None
-                    and channel_of(r) == CHANNEL_WHATSAPP
-                    and settings.send_mode != SendMode.dry_run
+                ch = channel_of(r) if r is not None else None
+                if ch in (CHANNEL_WHATSAPP, CHANNEL_SMS) and (
+                    settings.send_mode != SendMode.dry_run
                 ):
-                    gap = send.next_send_gap(settings)
+                    # Each channel's own gap: a sweep can find a dozen due at
+                    # once, and firing them back to back is the burst both a
+                    # carrier and WhatsApp react to.
+                    gap = send.next_send_gap(settings, channel=ch)
                     if gap > 0:
                         time.sleep(gap)
         purged = purge_expired_assets(db, settings, now=now)

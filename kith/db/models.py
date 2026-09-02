@@ -93,6 +93,10 @@ class Contact(Base):
     phone_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     # free-form group tags, e.g. ["family", "local"]; None on legacy rows == no tags
     groups: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    # This number replied STOP. Per-contact rather than per-recipient because an
+    # opt-out is permanent and applies to every future card, not just the one
+    # they were on when they sent it. NULL means nobody has said so.
+    opted_out_sms: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

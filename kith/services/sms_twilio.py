@@ -15,6 +15,9 @@ one hierarchy.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
 
 import httpx
@@ -51,6 +54,38 @@ MISCONFIGURED_CODES = frozenset({20404, 21606})
 RATE_LIMITED_CODE = 20429
 
 
+# Twilio signs a webhook quite unlike the gateway does: base64 HMAC-SHA1, keyed
+# with the account's auth token, over the full callback URL followed by every
+# POST parameter sorted by name and concatenated as name+value with no
+# separators. Verifying a Twilio callback with the gateway's body-HMAC (or the
+# reverse) would reject every legitimate request, so the two live apart on
+# purpose and each endpoint calls only its own.
+TWILIO_SIGNATURE_HEADER = "x-twilio-signature"
+
+
+def verify_twilio_signature(
+    auth_token: str, url: str, params: dict[str, str], signature: str | None
+) -> bool:
+    """Constant-time check that this POST really came from Twilio.
+
+    ``url`` must be the exact URL Twilio was configured to call, including
+    scheme, host and any query string — it is part of the signed material, so a
+    proxy that rewrites it will make every callback fail to verify.
+    """
+    if not auth_token or not signature:
+        return False
+    payload = url + "".join(f"{k}{params[k]}" for k in sorted(params))
+    digest = hmac.new(auth_token.encode(), payload.encode(), hashlib.sha1).digest()
+    expected = base64.b64encode(digest).decode()
+    return hmac.compare_digest(expected, signature.strip())
+
+
+# Twilio's message lifecycle, as a status callback reports it. "delivered" is
+# the carrier confirming arrival; "sent" only means Twilio handed it off.
+TWILIO_DELIVERED = frozenset({"delivered"})
+TWILIO_FAILED = frozenset({"undelivered", "failed"})
+
+
 class TwilioProvider:
     """One send per call, over HTTP Basic auth, with a bounded timeout."""
 
@@ -61,6 +96,7 @@ class TwilioProvider:
         *,
         from_number: str = "",
         messaging_service_sid: str = "",
+        status_callback: str = "",
         timeout: float = 20.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -68,6 +104,9 @@ class TwilioProvider:
         self._token = auth_token
         self._from = (from_number or "").strip()
         self._mss = (messaging_service_sid or "").strip()
+        # Empty when receipts are off, in which case no callback is registered
+        # and Twilio has nothing to post back to.
+        self._status_callback = (status_callback or "").strip()
         # A short connect timeout separates "the internet is down" from "Twilio
         # is thinking about it", the same split services.waha makes.
         self._timeout = httpx.Timeout(timeout, connect=min(5.0, timeout))
@@ -88,6 +127,8 @@ class TwilioProvider:
             data["MessagingServiceSid"] = self._mss
         else:
             data["From"] = self._from
+        if self._status_callback:
+            data["StatusCallback"] = self._status_callback
         try:
             with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
                 resp = client.post(self._url, data=data, auth=(self._sid, self._token))
