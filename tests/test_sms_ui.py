@@ -39,9 +39,16 @@ def _fresh_client(monkeypatch, **env):
 @pytest.fixture
 def sms_client(monkeypatch):
     """SMS on, WhatsApp off — so an assertion about the SMS box can't pass by
-    accident on the WhatsApp one."""
+    accident on the WhatsApp one.
+
+    The dummy Twilio credentials are what make sms_configured true; a named but
+    uncredentialed provider is deliberately not configured. Nothing here sends,
+    so no credential is ever used.
+    """
     c = _fresh_client(
         monkeypatch, KITH_SMS_ENABLED="true", KITH_SMS_PROVIDER="twilio",
+        KITH_SMS_TWILIO_ACCOUNT_SID="AC_test", KITH_SMS_TWILIO_AUTH_TOKEN="tok_test",
+        KITH_SMS_TWILIO_FROM="+15550001234",
     )
     try:
         yield c
@@ -62,6 +69,8 @@ def both_client(monkeypatch):
 
     c = _fresh_client(
         monkeypatch, KITH_SMS_ENABLED="true", KITH_SMS_PROVIDER="twilio",
+        KITH_SMS_TWILIO_ACCOUNT_SID="AC_test", KITH_SMS_TWILIO_AUTH_TOKEN="tok_test",
+        KITH_SMS_TWILIO_FROM="+15550001234",
         KITH_WHATSAPP_ENABLED="true", KITH_WAHA_API_KEY="test-key",
     )
     db, user = _db_and_user()
@@ -87,6 +96,8 @@ def off_client(monkeypatch):
     """
     c = _fresh_client(
         monkeypatch, KITH_SMS_ENABLED="false", KITH_SMS_PROVIDER="none",
+        KITH_SMS_TWILIO_ACCOUNT_SID="", KITH_SMS_TWILIO_AUTH_TOKEN="",
+        KITH_SMS_TWILIO_FROM="",
         KITH_WHATSAPP_ENABLED="false", KITH_WAHA_API_KEY="",
     )
     try:

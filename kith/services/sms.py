@@ -120,7 +120,29 @@ def get_provider(settings) -> SmsProvider:  # noqa: ANN001 — a Settings
 
     SMS is instance-level: one provider for the box, chosen by the operator,
     rather than something each host links for themselves the way WhatsApp is.
-    Only "none" exists so far; concrete providers extend this factory, and are
-    reached only once ``sms_configured`` says the channel can actually send.
+    Concrete providers are reached only once ``sms_configured`` says the
+    channel can actually send.
+
+    An unrecognised provider name falls through to NullProvider rather than
+    raising here: a typo in the config should stop the send loudly at the point
+    of sending, not take the whole app down at import.
     """
+    if not settings.sms_configured:
+        # Off, or on with no usable provider: fail loudly at the point of
+        # sending rather than reach a half-configured transport.
+        return NullProvider()
+    if settings.sms_provider == "twilio":
+        # Imported lazily so the interface module stays free of transport code
+        # and of httpx.
+        from kith.services.sms_twilio import TwilioProvider
+
+        return TwilioProvider(
+            settings.sms_twilio_account_sid,
+            settings.sms_twilio_auth_token,
+            from_number=settings.sms_twilio_from,
+            messaging_service_sid=settings.sms_twilio_messaging_service_sid,
+            timeout=settings.sms_timeout_seconds,
+        )
+    if settings.sms_provider != "none":
+        log.warning("sms: unknown provider %r; nothing will send", settings.sms_provider)
     return NullProvider()

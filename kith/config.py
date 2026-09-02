@@ -131,6 +131,15 @@ class Settings(BaseSettings):
     # text rather than guessing at a destination.
     sms_self_number: str = ""
 
+    # Twilio SMS provider (KITH_SMS_PROVIDER=twilio)
+    sms_twilio_account_sid: str = ""
+    sms_twilio_auth_token: str = ""
+    # The sender: a Twilio number in E.164 (e.g. +15551234567) OR a Messaging
+    # Service SID (starts with "MG"). If both are set the Messaging Service
+    # wins — it is the more specific instruction, and it picks the number itself.
+    sms_twilio_from: str = ""
+    sms_twilio_messaging_service_sid: str = ""
+
     reminders: ReminderSettings = ReminderSettings()
 
     # Per-client rate limiting on the public + auth endpoints. On by default;
@@ -152,13 +161,21 @@ class Settings(BaseSettings):
     def sms_configured(self) -> bool:
         """The channel is usable: enabled, with a provider that can actually send.
 
-        False while ``sms_provider`` is "none", which is every configuration
-        possible so far — the provider names are listed now so the gate does not
-        have to change shape when they arrive.
+        A provider that is named but not credentialed is not configured. The
+        alternative is a compose box that appears, accepts numbers, and then
+        fails on the first live send — the failure belongs at startup, in the
+        operator's config, not in front of a host mid-party-planning.
         """
         if not self.sms_enabled:
             return False
-        return self.sms_provider in {"twilio", "gateway"}
+        if self.sms_provider == "twilio":
+            return bool(
+                self.sms_twilio_account_sid
+                and self.sms_twilio_auth_token
+                and (self.sms_twilio_from or self.sms_twilio_messaging_service_sid)
+            )
+        # The gateway's own gate lands with the gateway provider.
+        return self.sms_provider == "gateway"
 
     @property
     def whatsapp_configured(self) -> bool:

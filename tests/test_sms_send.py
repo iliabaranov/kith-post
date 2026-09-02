@@ -24,11 +24,15 @@ def sms_client(monkeypatch):
     """A signed-in client with the SMS channel configured.
 
     "twilio" plus dummy credentials is the cheapest way to make sms_configured
-    true; nothing in this module sends, so no credential is ever used. Settings
-    are cached, so switching the channel on means a fresh app.
+    true — a named but uncredentialed provider is deliberately not configured.
+    Nothing in this module reaches the network. Settings are cached, so switching
+    the channel on means a fresh app.
     """
     monkeypatch.setenv("KITH_SMS_ENABLED", "true")
     monkeypatch.setenv("KITH_SMS_PROVIDER", "twilio")
+    monkeypatch.setenv("KITH_SMS_TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setenv("KITH_SMS_TWILIO_AUTH_TOKEN", "tok_test")
+    monkeypatch.setenv("KITH_SMS_TWILIO_FROM", "+15550001234")
     get_settings.cache_clear()
     try:
         from kith.web.app import create_app
@@ -261,8 +265,10 @@ def test_enabled_without_a_provider_is_still_not_configured(monkeypatch):
 
 # --- the provider seam --------------------------------------------------------
 
-def test_the_factory_returns_the_null_provider_while_none_exist(sms_client):
-    provider = sms.get_provider(get_settings())
+def test_the_factory_returns_the_null_provider_when_nothing_is_configured():
+    from kith.config import Settings
+
+    provider = sms.get_provider(Settings(sms_enabled=False))
     assert isinstance(provider, sms.NullProvider)
     assert provider.capabilities() == sms.SmsCaps(can_receipt=False, can_inbound=False)
 
@@ -285,6 +291,7 @@ def test_a_live_send_with_no_provider_stops_the_batch_and_keeps_them_queued(
     """The recipients are still owed a text, so they stay owed."""
     ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000")
     monkeypatch.setenv("KITH_SEND_MODE", "live")
+    monkeypatch.setenv("KITH_SMS_PROVIDER", "none")   # back to no transport
     get_settings.cache_clear()
     db, res = _send(ev)
     assert (res.sms_sent, res.sms_failed) == (0, 0)
