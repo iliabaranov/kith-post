@@ -15,13 +15,15 @@ from dataclasses import dataclass
 
 from kith.core import phones
 
+# Delivery channels now live in core.channels, alongside the resolver that reads
+# them off a stored row. Re-exported here because callers (and tests) import them
+# from this module, which is where they were first defined.
+from kith.core.channels import CHANNEL_EMAIL as CHANNEL_EMAIL
+from kith.core.channels import CHANNEL_SMS as CHANNEL_SMS
+from kith.core.channels import CHANNEL_WHATSAPP as CHANNEL_WHATSAPP
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _NAMED_RE = re.compile(r"^(.*?)<([^>]+)>$")
-
-# Delivery channels. Absent/NULL in the DB means email, since every recipient
-# written before the WhatsApp channel existed predates the column.
-CHANNEL_EMAIL = "email"
-CHANNEL_WHATSAPP = "whatsapp"
 
 
 @dataclass(frozen=True)

@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
 from kith.core import eventkind, mailbuild, wamessage
+from kith.core.channels import CHANNEL_EMAIL, CHANNEL_WHATSAPP, channel_of
 from kith.db.models import Asset, Event, Recipient, User
 from kith.services import wa_session as wa_link
 from kith.services import waha
@@ -132,10 +133,11 @@ def send_event(
     queued = db.execute(
         select(Recipient).where(Recipient.event_id == event.id, Recipient.status == "queued")
     ).scalars().all()
-    # A recipient is on exactly one channel; phone set == WhatsApp (channel is
-    # NULL on rows that predate it, so the number is the reliable signal).
-    recipients = [r for r in queued if not r.phone]
-    wa_recipients = [r for r in queued if r.phone]
+    # A recipient is on exactly one channel, and the row says which. Asking
+    # channel_of rather than "is phone set" is what lets a second phone-based
+    # channel exist without this split quietly misrouting it.
+    recipients = [r for r in queued if channel_of(r) == CHANNEL_EMAIL]
+    wa_recipients = [r for r in queued if channel_of(r) == CHANNEL_WHATSAPP]
     asset = db.get(Asset, event.asset_id) if event.asset_id else None
     # A missing inline file must not take the whole send down with it. Assets can
     # outlive their files — the retention sweep removes the full-res copy, and
@@ -362,7 +364,7 @@ def _run_whatsapp_batch(session_factory, event_id: str, settings: Settings) -> N
                 Recipient.event_id == event.id, Recipient.status == "queued"
             )
         ).scalars().all()
-        recipients = [r for r in queued if r.phone]
+        recipients = [r for r in queued if channel_of(r) == CHANNEL_WHATSAPP]
         if not recipients:
             return
         asset = db.get(Asset, event.asset_id) if event.asset_id else None
