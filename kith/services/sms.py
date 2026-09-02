@@ -143,6 +143,17 @@ def get_provider(settings) -> SmsProvider:  # noqa: ANN001 — a Settings
             messaging_service_sid=settings.sms_twilio_messaging_service_sid,
             timeout=settings.sms_timeout_seconds,
         )
+    if settings.sms_provider == "gateway":
+        from kith.services.sms_gateway import AndroidGatewayProvider
+
+        return AndroidGatewayProvider(
+            settings.sms_gateway_url,
+            settings.sms_gateway_user,
+            settings.sms_gateway_pass,
+            device_id=settings.sms_gateway_device_id,
+            path=settings.sms_gateway_path,
+            timeout=settings.sms_timeout_seconds,
+        )
     if settings.sms_provider != "none":
         log.warning("sms: unknown provider %r; nothing will send", settings.sms_provider)
     return NullProvider()

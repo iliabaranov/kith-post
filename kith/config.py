@@ -140,6 +140,21 @@ class Settings(BaseSettings):
     sms_twilio_from: str = ""
     sms_twilio_messaging_service_sid: str = ""
 
+    # Android SMS gateway provider (KITH_SMS_PROVIDER=gateway)
+    # Where the gateway is: the phone's own Local Server
+    # (http://<phone-ip>:8080) or a self-hosted relay. Reached over the LAN or
+    # the compose network, never the public tunnel — not being reachable is the
+    # gateway's whole security model.
+    sms_gateway_url: str = ""
+    sms_gateway_user: str = ""            # Basic auth username (shown in the app)
+    sms_gateway_pass: str = ""            # Basic auth password
+    # The send path, which differs by deployment shape: "/message" for the
+    # app's on-device Local Server, "/3rdparty/v1/messages" for the relay or
+    # cloud server. See kith.services.sms_gateway for both constants.
+    sms_gateway_path: str = "/message"
+    # Only needed when a relay fronts more than one phone.
+    sms_gateway_device_id: str = ""
+
     reminders: ReminderSettings = ReminderSettings()
 
     # Per-client rate limiting on the public + auth endpoints. On by default;
@@ -174,8 +189,16 @@ class Settings(BaseSettings):
                 and self.sms_twilio_auth_token
                 and (self.sms_twilio_from or self.sms_twilio_messaging_service_sid)
             )
-        # The gateway's own gate lands with the gateway provider.
-        return self.sms_provider == "gateway"
+        if self.sms_provider == "gateway":
+            # The credentials matter as much as the URL: the app's Local Server
+            # only supports Basic auth, so an unauthenticated call is a 401
+            # rather than a send.
+            return bool(
+                self.sms_gateway_url
+                and self.sms_gateway_user
+                and self.sms_gateway_pass
+            )
+        return False
 
     @property
     def whatsapp_configured(self) -> bool:

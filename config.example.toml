@@ -58,3 +58,9 @@ data_dir = "data"
 # The account SID and auth token belong in .env.
 # sms_twilio_from = "+15551234567"
 # sms_twilio_messaging_service_sid = "MG..."
+
+# The Android gateway's send path, which differs by deployment shape:
+# "/message" for the app's on-device Local Server (the default), or
+# "/3rdparty/v1/messages" for the self-hosted relay / cloud server. The URL and
+# credentials are secrets and belong in .env.
+# sms_gateway_path = "/message"
