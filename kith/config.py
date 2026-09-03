@@ -106,6 +106,55 @@ class Settings(BaseSettings):
     waha_send_gap_min_seconds: float = 5.0
     waha_send_gap_max_seconds: float = 20.0
 
+    # --- SMS channel ---
+    # Off by default, and unlike WhatsApp this one is instance-level: the
+    # operator configures a provider once for the box, rather than each host
+    # linking their own. So there is nothing per-host to set up and no linking
+    # page — the channel is simply there or it isn't.
+    sms_enabled: bool = False
+    # "none" | "twilio" | "gateway". Concrete providers land in later changes.
+    sms_provider: str = "none"
+    sms_timeout_seconds: float = 20.0
+    # Pause between consecutive SMS sends, drawn fresh at random from this range.
+    # Lower than WhatsApp's: a carrier throttles or filters a burst rather than
+    # banning the number, so the stakes are smaller — but a hundred texts fired
+    # flat out still get spam-filtered, and an even cadence is its own tell.
+    sms_send_gap_min_seconds: float = 1.0
+    sms_send_gap_max_seconds: float = 4.0
+    # Shared secret for delivery-receipt and STOP callbacks. Empty = no webhooks
+    # configured at all, and the endpoint refuses everything.
+    sms_webhook_secret: str = ""
+    # Where self-only mode sends a text: the operator's own number, in any
+    # readable form — it is normalised to E.164 before use. WhatsApp's self-only
+    # borrows the host's linked number; SMS has no per-host identity, so this is
+    # instance-level like the rest of the channel. Unset, self-only holds every
+    # text rather than guessing at a destination.
+    sms_self_number: str = ""
+
+    # Twilio SMS provider (KITH_SMS_PROVIDER=twilio)
+    sms_twilio_account_sid: str = ""
+    sms_twilio_auth_token: str = ""
+    # The sender: a Twilio number in E.164 (e.g. +15551234567) OR a Messaging
+    # Service SID (starts with "MG"). If both are set the Messaging Service
+    # wins — it is the more specific instruction, and it picks the number itself.
+    sms_twilio_from: str = ""
+    sms_twilio_messaging_service_sid: str = ""
+
+    # Android SMS gateway provider (KITH_SMS_PROVIDER=gateway)
+    # Where the gateway is: the phone's own Local Server
+    # (http://<phone-ip>:8080) or a self-hosted relay. Reached over the LAN or
+    # the compose network, never the public tunnel — not being reachable is the
+    # gateway's whole security model.
+    sms_gateway_url: str = ""
+    sms_gateway_user: str = ""            # Basic auth username (shown in the app)
+    sms_gateway_pass: str = ""            # Basic auth password
+    # The send path, which differs by deployment shape: "/message" for the
+    # app's on-device Local Server, "/3rdparty/v1/messages" for the relay or
+    # cloud server. See kith.services.sms_gateway for both constants.
+    sms_gateway_path: str = "/message"
+    # Only needed when a relay fronts more than one phone.
+    sms_gateway_device_id: str = ""
+
     reminders: ReminderSettings = ReminderSettings()
 
     # Per-client rate limiting on the public + auth endpoints. On by default;
@@ -122,6 +171,34 @@ class Settings(BaseSettings):
         """Receipts are opt-in: they need a shared secret to be trustworthy."""
         return bool(self.whatsapp_enabled and self.waha_webhook_url
                     and self.waha_webhook_secret)
+
+    @property
+    def sms_configured(self) -> bool:
+        """The channel is usable: enabled, with a provider that can actually send.
+
+        A provider that is named but not credentialed is not configured. The
+        alternative is a compose box that appears, accepts numbers, and then
+        fails on the first live send — the failure belongs at startup, in the
+        operator's config, not in front of a host mid-party-planning.
+        """
+        if not self.sms_enabled:
+            return False
+        if self.sms_provider == "twilio":
+            return bool(
+                self.sms_twilio_account_sid
+                and self.sms_twilio_auth_token
+                and (self.sms_twilio_from or self.sms_twilio_messaging_service_sid)
+            )
+        if self.sms_provider == "gateway":
+            # The credentials matter as much as the URL: the app's Local Server
+            # only supports Basic auth, so an unauthenticated call is a 401
+            # rather than a send.
+            return bool(
+                self.sms_gateway_url
+                and self.sms_gateway_user
+                and self.sms_gateway_pass
+            )
+        return False
 
     @property
     def whatsapp_configured(self) -> bool:
