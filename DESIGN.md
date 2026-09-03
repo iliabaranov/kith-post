@@ -316,6 +316,76 @@ rather than surfacing WAHA's developer-facing 422.
 
 ---
 
+## 6b. SMS Channel (opt-in, instance-level)
+
+A third delivery channel. Same invitation, same `/i/{token}` link, same tracking
+— but a different shape of setup from §6a, and the difference is the point.
+
+**WhatsApp is per-host; SMS is per-instance.** A host links their own WhatsApp
+account, so guests see a message from someone they know. Nobody links an SMS
+account: the operator configures one provider for the whole box, and the channel
+is either available to every host or to none. So there is no linking page, no
+`/account/sms` route, and no per-host state — `sms_configured` is the whole of
+it. The compose form grows an "Anyone by text?" box when it's true.
+
+```
+kith ──HTTPS──► Twilio REST API ──► carrier          (paid, terms-clean, registered)
+kith ──HTTP (LAN)──► capcom6 gateway app on a phone  (free, your own SIM, unregistered)
+```
+
+Both sit behind one interface, `services/sms.SmsProvider`: `send(to, text)` and
+`capabilities()`. SMS has no single self-hosted transport the way WhatsApp has
+WAHA, and the two options differ in cost, registration burden and the terms
+being agreed to — but not in anything the send path cares about, so the send
+path never names one. `NullProvider` raises rather than no-ops, because a
+misconfigured live send that reported success would flip recipients to `sent`
+having posted nothing.
+
+**Text only, and that is a design constraint, not an omission.** No card image:
+MMS is a different product at a different price. What the message can spend is
+measured in *segments* — 160 GSM-7 characters, or 153 each once concatenated, and
+a single character outside that alphabet (most emoji, a curly quote) drops the
+whole message to UCS-2 at 70/67. So `core/smsmessage.py` counts segments, the
+compose page shows the count before sending, and the copy is deliberately
+terser than the WhatsApp copy: the greeting joins with a plain hyphen rather than
+the em dash `core/wamessage.py` uses, because one em dash would halve what fits.
+
+**Routing is by column, not by inference.** `core/channels.channel_of()` reads
+`Recipient.channel`, falling back to the old phone-implies-WhatsApp rule only for
+NULL rows that predate the column. This had to land before SMS did: both phone
+channels carry a number, so "has a phone" stops meaning "is WhatsApp" the moment
+there are two of them.
+
+**Receipts and STOP.** Two providers, two signature schemes, two endpoints —
+Twilio signs a base64 HMAC-SHA1 over the callback URL plus sorted parameters
+(and the callback is public, since it arrives from Twilio's servers), while the
+gateway signs a hex HMAC-SHA256 over the body plus a timestamp, with a
+five-minute replay window. Both are secret-gated and 404 until receipts are
+turned on, and each exists only for the provider that is configured — on a
+Twilio box the secret is a switch, not a key, and an endpoint it alone unlocked
+could forge a STOP for any number on the site. Twilio's inbound and status
+POSTs share one URL and are told apart by the status *value* (`received`), never
+by whether a status field is present. `sms_delivered_at` shows as "Delivered by
+text" and `sms_failed_at` as a carrier failure; there is no read receipt for
+SMS, and a delivery is never an "Opened" — the §7 rule holds unchanged.
+
+**STOP is compliance-critical, and it outlives everything the host owns.** An
+opt-out keyword appends a row to `sms_opt_out_events` — the number's blind
+index, the keyword's intent, the provider, and the provider's message id (unique,
+so a replayed POST records nothing twice). The suppression set is "every number
+whose latest event is a stop", read by the send paths, the dashboard and the
+export; nothing is stored on the contact or the recipient. That is deliberate:
+those rows are the host's to delete, and an opt-out has to survive the card, the
+address-book entry and the account itself, or the same number is textable again
+the moment someone re-adds it. The log has no user_id — the site texts from one
+number, so a STOP binds every host on it — and holds nothing readable, which is
+what lets it be the one record an account delete keeps (§5). Enforced on first
+sends, on reminders, and in dry-run. STOP handling depends on the webhook being
+configured, so the app warns at startup when the channel is on and the webhook
+secret is not.
+
+---
+
 ## 7. Tracking Design
 
 **No tracking pixel.** All signals come from explicit, first-party HTTP requests
@@ -560,10 +630,13 @@ with the "store little to no data" goal. We resolve it deliberately:
   external analytics or trackers.
 - **Auto-purge heavy/ephemeral data:** hosted images and (optionally) whole past
   events expire on a schedule.
-- **User control:** one-click **Export** (JSON of everything we hold on them) and
-  **Delete account** (hard delete of user, contacts, events, assets, tokens; we
-  do *not* keep tombstones beyond what's legally trivial for a free hobby
-  service). Revoking Google access is linked from settings.
+- **User control:** one-click **Export** (JSON of the account, contacts, events
+  and every recipient with both channels' delivery facts) and **Delete account**
+  (hard delete of user, contacts, events, recipients, reminders, assets, tokens
+  and the dry-run outbox on disk; we do *not* keep tombstones beyond what's
+  legally trivial for a free hobby service — the one exception is the hashed
+  SMS opt-out log, §6b, which must outlive the account to be honoured). Revoking
+  Google access is linked from settings.
 - **Gmail scope minimization:** `gmail.send` only — we can send but can never read
   the user's mailbox.
 
@@ -771,7 +844,8 @@ Each gate is a working, committed, tested increment.
 > that gate landed. `make test` is the current number (473 at the time of
 > writing); don't read a gate's figure as today's.
 - **G6 — Polish, deploy & legal.** *(Partial.)* **✅ Done:** contacts address book,
-  export/delete, Cloudflare-Tunnel deploy (`live` mode), off-box backups,
+  export/delete (the export carries the full guest list, each channel's own
+  delivery facts, and the SMS opt-out flags), Cloudflare-Tunnel deploy (`live` mode), off-box backups,
   auto-purge of heavy full-res images past a retention window, and the
   Privacy/ToS/disclaimer pages (`/privacy`, `/terms`). **Remaining:** a subtle
   "buy me a coffee" donation link (signed-in only, after the first event; links
@@ -789,6 +863,20 @@ Each gate is a working, committed, tested increment.
   unlink-on-account-delete. Off by default (`KITH_WHATSAPP_ENABLED` +
   `KITH_WAHA_API_KEY`). "Opened" is unchanged and still means a person loaded the
   invitation page — receipts are shown separately and never counted as one.
+- **G9 — SMS delivery channel.** A third channel alongside Gmail and WhatsApp
+  (§6b), configured once per instance rather than linked per host. **✅ Done** —
+  a `channel_of` resolver so routing reads the column instead of inferring a
+  channel from a phone number, `core/smsmessage` with segment counting,
+  a `SmsProvider` seam with two concrete providers (Twilio over its REST API,
+  and the capcom6 Android gateway sending from a SIM the operator owns), a
+  compose box and contact-picker channel choice, a `· SMS` badge and a preview
+  showing the segment count before sending, sends paced a random 1–4s apart from
+  a background batch, delivery receipts and STOP opt-out over two separately
+  verified webhooks, opt-out enforced on first sends and reminders, and SMS
+  fields in the account export. Off by default (`KITH_SMS_ENABLED` + a
+  configured provider). Text only — no card image; MMS is a different product.
+  "Opened" is unchanged: a delivery receipt is never counted as one.
+  Setup for both providers is in [`docs/sms-setup.md`](./docs/sms-setup.md).
 - **G7 — Richer RSVP & contacts.** **✅ Done** — optional reply note + allergies
   toggle, adults/kids headcount split, address-book group tags (filter + add a
   whole group at once), and non-destructive edit reconciliation with a

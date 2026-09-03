@@ -23,16 +23,19 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from kith.config import get_settings
+from kith.core.channels import channel_of
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth, scheduler, storage, waha
+from kith.services import google_auth, scheduler, send, storage, waha
 from kith.services import wa_session as wa_link
+from kith.services.contacts import phone_hash
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
 from kith.web.ratelimit import limiter
 from kith.web.routes_contacts import router as contacts_router
 from kith.web.routes_events import router as events_router
 from kith.web.routes_invite import router as invite_router
+from kith.web.routes_sms_webhook import router as sms_webhook_router
 from kith.web.routes_wa_webhook import router as wa_webhook_router
 from kith.web.routes_whatsapp import router as whatsapp_router
 
@@ -71,6 +74,15 @@ async def lifespan(app: FastAPI):
     if problems:
         raise RuntimeError(
             "refusing to start: " + "; ".join(problems)
+        )
+    if settings.sms_configured and not settings.sms_webhooks_configured:
+        # Not fatal — texts still go out — but this is the one combination an
+        # operator cannot see is wrong: the channel works, and no STOP reply
+        # will ever reach the app.
+        log.warning(
+            "sms: the channel is configured but KITH_SMS_WEBHOOK_SECRET is unset, so "
+            "no STOP reply can be received. Set it, and point the provider's inbound "
+            "webhook at this site — see docs/sms-setup.md"
         )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.outbox_dir.mkdir(parents=True, exist_ok=True)
@@ -162,6 +174,7 @@ def create_app() -> FastAPI:
     app.include_router(contacts_router)
     app.include_router(whatsapp_router)
     app.include_router(wa_webhook_router)
+    app.include_router(sms_webhook_router)
 
     @app.get("/healthz", response_class=PlainTextResponse)
     @limiter.limit("30/minute")
@@ -346,20 +359,85 @@ def create_app() -> FastAPI:
             return RedirectResponse("/", status_code=303)
         events = db.execute(select(Event).where(Event.user_id == user.id)).scalars().all()
         contacts = db.execute(select(Contact).where(Contact.user_id == user.id)).scalars().all()
+        # Recipients per event. "Download my data" that omitted the guest list
+        # and everyone's replies would be an export of the shell of a card, not
+        # of the card — and the per-channel receipt and opt-out columns only
+        # exist here, so leaving them out would hide the one fact a recipient is
+        # most entitled to have recorded: that they asked not to be texted.
+        by_event: dict[str, list[Recipient]] = {}
+        if events:
+            rows = db.execute(
+                select(Recipient)
+                .where(Recipient.event_id.in_([e.id for e in events]))
+                .order_by(Recipient.created_at)
+            ).scalars().all()
+            for r in rows:
+                by_event.setdefault(r.event_id, []).append(r)
+        # Derived, not stored: the opt-out record lives in its own log, keyed on
+        # the number's blind index, so it survives the rows this export walks.
+        opted_out = send.opted_out_hashes(db)
+
+        def _iso(dt: datetime | None) -> str | None:
+            # SQLite hands back naive datetimes. A file a person reads — or a
+            # regulator — should not have to guess the zone: always +00:00.
+            return _as_utc_dt(dt).isoformat() if dt else None
+
+        def _recipient(r: Recipient) -> dict:
+            return {
+                "channel": channel_of(r),
+                "email": r.email or None,
+                "phone": r.phone,
+                "name": r.name,
+                "status": r.status,
+                "sent_at": _iso(r.sent_at),
+                "first_open_at": _iso(r.first_open_at),
+                "rsvp_at": _iso(r.rsvp_at),
+                "party_size": r.party_size,
+                "adults": r.adults,
+                "kids": r.kids,
+                "note": r.note,
+                "allergies": r.allergies,
+                # Each channel's own delivery facts, kept apart from
+                # first_open_at above, which is the only "opened" there is.
+                "whatsapp": {
+                    "message_id": r.wa_message_id,
+                    "delivered_at": _iso(r.wa_delivered_at),
+                    "read_at": _iso(r.wa_read_at),
+                    "ack": r.wa_ack,
+                },
+                "sms": {
+                    "message_id": r.sms_message_id,
+                    "delivered_at": _iso(r.sms_delivered_at),
+                    "failed_at": _iso(r.sms_failed_at),
+                    "opted_out": send.is_opted_out(r, opted_out),
+                },
+            }
+
         data = {
             "id": user.id,
             "google_sub": user.google_sub,
             "email": user.email,
             "display_name": user.display_name,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+            "created_at": _iso(user.created_at),
+            "last_login_at": _iso(user.last_login_at),
             "whatsapp": {
                 "linked": wa_link.linked(user),
                 "number": user.wa_number,
-                "linked_at": user.wa_linked_at.isoformat() if user.wa_linked_at else None,
+                "linked_at": _iso(user.wa_linked_at),
+            },
+            "sms": {
+                # Instance-level, so there is nothing per-account to export
+                # beyond whether the channel was available to this host at all.
+                "configured": settings.sms_configured,
+                "provider": settings.sms_provider if settings.sms_configured else None,
             },
             "contacts": [
-                {"name": c.name, "email": c.email, "phone": c.phone} for c in contacts
+                {
+                    "name": c.name, "email": c.email, "phone": c.phone,
+                    "groups": c.groups or [],
+                    "opted_out_sms": bool(c.phone) and phone_hash(c.phone or "") in opted_out,
+                }
+                for c in contacts
             ],
             "events": [
                 {
@@ -368,6 +446,7 @@ def create_app() -> FastAPI:
                     "event_time": e.event_time, "event_end_time": e.event_end_time,
                     "location": e.location, "signoff": e.signoff, "blocks": e.blocks,
                     "headcount_max": e.headcount_max, "timezone": e.timezone,
+                    "recipients": [_recipient(r) for r in by_event.get(e.id, [])],
                 }
                 for e in events
             ],
@@ -386,6 +465,16 @@ def create_app() -> FastAPI:
             # which would quietly break the one-click-delete promise.
             wa_link.unlink(db, user, settings)
             storage.delete_user_assets(user.id)  # remove image files (DB rows cascade)
+            # The dry-run outbox holds addresses and full message texts, and
+            # nothing else ever removes it. Keyed by event, so before the cascade.
+            event_ids = db.execute(
+                select(Event.id).where(Event.user_id == user.id)
+            ).scalars().all()
+            storage.delete_outbox(settings, list(event_ids))
+            # Deliberately NOT touched: sms_opt_out_events. It holds no user_id
+            # and nothing readable — a hash of each number that replied STOP —
+            # and it is the one record that has to outlive the account, or the
+            # same number becomes textable again the moment someone signs back in.
             db.delete(user)
             db.commit()
         request.session.clear()

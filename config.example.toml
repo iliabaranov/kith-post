@@ -35,3 +35,32 @@ data_dir = "data"
 # min_gap_hours = 24             # merge reminders that would land closer than this
 # max_per_recipient = 3
 # sweep_seconds = 300            # background sweep interval (0 disables the loop)
+
+# --- SMS channel (optional, off by default) ---
+# A plain text message carrying the same per-recipient invitation link as email
+# and WhatsApp. Text only: no card picture. Configured once for the instance
+# rather than linked per host, so there is no setup page — the compose box
+# appears when a provider is configured.
+#
+# The provider name is a non-secret tunable and can live here; the credentials
+# are secrets and belong in .env.
+# sms_enabled = false
+# sms_provider = "none"           # "none" | "twilio" | "gateway"
+# sms_timeout_seconds = 20
+# Pause between consecutive texts, random within this range. Shorter than
+# WhatsApp's: a carrier throttles a burst rather than banning the number.
+# sms_send_gap_min_seconds = 1
+# sms_send_gap_max_seconds = 4
+# Your own number, for a self-only test send; any readable form, normalised to
+# E.164. Unset, self-only holds every text rather than sending it anywhere.
+# sms_self_number = "+1 555 123 4567"
+# Twilio's sender is not a secret: a number you rent, or a Messaging Service SID.
+# The account SID and auth token belong in .env.
+# sms_twilio_from = "+15551234567"
+# sms_twilio_messaging_service_sid = "MG..."
+
+# The Android gateway's send path, which differs by deployment shape:
+# "/message" for the app's on-device Local Server (the default), or
+# "/3rdparty/v1/messages" for the self-hosted relay / cloud server. The URL and
+# credentials are secrets and belong in .env.
+# sms_gateway_path = "/message"

@@ -20,7 +20,7 @@ thing rather than an open sandbox.
 
 > **Status:** functional and self-hostable end to end — Google sign-in, card
 > compose, Gmail send with open/RSVP tracking, automated reminders, a contacts
-> address book, and an opt-in WhatsApp channel are all in place. See [`DESIGN.md`](./DESIGN.md) for the
+> address book, and opt-in WhatsApp and SMS channels are all in place. See [`DESIGN.md`](./DESIGN.md) for the
 > architecture/roadmap and [`DESIGN-LANGUAGE.md`](./DESIGN-LANGUAGE.md) for the
 > visual system.
 
@@ -58,6 +58,13 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
   self-hosted [WAHA](https://github.com/devlikeapro/waha) container — the card
   itself as a picture, captioned with a short message and the same invitation link
   (a card with no image sends as text). Off by default; see the warning below.
+- Or send a plain **text message (SMS)** carrying the same invitation link —
+  either from a phone you own, via the open-source
+  [capcom6 SMS gateway](https://github.com/capcom6/android-sms-gateway) app (free,
+  your own SIM), or through Twilio. Text only: no card picture, since a text can't
+  carry one. Off by default, configured once per instance rather than per host,
+  with STOP opt-out honoured automatically —
+  see [`docs/sms-setup.md`](./docs/sms-setup.md).
 - Collect RSVPs with an optional headcount (adults + kids), an allergies/dietary
   question, and a free-text note back.
 - Track who was sent an invite, who opened it (visited the invitation page), and
@@ -100,8 +107,11 @@ Setup, and what to do when WhatsApp throttles an account, is in
   delete, heavy assets auto-purged. We use the `gmail.send` scope only and can
   never read your mailbox.
 - **Self-hosted & free** — one container on your own hardware (two if you enable
-  WhatsApp), exposed via a Cloudflare Tunnel with automatic HTTPS (no open router
-  ports, works behind CGNAT). No paid dependencies, no monetization. See
+  WhatsApp; the SMS gateway is a phone you already own, so it adds none — unless
+  you run its optional self-hosted relay, which is a third), exposed
+  via a Cloudflare Tunnel with automatic HTTPS (no open router ports, works behind
+  CGNAT). No paid dependencies, no monetization — the only channel that costs
+  anything is Twilio, and it's optional twice over. See
   [`docs/deploy.md`](./docs/deploy.md).
 - **Honest tracking, no pixel** — signals are Sent, Opened (= the recipient
   visited the invitation page), Accepted, and Declined. No hidden tracking pixel
@@ -113,7 +123,8 @@ Setup, and what to do when WhatsApp throttles an account, is in
 
 Python 3.12 · FastAPI · SQLite · Jinja2 (server-rendered) + hand-written vanilla JS
 + token-based CSS (light/warm, no framework) · Pillow · Google API client · httpx ·
-Docker · Cloudflare Tunnel · WAHA (optional, for WhatsApp). Tested with pytest.
+Docker · Cloudflare Tunnel · WAHA (optional, for WhatsApp) · Twilio or the
+capcom6 Android gateway (optional, for SMS). Tested with pytest.
 
 ## License
 

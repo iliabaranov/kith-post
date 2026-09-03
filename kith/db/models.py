@@ -167,8 +167,10 @@ class Recipient(Base):
 
     A recipient is reached over exactly one channel. ``channel`` is NULL on every
     row written before the WhatsApp channel existed, which is why NULL means
-    email — see ``CHANNEL_EMAIL``. For a WhatsApp recipient ``email`` is "" and
-    ``phone`` holds the E.164 number; ``email`` stays NOT NULL because the
+    email — see ``CHANNEL_EMAIL``. For a WhatsApp or SMS recipient ``email`` is
+    "" and ``phone`` holds the E.164 number, which is why the channel column
+    rather than the number is what says which of the two it is;
+    ``email`` stays NOT NULL because the
     additive schema sync (and SQLite) can't loosen an existing column, and a
     table rebuild on a live database isn't worth it for a sentinel.
     """
@@ -180,7 +182,7 @@ class Recipient(Base):
         ForeignKey("events.id", ondelete="CASCADE"), index=True
     )
     email: Mapped[str] = mapped_column(EncryptedString)
-    # "email" (or NULL, for rows that predate the channel) | "whatsapp"
+    # "email" (or NULL, for rows that predate the channel) | "whatsapp" | "sms"
     channel: Mapped[str | None] = mapped_column(String, nullable=True)
     phone: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
@@ -209,6 +211,20 @@ class Recipient(Base):
     )
     # Highest ack seen: -1 error, 0 pending, 1 server, 2 device, 3 read, 4 played.
     wa_ack: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The provider's own id for an SMS send, so a delivery receipt arriving later
+    # can be matched back to the recipient it belongs to.
+    sms_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The carrier said it arrived. There is no read receipt for SMS, so this is
+    # the only delivery fact the channel offers — and, like the wa_* pair above,
+    # it is kept well away from `first_open_at`: a delivery is not an open.
+    sms_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # The carrier refused it. Kept because it is the host's only signal that a
+    # number is bad — without it a text that never arrived reads "sent" for ever.
+    sms_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # Gmail resource id
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True)   # Gmail threadId
     # RFC822 Message-ID we stamp on the first send; reminders/re-sends reference it
@@ -238,3 +254,30 @@ class Reminder(Base):
     skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)  # past|engaged|capped
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SmsOptOutEvent(Base):
+    """One STOP or START reply, as it arrived. Append-only; deleted by nobody.
+
+    The suppression list is "every number whose latest event is a stop" — see
+    ``services.send.opted_out_hashes``. It is a table of its own, keyed on the
+    number's blind index, because the two obvious homes for a flag are both the
+    host's to delete: a recipient row goes with its event, a contact with the
+    address book, and an opt-out has to outlive both. No FK, no cascade and no
+    user_id — the site texts from one number, so a STOP binds every host on it.
+    Holding a hash rather than the number is what lets it survive an account
+    delete without keeping anything readable.
+    """
+
+    __tablename__ = "sms_opt_out_events"
+
+    # Integer and ascending, unlike the UUID ids elsewhere: "latest per number"
+    # is the one query this table exists for, and max(id) answers it.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    phone_hash: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String)          # "stop" | "start"
+    source: Mapped[str] = mapped_column(String)        # "twilio" | "gateway"
+    # The provider's id for the inbound message. Unique, so a replayed POST —
+    # Twilio's signature carries no timestamp — records nothing a second time.
+    message_sid: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
