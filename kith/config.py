@@ -106,6 +106,31 @@ class Settings(BaseSettings):
     waha_send_gap_min_seconds: float = 5.0
     waha_send_gap_max_seconds: float = 20.0
 
+    # --- SMS channel ---
+    # Off by default, and unlike WhatsApp this one is instance-level: the
+    # operator configures a provider once for the box, rather than each host
+    # linking their own. So there is nothing per-host to set up and no linking
+    # page — the channel is simply there or it isn't.
+    sms_enabled: bool = False
+    # "none" | "twilio" | "gateway". Concrete providers land in later changes.
+    sms_provider: str = "none"
+    sms_timeout_seconds: float = 20.0
+    # Pause between consecutive SMS sends, drawn fresh at random from this range.
+    # Lower than WhatsApp's: a carrier throttles or filters a burst rather than
+    # banning the number, so the stakes are smaller — but a hundred texts fired
+    # flat out still get spam-filtered, and an even cadence is its own tell.
+    sms_send_gap_min_seconds: float = 1.0
+    sms_send_gap_max_seconds: float = 4.0
+    # Shared secret for delivery-receipt and STOP callbacks. Empty = no webhooks
+    # configured at all, and the endpoint refuses everything.
+    sms_webhook_secret: str = ""
+    # Where self-only mode sends a text: the operator's own number, in any
+    # readable form — it is normalised to E.164 before use. WhatsApp's self-only
+    # borrows the host's linked number; SMS has no per-host identity, so this is
+    # instance-level like the rest of the channel. Unset, self-only holds every
+    # text rather than guessing at a destination.
+    sms_self_number: str = ""
+
     reminders: ReminderSettings = ReminderSettings()
 
     # Per-client rate limiting on the public + auth endpoints. On by default;
@@ -122,6 +147,18 @@ class Settings(BaseSettings):
         """Receipts are opt-in: they need a shared secret to be trustworthy."""
         return bool(self.whatsapp_enabled and self.waha_webhook_url
                     and self.waha_webhook_secret)
+
+    @property
+    def sms_configured(self) -> bool:
+        """The channel is usable: enabled, with a provider that can actually send.
+
+        False while ``sms_provider`` is "none", which is every configuration
+        possible so far — the provider names are listed now so the gate does not
+        have to change shape when they arrive.
+        """
+        if not self.sms_enabled:
+            return False
+        return self.sms_provider in {"twilio", "gateway"}
 
     @property
     def whatsapp_configured(self) -> bool:
