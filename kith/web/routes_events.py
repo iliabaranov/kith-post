@@ -21,7 +21,7 @@ from kith.core import calendar as cal
 from kith.core import eventkind, images, wamessage
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
-from kith.core.channels import channel_of
+from kith.core.channels import CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, channel_of
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
@@ -132,7 +132,9 @@ def _wa_send_preview(
 ) -> dict:
     """The message a WhatsApp guest will receive, and any quota caution."""
     settings = get_settings()
-    queued_wa = [r for r in rows if r.phone and r.status == "queued"]
+    queued_wa = [
+        r for r in rows if channel_of(r) == CHANNEL_WHATSAPP and r.status == "queued"
+    ]
     if not settings.whatsapp_configured or not queued_wa:
         return {"wa_preview": None, "wa_quota_note": None}
     r = queued_wa[0]
@@ -173,7 +175,9 @@ def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN0
     settings = get_settings()
     if not settings.whatsapp_configured:
         return None
-    if not any(r.phone and r.status == "queued" for r in rows):
+    if not any(
+        channel_of(r) == CHANNEL_WHATSAPP and r.status == "queued" for r in rows
+    ):
         return None          # nothing waiting, so nothing to explain
     if not user.wa_session or user.wa_status != waha.STATUS_WORKING:
         return _WA_BLOCKED["not-linked"]
@@ -254,7 +258,7 @@ def _needs_google(db: Session, event_id: str, statuses: tuple[str, ...]) -> bool
             Recipient.event_id == event_id, Recipient.status.in_(statuses)
         )
     ).scalars().all()
-    return any(not r.phone for r in rows)
+    return any(channel_of(r) == CHANNEL_EMAIL for r in rows)
 
 
 def _wa_flags(user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
@@ -331,7 +335,7 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
         # the status chip: "read" is the channel telling the host what it knows,
         # not evidence anyone opened the invitation.
         receipt = ""
-        if r.phone:
+        if channel_of(r) == CHANNEL_WHATSAPP:
             if r.wa_ack == -1:
                 receipt = "WhatsApp couldn't deliver it"
             elif r.wa_read_at:
@@ -362,8 +366,8 @@ def _send_ui(mode: str, queued_rows: list[Recipient], noun: str) -> tuple[str, s
     detail that makes a host distrust the button they're about to press.
     """
     n = len(queued_rows)
-    wa = sum(1 for r in queued_rows if r.phone)
-    em = n - wa
+    wa = sum(1 for r in queued_rows if channel_of(r) == CHANNEL_WHATSAPP)
+    em = sum(1 for r in queued_rows if channel_of(r) == CHANNEL_EMAIL)
     if em and wa:
         via, dest = "by email and WhatsApp", "your Gmail and WhatsApp"
     elif wa:
@@ -405,9 +409,17 @@ class ReconcileResult:
 
 
 def _reconcile_recipients(
-    db: Session, event_id: str, text: str, phone_text: str = "", sms_text: str = ""
+    db: Session, event_id: str, text: str,
+    phone_text: str | None = "", sms_text: str | None = "",
 ) -> ReconcileResult:
     """Update an event's recipient list without discarding existing rows.
+
+    A phone box the form did not render is passed as ``None``, and that channel
+    is then left exactly as it was — its rows are neither added to nor removed.
+    An empty string means the box was there and the host emptied it. The two
+    must not be confused: a channel that is switched off hides its box, and
+    treating the resulting empty POST as "remove everyone" silently deleted
+    those guests, with their RSVPs, on the next unrelated edit.
 
     Match by channel and identity — the email, or "tel:<e164>" for a phone
     recipient: add new people (fresh token, queued, on the channel their box
@@ -427,9 +439,14 @@ def _reconcile_recipients(
     "keep" it — leaving the recipient on WhatsApp while the form says otherwise,
     which is the one edit the host cannot then undo.
     """
+    frozen: set[str] = set()   # channels whose box was not on the form
+    if phone_text is None:
+        frozen.add(CHANNEL_WHATSAPP)
+    if sms_text is None:
+        frozen.add(CHANNEL_SMS)
     valid, invalid = rcpt.parse_recipients(text)
-    ph_valid, ph_invalid = rcpt.parse_phones(phone_text)
-    sms_valid, sms_invalid = rcpt.parse_sms(sms_text)
+    ph_valid, ph_invalid = rcpt.parse_phones(phone_text or "")
+    sms_valid, sms_invalid = rcpt.parse_sms(sms_text or "")
     valid = valid + ph_valid + sms_valid
     invalid = invalid + ph_invalid + sms_invalid
     # One person, one channel. A number typed into both phone boxes would
@@ -448,6 +465,10 @@ def _reconcile_recipients(
         key = (channel_of(r), rcpt.identity_of(r.email, r.phone))
         (stale.append(r) if key in by_id else by_id.setdefault(key, r))
     wanted = {(p.channel, p.identity): p for p in valid}  # already normalized
+    # Naming someone in a box that *is* on the form is a positive act, and it
+    # beats freezing: a number typed into the SMS box moves off a hidden
+    # WhatsApp row rather than gaining a second invitation beside it.
+    named = {identity for (_ch, identity) in wanted}
 
     added = kept = removed = 0
     for key, p in wanted.items():
@@ -463,10 +484,15 @@ def _reconcile_recipients(
                 row.name = p.name
             kept += 1
     for key, row in by_id.items():
-        if key not in wanted:
-            db.delete(row)  # FK cascade drops any reminders for this recipient
-            removed += 1
+        if key in wanted:
+            continue
+        if key[0] in frozen and key[1] not in named:
+            continue        # its box was not on the form: not the host's doing
+        db.delete(row)  # FK cascade drops any reminders for this recipient
+        removed += 1
     for row in stale:
+        if channel_of(row) in frozen:
+            continue
         db.delete(row)
         removed += 1
     db.commit()
@@ -510,8 +536,11 @@ async def create_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
-    wa_recipients: str = Form(""),
-    sms_recipients: str = Form(""),
+    # None when the form did not render the box at all (a browser never posts a
+    # textarea that isn't there); "" when it was there and left empty. The
+    # reconcile step treats the two differently — see _reconcile_recipients.
+    wa_recipients: str | None = Form(None),
+    sms_recipients: str | None = Form(None),
     cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -534,8 +563,8 @@ async def create_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": None, "blocks": blocks,
-            "recipients_text": recipients, "wa_recipients_text": wa_recipients,
-            "sms_recipients_text": sms_recipients,
+            "recipients_text": recipients, "wa_recipients_text": wa_recipients or "",
+            "sms_recipients_text": sms_recipients or "",
             "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
@@ -696,7 +725,9 @@ def event_detail(
         **_wa_send_preview(db, ev, user, rows),
         # Only suggest fixing Google when email is actually involved — a WhatsApp
         # card failing has nothing to do with a Gmail connection.
-        "needs_google": any(not r.phone for r in rows if r.status == "queued"),
+        "needs_google": any(
+            channel_of(r) == CHANNEL_EMAIL for r in rows if r.status == "queued"
+        ),
         "send_label": label, "send_hint": hint,
         "send_confirm": confirm, "noun": noun,
         "sent": sent, "failed": failed,
@@ -914,12 +945,22 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
     def _lines(people, addr) -> str:
         return "\n".join((f"{r.name} <{addr(r)}>" if r.name else addr(r)) for r in people)
 
-    recipients_text = _lines([r for r in rows if not r.phone], lambda r: r.email)
-    wa_recipients_text = _lines([r for r in rows if r.phone], lambda r: r.phone)
+    # Each box shows its own channel's rows. Splitting on "has a phone" would
+    # list an SMS guest in the WhatsApp box — and the next save would move them.
+    recipients_text = _lines(
+        [r for r in rows if channel_of(r) == CHANNEL_EMAIL], lambda r: r.email
+    )
+    wa_recipients_text = _lines(
+        [r for r in rows if channel_of(r) == CHANNEL_WHATSAPP], lambda r: r.phone
+    )
+    sms_recipients_text = _lines(
+        [r for r in rows if channel_of(r) == CHANNEL_SMS], lambda r: r.phone
+    )
     ctx = {
         "settings": get_settings(), "user": user, "event": ev,
         "blocks": ev.blocks or DEFAULT_BLOCKS, "recipients_text": recipients_text,
         "wa_recipients_text": wa_recipients_text,
+        "sms_recipients_text": sms_recipients_text,
         "cc_text": _cc_text(ev), "error": None, **_wa_flags(user, get_settings()),
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
@@ -943,8 +984,11 @@ async def update_event(
     headcount_max: str = Form(""),
     timezone: str = Form(""),
     recipients: str = Form(""),
-    wa_recipients: str = Form(""),
-    sms_recipients: str = Form(""),
+    # None when the form did not render the box at all (a browser never posts a
+    # textarea that isn't there); "" when it was there and left empty. The
+    # reconcile step treats the two differently — see _reconcile_recipients.
+    wa_recipients: str | None = Form(None),
+    sms_recipients: str | None = Form(None),
     cc: str = Form(""),
     block_message: str | None = Form(None),
     block_date: str | None = Form(None),
@@ -970,8 +1014,8 @@ async def update_event(
     except images.ImageError as e:
         ctx = {
             "settings": get_settings(), "user": user, "event": ev, "blocks": blocks,
-            "recipients_text": recipients, "wa_recipients_text": wa_recipients,
-            "sms_recipients_text": sms_recipients,
+            "recipients_text": recipients, "wa_recipients_text": wa_recipients or "",
+            "sms_recipients_text": sms_recipients or "",
             "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),

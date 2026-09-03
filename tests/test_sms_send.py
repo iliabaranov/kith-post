@@ -221,16 +221,22 @@ def test_the_message_carries_the_invitation_link_and_no_tracking(sms_client):
     assert "utm_" not in body and "?" not in body.split("/i/")[-1]
 
 
-def test_a_recipient_removed_before_the_send_is_not_texted(sms_client):
-    """The batch re-reads each row: a dry-run proves the guard without pacing."""
+def test_a_recipient_removed_mid_batch_is_not_texted(sms_client):
+    """The batch re-reads each row before texting it.
+
+    The row is deleted from a *second* session after the batch has its list, so
+    the queued-recipient query has already returned it — only the per-row
+    re-read inside ``_send_sms`` can notice it is gone.
+    """
     ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000")
-    db, _ = _db_and_user()
+    db, user = _db_and_user()
     rows = _recipients(db, ev)
     doomed = rows[0].id
-    db.delete(rows[0])
-    db.commit()
-    _, res = _send(ev)
-    assert res.sms_sent == 1
+    other, _ = _db_and_user()
+    other.delete(other.get(Recipient, doomed))
+    other.commit()
+    out = sender._send_sms(db, db.get(Event, ev), user, get_settings(), rows)
+    assert (out.sent, out.failed) == (1, 0)
     assert doomed not in [f.stem for f in _sms_outbox(ev)]
 
 
@@ -287,18 +293,116 @@ def test_a_live_send_with_no_provider_stops_the_batch_and_keeps_them_queued(
     assert not (get_settings().outbox_dir / ev / "sms").exists()
 
 
-def test_self_only_writes_the_outbox_rather_than_texting_the_guest(
-    sms_client, monkeypatch
-):
-    """There is no host number setting yet. Until there is, self-only must not
-    fall through to the real recipient — that is the one thing it exists for."""
+class _FakeProvider:
+    """Records what a live send would have texted, and to whom."""
+
+    def __init__(self):
+        self.sent: list[tuple[str, str]] = []
+
+    def send(self, to_e164, text):
+        self.sent.append((to_e164, text))
+        return sms.SmsResult(message_id=f"m{len(self.sent)}")
+
+    def capabilities(self):
+        return sms.SmsCaps()
+
+
+def test_self_only_without_a_test_number_holds_every_text(sms_client, monkeypatch):
+    """Nowhere safe to send, so nothing is sent — and nothing pretends to be.
+
+    Marking the rows sent for a text nobody got would leave the host believing
+    the invitations went out; writing the guest's number to the outbox would
+    show them the one number self-only exists to keep texts away from. The
+    batch stops, says why, and the recipients stay owed a text.
+    """
     ev = _make_event(sms_client, sms_to="+15551110000")
     monkeypatch.setenv("KITH_SEND_MODE", "self-only")
     get_settings.cache_clear()
     db, res = _send(ev)
-    assert res.sms_sent == 1
-    assert len(_sms_outbox(ev)) == 1
+    assert (res.sms_sent, res.sms_failed) == (0, 0)
+    assert res.sms_blocked == "no-self-number"
+    assert all(r.status == "queued" for r in _recipients(db, ev))
+    assert not (get_settings().outbox_dir / ev / "sms").exists()
+    assert sender.sms_last_block() == "no-self-number"
+
+
+def test_self_only_texts_the_operator_and_never_the_guest(sms_client, monkeypatch):
+    """With a number configured, every text goes there — in E.164, however it was typed."""
+    ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000")
+    monkeypatch.setenv("KITH_SEND_MODE", "self-only")
+    monkeypatch.setenv("KITH_SMS_SELF_NUMBER", "+1 (555) 000-9999")   # not yet E.164
+    get_settings.cache_clear()
+    fake = _FakeProvider()
+    monkeypatch.setattr(sms, "get_provider", lambda s: fake)
+    db, res = _send(ev)
+    assert (res.sms_sent, res.sms_failed) == (2, 0)
+    assert [to for to, _ in fake.sent] == ["+15550009999", "+15550009999"]
     assert all(r.status == "sent" for r in _recipients(db, ev))
+    assert sender.sms_last_block() is None
+
+
+def test_a_garbage_test_number_counts_as_no_test_number(sms_client, monkeypatch):
+    ev = _make_event(sms_client, sms_to="+15551110000")
+    monkeypatch.setenv("KITH_SEND_MODE", "self-only")
+    monkeypatch.setenv("KITH_SMS_SELF_NUMBER", "call me maybe")
+    get_settings.cache_clear()
+    _, res = _send(ev)
+    assert res.sms_blocked == "no-self-number"
+
+
+# --- errors that stop the batch, and the site-wide note they leave ------------
+
+class _RefusingProvider:
+    def __init__(self, exc):
+        self.exc, self.calls = exc, 0
+
+    def send(self, to_e164, text):
+        self.calls += 1
+        raise self.exc
+
+    def capabilities(self):
+        return sms.SmsCaps()
+
+
+@pytest.mark.parametrize(("exc", "reason"), [
+    (sms.SmsAuthError("nope"), "auth"),
+    (sms.SmsMisconfigured("From is not a number"), "misconfigured"),
+    (sms.SmsRateLimited("429"), "rate-limited"),
+])
+def test_an_instance_wide_refusal_stops_after_one_call(sms_client, monkeypatch, exc, reason):
+    """Every remaining recipient would fail identically, so one call is enough."""
+    ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000\n+15553330000")
+    monkeypatch.setenv("KITH_SEND_MODE", "live")
+    get_settings.cache_clear()
+    fake = _RefusingProvider(exc)
+    monkeypatch.setattr(sms, "get_provider", lambda s: fake)
+    db, res = _send(ev)
+    assert fake.calls == 1
+    assert (res.sms_sent, res.sms_failed, res.sms_blocked) == (0, 0, reason)
+    assert all(r.status == "queued" for r in _recipients(db, ev))
+    assert sender.sms_last_block() == reason
+
+
+def test_a_per_recipient_error_costs_one_recipient_and_leaves_no_note(
+    sms_client, monkeypatch
+):
+    ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000")
+    monkeypatch.setenv("KITH_SEND_MODE", "live")
+    get_settings.cache_clear()
+
+    class _Flaky(_FakeProvider):
+        def send(self, to_e164, text):
+            if not self.sent:
+                self.sent.append(("failed", ""))
+                raise sms.SmsError("21211 not a valid number")
+            return super().send(to_e164, text)
+
+    fake = _Flaky()
+    monkeypatch.setattr(sms, "get_provider", lambda s: fake)
+    sender._remember_sms_block("auth")           # a stale note from an earlier batch
+    db, res = _send(ev)
+    assert (res.sms_sent, res.sms_failed, res.sms_blocked) == (1, 1, None)
+    assert sender.sms_last_block() is None       # a text went out, so the note clears
 
 
 # --- pacing -------------------------------------------------------------------
@@ -335,3 +439,131 @@ def test_the_single_flight_guard_is_per_channel(sms_client):
         with sender._claim(ev, CHANNEL_SMS) as again:
             assert again is False                        # nor run twice
     assert sender.sms_batch_running(ev) is False
+
+
+# --- the background batch, end to end -----------------------------------------
+
+def test_the_background_batch_sends_and_schedules_reminders(sms_client):
+    """The route defers texts to a paced batch; the batch owns what follows.
+
+    Reminders hang off ``sent_at``, which only exists once the batch has run, so
+    the batch schedules them itself — an SMS guest would otherwise never be
+    nudged. Driven through the real route so ``sms_defer`` and the background
+    task are exercised, not just ``_send_sms``.
+    """
+    from kith.db.models import Reminder
+
+    ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000")
+    r = sms_client.post(f"/events/{ev}/send", follow_redirects=False)
+    assert "sms_pending=2" in r.headers["location"]
+    assert sender.wait_for_batches(timeout=30)
+    db, _ = _db_and_user()
+    assert all(r.status == "sent" for r in _recipients(db, ev))
+    assert len(_sms_outbox(ev)) == 2
+    planned = db.execute(select(Reminder).where(Reminder.event_id == ev)).scalars().all()
+    assert planned, "the batch should have scheduled the nudges"
+
+
+def test_a_reminder_for_an_sms_guest_is_a_text_not_an_email(sms_client):
+    """An SMS row's email is the NOT NULL sentinel "". The nudge must not go there."""
+    from datetime import UTC, datetime, timedelta
+
+    from kith.db.models import Reminder
+    from kith.services import scheduler
+
+    ev = _make_event(sms_client, sms_to="+15551110000")
+    sms_client.post(f"/events/{ev}/send", follow_redirects=False)
+    assert sender.wait_for_batches(timeout=30)
+    db, _ = _db_and_user()
+    rem = db.execute(select(Reminder).where(Reminder.event_id == ev)).scalars().first()
+    assert rem is not None
+    rem.scheduled_for = datetime.now(UTC) - timedelta(minutes=1)
+    db.commit()
+    assert scheduler.send_one_reminder(db, rem, get_settings()) is True
+    assert rem.status == "sent"
+    outbox = get_settings().outbox_dir / ev
+    texts = list((outbox / "sms" / "reminders").glob("*.txt"))
+    assert [f.stem for f in texts] == [rem.id]
+    body = texts[0].read_text()
+    assert body.startswith("To: +15551110000") and "Segments:" in body
+    assert not list((outbox / "reminders").glob("*.eml")), "nothing went by email"
+
+
+def test_a_reminder_in_self_only_with_no_test_number_is_skipped_not_held(
+    sms_client, monkeypatch
+):
+    """A held reminder is retried every tick for ever; a skipped one is quiet."""
+    from datetime import UTC, datetime, timedelta
+
+    from kith.db.models import Reminder
+    from kith.services import scheduler
+
+    ev = _make_event(sms_client, sms_to="+15551110000")
+    sms_client.post(f"/events/{ev}/send", follow_redirects=False)
+    assert sender.wait_for_batches(timeout=30)
+    monkeypatch.setenv("KITH_SEND_MODE", "self-only")
+    get_settings.cache_clear()
+    db, _ = _db_and_user()
+    rem = db.execute(select(Reminder).where(Reminder.event_id == ev)).scalars().first()
+    rem.scheduled_for = datetime.now(UTC) - timedelta(minutes=1)
+    db.commit()
+    assert scheduler.send_one_reminder(db, rem, get_settings()) is False
+    assert (rem.status, rem.skip_reason) == ("skipped", "no_self_number")
+
+
+# --- a box the form did not render is not an empty box ------------------------
+
+def test_a_channel_whose_box_was_not_rendered_is_left_alone(sms_client):
+    """None means "this box was not on the form"; "" means the host emptied it."""
+    from kith.web.routes_events import _reconcile_recipients
+
+    ev = _make_event(
+        sms_client, emails="mara@example.com", wa_to="+15551110000", sms_to="+15552220000",
+    )
+    db, _ = _db_and_user()
+    assert len(_recipients(db, ev)) == 3
+
+    # Neither phone box rendered: the phone rows survive an edit to the email list.
+    res = _reconcile_recipients(db, ev, "mara@example.com\njo@example.com", None, None)
+    assert (res.added, res.removed) == (1, 0)
+    channels = sorted(r.channel for r in _recipients(db, ev))
+    assert channels == [CHANNEL_EMAIL, CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP]
+
+    # An SMS box that *was* rendered, and emptied, does remove the SMS guest.
+    res = _reconcile_recipients(db, ev, "mara@example.com\njo@example.com", None, "")
+    assert res.removed == 1
+    assert CHANNEL_SMS not in {r.channel for r in _recipients(db, ev)}
+
+
+def test_naming_a_guest_in_a_visible_box_moves_them_off_a_frozen_channel(sms_client):
+    """Freezing covers absence, not a positive act: typing the number into the
+    SMS box means "text them", even though the WhatsApp box wasn't rendered —
+    the alternative is a second invitation beside a row the host can't see."""
+    from kith.web.routes_events import _reconcile_recipients
+
+    ev = _make_event(sms_client, wa_to="+15551110000")
+    db, _ = _db_and_user()
+    res = _reconcile_recipients(db, ev, "", None, "+15551110000")   # same person, SMS box
+    assert (res.added, res.kept, res.removed) == (1, 0, 1)
+    assert [r.channel for r in _recipients(db, ev)] == [CHANNEL_SMS]
+
+
+def test_an_unlinked_host_editing_a_card_keeps_its_whatsapp_guests(sms_client):
+    """WhatsApp isn't configured here, so the edit form has no WhatsApp box.
+
+    Before, the empty POST that produced read as "remove every WhatsApp guest",
+    and an unrelated title change deleted them with their RSVPs.
+    """
+    ev = _make_event(sms_client, emails="mara@example.com", wa_to="+15551110000")
+    db, _ = _db_and_user()
+    assert {r.channel for r in _recipients(db, ev)} == {CHANNEL_EMAIL, CHANNEL_WHATSAPP}
+    page = sms_client.get(f"/events/{ev}/edit").text
+    assert 'name="wa_recipients"' not in page
+    sms_client.post(
+        f"/events/{ev}",
+        data={"title": "New title", "event_date": "2099-06-14",
+              "recipients": "mara@example.com", "block_date": "on"},
+        follow_redirects=False,
+    )
+    db, _ = _db_and_user()
+    assert {r.channel for r in _recipients(db, ev)} == {CHANNEL_EMAIL, CHANNEL_WHATSAPP}

@@ -37,8 +37,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
-from kith.core import eventkind, mailbuild, smsmessage, wamessage
-from kith.core.channels import CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, channel_of
+from kith.core import eventkind, mailbuild, phones, smsmessage, wamessage
+from kith.core.channels import (
+    ALL_CHANNELS,
+    CHANNEL_EMAIL,
+    CHANNEL_SMS,
+    CHANNEL_WHATSAPP,
+    channel_of,
+)
 from kith.db.models import Asset, Event, Recipient, User
 from kith.services import sms as sms_channel
 from kith.services import wa_session as wa_link
@@ -180,6 +186,14 @@ def send_event(
     recipients = [r for r in queued if channel_of(r) == CHANNEL_EMAIL]
     wa_recipients = [r for r in queued if channel_of(r) == CHANNEL_WHATSAPP]
     sms_recipients = [r for r in queued if channel_of(r) == CHANNEL_SMS]
+    for r in queued:
+        if channel_of(r) not in ALL_CHANNELS:
+            # A hand-edited row, or one written by a newer build. It lands in no
+            # list, so it would sit 'queued' for ever with nothing said; say so.
+            log.warning(
+                "send: recipient %s is on unknown channel %r; leaving it queued",
+                r.id, r.channel,
+            )
     asset = db.get(Asset, event.asset_id) if event.asset_id else None
     # A missing inline file must not take the whole send down with it. Assets can
     # outlive their files — the retention sweep removes the full-res copy, and
@@ -578,6 +592,34 @@ class _WaOutcome:
     blocked: str | None
 
 
+# Why the last SMS batch on this instance stopped, if it did. SMS is configured
+# for the whole site, so a stop is a site-wide fact — every card with queued
+# texts is stuck for the same reason — and the batch runs after the response,
+# so the redirect cannot carry it. This is how the dashboard learns it on a
+# later load. Cleared by the next text that goes through. In memory only: a
+# restart is a fine moment to try again.
+_sms_block_lock = threading.Lock()
+_sms_last_block: str | None = None
+
+
+def sms_last_block() -> str | None:
+    """The reason the last SMS batch stopped, or None if texts are going out."""
+    with _sms_block_lock:
+        return _sms_last_block
+
+
+def _remember_sms_block(reason: str | None) -> None:
+    global _sms_last_block
+    with _sms_block_lock:
+        _sms_last_block = reason
+
+
+def _stopped(sent: int, failed: int, reason: str) -> _SmsOutcome:
+    """A batch that stopped as a whole: record why, for every card to see."""
+    _remember_sms_block(reason)
+    return _SmsOutcome(sent, failed, reason)
+
+
 @dataclass
 class _SmsOutcome:
     sent: int
@@ -610,17 +652,21 @@ def _send_sms(
     invitation = eventkind.is_invitation(event.blocks, event.event_date)
     dry = settings.send_mode == SendMode.dry_run
 
-    if settings.send_mode == SendMode.self_only:
-        # self-only has nowhere to send yet: the host's own number is a
-        # provider-era setting that arrives with the first real provider. Until
-        # then this writes the outbox and says so, rather than texting the
-        # guest — which is the one thing self-only exists to prevent.
-        # TODO: send to settings.sms_self_number once a provider defines it.
+    # self-only sends to the operator's own number, never to the guest. Unlike
+    # WhatsApp's self-only, which uses the host's linked number, this is an
+    # instance-level setting: SMS has no per-host identity to borrow. With no
+    # usable number there is nowhere safe to send, so the batch stops with every
+    # recipient still queued and says why. Falling through to the guest is the
+    # one thing self-only exists to prevent — and marking the rows sent for a
+    # text nobody got would be the same lie in a quieter voice.
+    use_self = settings.send_mode == SendMode.self_only
+    self_number = phones.normalize(settings.sms_self_number or "")
+    if use_self and not self_number:
         log.warning(
-            "sms: self-only has no host number configured, so event %s is "
-            "being written to the outbox instead of sent", event.id,
+            "sms: self-only has no usable KITH_SMS_SELF_NUMBER, so event %s is "
+            "held with %d recipient(s) still queued", event.id, len(recipients),
         )
-        dry = True
+        return _stopped(0, 0, "no-self-number")
 
     provider = None if dry else sms_channel.get_provider(settings)
 
@@ -630,11 +676,12 @@ def _send_sms(
         # minutes, and the factory keeps objects unexpired after commit, so
         # without this the batch works from a snapshot: it would message someone
         # the host removed mid-batch, and then die on the stale UPDATE.
+        rid = r.id   # read before expiring: after a delete, even the id won't load
         db.expire(r)
         try:
             still_queued = r.status == "queued"
         except Exception:      # the row was deleted under us
-            log.info("sms: recipient %s went away mid-batch; skipping", r.id)
+            log.info("sms: recipient %s went away mid-batch; skipping", rid)
             db.rollback()
             _pace(settings, dry, i, len(recipients), CHANNEL_SMS)
             continue
@@ -652,7 +699,7 @@ def _send_sms(
             note=note,
             invitation=invitation,
         )
-        to = r.phone
+        to = self_number if use_self else r.phone
         if not to:
             # An SMS row with no number is a broken row, not a send.
             log.warning("sms: no destination number for recipient %s", r.id)
@@ -677,20 +724,39 @@ def _send_sms(
                 "sms: no provider configured; stopping with %d recipient(s) "
                 "still queued", len(recipients) - i,
             )
-            return _SmsOutcome(sent, failed, "not-configured")
+            return _stopped(sent, failed, "not-configured")
         except sms_channel.SmsAuthError:
             db.rollback()
             log.warning(
                 "sms: the provider rejected our credentials; stopping with %d "
                 "recipient(s) still queued", len(recipients) - i,
             )
-            return _SmsOutcome(sent, failed, "auth")
+            return _stopped(sent, failed, "auth")
+        except sms_channel.SmsMisconfigured as e:
+            # Ours to fix, not this recipient's fault — and the same for everyone
+            # after them, so one paced call is enough to learn it.
+            db.rollback()
+            log.warning(
+                "sms: the provider rejected our configuration (%s); stopping "
+                "with %d recipient(s) still queued", e, len(recipients) - i,
+            )
+            return _stopped(sent, failed, "misconfigured")
+        except sms_channel.SmsRateLimited as e:
+            # Pressing on would only be refused faster. Stop; the host re-sends.
+            db.rollback()
+            log.warning(
+                "sms: the provider asked us to slow down (%s); stopping with %d "
+                "recipient(s) still queued", e, len(recipients) - i,
+            )
+            return _stopped(sent, failed, "rate-limited")
         except Exception:
             log.exception("sms send failed for recipient %s (event %s)", r.id, event.id)
             failed += 1  # left 'queued' so a retry can pick it up
             db.rollback()   # a failed statement poisons the session otherwise
         _pace(settings, dry, i, len(recipients), CHANNEL_SMS)
 
+    if sent:
+        _remember_sms_block(None)  # texts are going out again
     return _SmsOutcome(sent, failed, None)
 
 
@@ -748,11 +814,12 @@ def _send_whatsapp(
         # minutes, and the factory keeps objects unexpired after commit, so
         # without this the batch works from a snapshot: it would message someone
         # the host removed mid-batch, and then die on the stale UPDATE.
+        rid = r.id   # read before expiring: after a delete, even the id won't load
         db.expire(r)
         try:
             still_queued = r.status == "queued"
         except Exception:      # the row was deleted under us
-            log.info("whatsapp: recipient %s went away mid-batch; skipping", r.id)
+            log.info("whatsapp: recipient %s went away mid-batch; skipping", rid)
             db.rollback()
             _pace(settings, dry, i, len(recipients))
             continue

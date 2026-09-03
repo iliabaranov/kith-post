@@ -30,7 +30,7 @@ import math
 # does in the email and on the page.
 from kith.core.wamessage import when_line
 
-__all__ = ["invite_text", "reminder_text", "segments", "when_line"]
+__all__ = ["invite_text", "is_gsm7", "reminder_text", "segments", "when_line"]
 
 # GSM 03.38, the default 7-bit alphabet. Anything here costs one septet.
 _GSM_BASIC = (

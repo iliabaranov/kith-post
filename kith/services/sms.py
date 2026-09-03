@@ -47,6 +47,20 @@ class SmsNotConfigured(SmsError):
     """
 
 
+class SmsMisconfigured(SmsError):
+    """The provider rejected something about *our* setup, not this recipient.
+
+    A sender number that isn't one, a path that isn't there, an account id the
+    provider has never heard of: every remaining recipient would fail the same
+    way, so the batch stops rather than spending a paced API call per person to
+    learn the same thing thirty times over.
+    """
+
+
+class SmsRateLimited(SmsError):
+    """The provider asked us to slow down. The batch stops; the rest stay queued."""
+
+
 @dataclass(frozen=True)
 class SmsResult:
     """What came back from a successful send.
@@ -106,8 +120,7 @@ def get_provider(settings) -> SmsProvider:  # noqa: ANN001 — a Settings
 
     SMS is instance-level: one provider for the box, chosen by the operator,
     rather than something each host links for themselves the way WhatsApp is.
-    Only "none" exists so far; concrete providers extend this factory.
+    Only "none" exists so far; concrete providers extend this factory, and are
+    reached only once ``sms_configured`` says the channel can actually send.
     """
-    if not settings.sms_enabled:
-        return NullProvider()
     return NullProvider()

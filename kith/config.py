@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     # Shared secret for delivery-receipt and STOP callbacks. Empty = no webhooks
     # configured at all, and the endpoint refuses everything.
     sms_webhook_secret: str = ""
+    # Where self-only mode sends a text: the operator's own number, in any
+    # readable form — it is normalised to E.164 before use. WhatsApp's self-only
+    # borrows the host's linked number; SMS has no per-host identity, so this is
+    # instance-level like the rest of the channel. Unset, self-only holds every
+    # text rather than guessing at a destination.
+    sms_self_number: str = ""
 
     reminders: ReminderSettings = ReminderSettings()
 

@@ -220,10 +220,6 @@ class Recipient(Base):
     sms_delivered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # This person replied STOP. Compliance-critical and enforced on every send
-    # path, so it is here rather than derived. NULL means nobody has said so;
-    # the durable per-contact half of the flag arrives with the STOP webhook.
-    opted_out: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # Gmail resource id
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True)   # Gmail threadId
     # RFC822 Message-ID we stamp on the first send; reminders/re-sends reference it

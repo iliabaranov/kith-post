@@ -19,15 +19,86 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
-from kith.core import eventkind, mailbuild, wamessage
+from kith.core import eventkind, mailbuild, phones, smsmessage, wamessage
 from kith.core import reminders as rem
-from kith.core.channels import CHANNEL_EMAIL, CHANNEL_WHATSAPP, channel_of
+from kith.core.channels import CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, channel_of
 from kith.db.models import Asset, Event, Recipient, Reminder, User
+from kith.services import sms as sms_channel
 from kith.services import wa_session as wa_link
 from kith.services import waha
 from kith.services.gmail import GmailAuthError
 
 log = logging.getLogger("kith")
+
+
+def _send_sms_reminder(
+    db: Session, reminder: Reminder, r: Recipient, ev: Event, user: User,
+    settings: Settings, *, rsvp: bool,
+) -> bool:
+    """A nudge by text.
+
+    Same shape as the other two: marked sent before the network call so a crash
+    can't re-send, reverted to pending on a failure so the next tick retries.
+    Simpler than the WhatsApp path — there is no session to pre-flight and no
+    timelock — and it carries none of the ambiguity of a quoted reply, since SMS
+    has no thread to quote into.
+    """
+    dry = settings.send_mode == SendMode.dry_run
+    if not dry and not settings.sms_configured:
+        # The channel was switched off after the card went out. Skip rather than
+        # hold: a pending reminder is retried every tick, and nothing bounds
+        # that while the channel stays off.
+        reminder.status, reminder.skip_reason = "skipped", "channel_off"
+        db.commit()
+        return False
+    to = r.phone
+    if settings.send_mode == SendMode.self_only:
+        # The first send's rule, again: the operator's own number or nowhere.
+        to = phones.normalize(settings.sms_self_number or "")
+        if not to:
+            reminder.status, reminder.skip_reason = "skipped", "no_self_number"
+            db.commit()
+            return False
+    text = smsmessage.reminder_text(
+        title=ev.title,
+        host_name=user.display_name or "A friend",
+        view_url=f"{settings.base_url.rstrip('/')}/i/{r.token}",
+        recipient_name=r.name,
+        when=smsmessage.when_line(ev.event_date, ev.event_time),
+        rsvp=rsvp,
+        invitation=eventkind.is_invitation(ev.blocks, ev.event_date),
+    )
+    reminder.status, reminder.sent_at = "sent", datetime.now(UTC)
+    db.commit()
+    try:
+        if dry:
+            d = settings.outbox_dir / ev.id / "sms" / "reminders"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{reminder.id}.txt").write_text(
+                f"To: {to}\nSegments: {smsmessage.segments(text)}\n\n{text}\n"
+            )
+        else:
+            if not to:
+                raise sms_channel.SmsError(f"no destination number for recipient {r.id}")
+            sms_channel.get_provider(settings).send(to, text)
+    except sms_channel.SmsTimeout:
+        # We do not know whether the provider took it. Leaving it 'sent' risks
+        # one nudge nobody received; reverting it risks a second text five
+        # minutes later, with no human in the loop — and a duplicate text is
+        # both billed and rude. Same trade the WhatsApp path makes.
+        db.rollback()
+        log.warning(
+            "reminder %s timed out; leaving it sent because the outcome is unknown",
+            reminder.id,
+        )
+        return False
+    except Exception:
+        log.exception("reminder: SMS send failed (reminder %s)", reminder.id)
+        db.rollback()
+        reminder.status, reminder.sent_at = "pending", None
+        db.commit()
+        return False
+    return True
 
 
 def _send_wa_reminder(
@@ -153,6 +224,10 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
     view_url = f"{settings.base_url.rstrip('/')}/i/{r.token}"
     if channel_of(r) == CHANNEL_WHATSAPP:
         return _send_wa_reminder(db, reminder, r, ev, user, settings, rsvp=rsvp)
+    if channel_of(r) == CHANNEL_SMS:
+        # An SMS row's email is the NOT NULL sentinel "". Without this branch
+        # the nudge would go down the email path addressed to nobody.
+        return _send_sms_reminder(db, reminder, r, ev, user, settings, rsvp=rsvp)
     msg = mailbuild.build_email(
         subject=mailbuild.reminder_subject(mailbuild.subject_for(ev.title, rsvp)),
         from_name=user.display_name, from_email=user.email,
