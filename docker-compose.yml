@@ -45,7 +45,7 @@ services:
     # engines AND the session store is per-engine
     # (/app/.sessions/<engine>/<name>), so switching engines re-pairs every
     # user. WEBJS is the fallback if GOWS misbehaves; re-test the send path.
-    image: devlikeapro/waha:gows-2026.8.1
+    image: devlikeapro/waha:gows-2026.8.2
     profiles: ["whatsapp"]
     environment:
       WAHA_API_KEY: "${KITH_WAHA_API_KEY:-}"
