@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from kith.config import SendMode, Settings
 from kith.core import eventkind, mailbuild, wamessage
 from kith.core import reminders as rem
+from kith.core.channels import CHANNEL_EMAIL, CHANNEL_WHATSAPP, channel_of
 from kith.db.models import Asset, Event, Recipient, Reminder, User
 from kith.services import wa_session as wa_link
 from kith.services import waha
@@ -150,7 +151,7 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
     rsvp = bool((ev.blocks or {}).get("rsvp"))
     host_name = user.display_name or "A friend"
     view_url = f"{settings.base_url.rstrip('/')}/i/{r.token}"
-    if r.phone:
+    if channel_of(r) == CHANNEL_WHATSAPP:
         return _send_wa_reminder(db, reminder, r, ev, user, settings, rsvp=rsvp)
     msg = mailbuild.build_email(
         subject=mailbuild.reminder_subject(mailbuild.subject_for(ev.title, rsvp)),
@@ -266,7 +267,7 @@ def send_due_scheduled(db: Session, settings: Settings, *, now: datetime | None 
                     Recipient.event_id == ev.id, Recipient.status == "queued"
                 )
             ).scalars().all()
-            if any(not r.phone for r in wants_email):
+            if any(channel_of(r) == CHANNEL_EMAIL for r in wants_email):
                 continue
         queued = db.execute(
             select(func.count()).select_from(Recipient).where(
@@ -331,13 +332,17 @@ def resume_interrupted_wa_batches(
             continue
         if send.wa_batch_running(ev.id):
             continue
-        owed = db.execute(
-            select(func.count()).select_from(Recipient).where(
-                Recipient.event_id == ev.id,
-                Recipient.status == "queued",
-                Recipient.phone.is_not(None),
+        # Counted through the resolver, not by "has a phone": a number on another
+        # channel is not owed a WhatsApp batch. Over-counting here is not
+        # harmless — the batch it would submit finds nothing to do and returns
+        # without clearing the marker, so the sweep would resubmit it every tick
+        # until RESUME_WITHIN ran out.
+        queued = db.execute(
+            select(Recipient).where(
+                Recipient.event_id == ev.id, Recipient.status == "queued",
             )
-        ).scalar_one()
+        ).scalars().all()
+        owed = sum(1 for r in queued if channel_of(r) == CHANNEL_WHATSAPP)
         if not owed:
             ev.wa_batch_started_at = None
             db.commit()
@@ -373,7 +378,11 @@ def sweep_tick(session_factory, settings: Settings, *, now: datetime | None = No
             # thread, so sleeping here costs nothing but time.
             if ok and i + 1 < len(due):
                 r = db.get(Recipient, reminder.recipient_id)
-                if r is not None and r.phone and settings.send_mode != SendMode.dry_run:
+                if (
+                    r is not None
+                    and channel_of(r) == CHANNEL_WHATSAPP
+                    and settings.send_mode != SendMode.dry_run
+                ):
                     gap = send.next_send_gap(settings)
                     if gap > 0:
                         time.sleep(gap)

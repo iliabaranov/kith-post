@@ -21,6 +21,7 @@ from kith.core import calendar as cal
 from kith.core import eventkind, images, wamessage
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
+from kith.core.channels import channel_of
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
@@ -328,7 +329,7 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
                 receipt = "Delivered on WhatsApp"
         recipients.append({
             "name": r.name or address, "email": address,
-            "channel": rcpt.CHANNEL_WHATSAPP if r.phone else rcpt.CHANNEL_EMAIL,
+            "channel": channel_of(r),
             "receipt": receipt,
             "state": state, "label": _STATE_LABEL[state],
             "party_size": r.party_size, "when": when,
