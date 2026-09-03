@@ -332,17 +332,17 @@ def resume_interrupted_wa_batches(
             continue
         if send.wa_batch_running(ev.id):
             continue
-        owed = db.execute(
-            select(func.count()).select_from(Recipient).where(
-                Recipient.event_id == ev.id,
-                Recipient.status == "queued",
-                # A coarse pre-filter for "on a phone-based channel". WhatsApp is
-                # still the only one, so this is exact today; it widens to cover
-                # SMS when that channel lands, and the precise test is channel_of
-                # below/at the point of send.
-                Recipient.phone.is_not(None),
+        # Counted through the resolver, not by "has a phone": a number on another
+        # channel is not owed a WhatsApp batch. Over-counting here is not
+        # harmless — the batch it would submit finds nothing to do and returns
+        # without clearing the marker, so the sweep would resubmit it every tick
+        # until RESUME_WITHIN ran out.
+        queued = db.execute(
+            select(Recipient).where(
+                Recipient.event_id == ev.id, Recipient.status == "queued",
             )
-        ).scalar_one()
+        ).scalars().all()
+        owed = sum(1 for r in queued if channel_of(r) == CHANNEL_WHATSAPP)
         if not owed:
             ev.wa_batch_started_at = None
             db.commit()

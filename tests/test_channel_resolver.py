@@ -157,3 +157,61 @@ def test_dry_run_partitions_a_mixed_event_by_channel(client):
     assert len(emls) == 2                    # mara, plus the stray-phone row
     assert "r-both" in emls and "r-wa" not in emls
     assert [f.stem for f in (outbox / "whatsapp").glob("*.txt")] == ["r-wa"]
+
+
+# --- the resume sweep owes a WhatsApp batch only to WhatsApp rows -------------
+
+def test_resume_owes_a_batch_only_to_whatsapp_rows(client, monkeypatch):
+    """A queued number on another channel must not keep resubmitting a WhatsApp batch.
+
+    ``resume_interrupted_wa_batches`` used to count "owed" rows by
+    ``phone IS NOT NULL``. A row whose channel column says otherwise would make
+    it submit a batch that finds nothing to do and returns *without* clearing
+    ``wa_batch_started_at`` — so the sweep would resubmit it on every tick for a
+    day. Counting through the resolver clears the marker instead.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from kith.config import Settings, get_settings
+    from kith.services import scheduler, send
+
+    client.post("/auth/dev-login")
+    loc = client.post(
+        "/events",
+        data={"title": "Sunday lunch", "event_date": "2099-06-14",
+              "recipients": "mara@example.com", "block_date": "on"},
+        follow_redirects=False,
+    ).headers["location"]
+    event_id = loc.split("/events/")[1].split("?")[0]
+
+    submitted: list[str] = []
+    monkeypatch.setattr(send, "submit_whatsapp_batch", lambda sf, eid, st: submitted.append(eid))
+    settings = Settings(
+        whatsapp_enabled=True, waha_api_key="k", data_dir=get_settings().data_dir,
+    )
+    now = datetime.now(UTC)
+
+    db, _ = _db_and_user()
+    ev = db.get(Event, event_id)
+    ev.wa_batch_started_at = now - timedelta(minutes=10)
+    db.add(Recipient(
+        id="r-other", event_id=event_id, email="", name="Sam",
+        channel="sms", phone="+15552220000", token="tok-other", status="queued",
+    ))
+    db.commit()
+
+    # A phone number on a non-WhatsApp channel: nothing is owed, marker cleared.
+    assert scheduler.resume_interrupted_wa_batches(db, None, settings, now=now) == 0
+    assert submitted == []
+    assert db.get(Event, event_id).wa_batch_started_at is None
+
+    # A genuine WhatsApp row: resumed exactly once.
+    ev = db.get(Event, event_id)
+    ev.wa_batch_started_at = now - timedelta(minutes=10)
+    db.add(Recipient(
+        id="r-wa", event_id=event_id, email="", name="Kim",
+        channel=CHANNEL_WHATSAPP, phone="+15553330000", token="tok-wa", status="queued",
+    ))
+    db.commit()
+    assert scheduler.resume_interrupted_wa_batches(db, None, settings, now=now) == 1
+    assert submitted == [event_id]
