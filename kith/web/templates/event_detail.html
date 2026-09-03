@@ -93,7 +93,7 @@
   </div>
 
   {% if wa_quota_note %}
-  <p class="sent-note wa-blocked">{{ wa_quota_note }} Email invitations are unaffected.</p>
+  <p class="sent-note wa-blocked">{{ wa_quota_note }} Email{% if sms_preview %} and text{% endif %} invitations are unaffected.</p>
   {% endif %}
 
   {% if wa_preview %}
@@ -110,8 +110,10 @@
     <summary>What the text will say</summary>
     <pre class="wa-preview-text">{{ sms_preview }}</pre>
     <p class="field-hint">{{ sms_segments }} segment{{ '' if sms_segments == 1 else 's' }} —
-      a text is billed and split in chunks of about 160 characters, so a longer note costs
-      more of them. Text only: no card picture{% if event.asset_id %}, though the card is
+      a text is billed and split in chunks of about {% if sms_gsm7 %}160 characters, so a longer
+      note costs more of them{% else %}70 characters here, because an emoji or a curly quote in
+      the words puts the whole text into the smaller alphabet — plain punctuation would make
+      it 160{% endif %}. Text only: no card picture{% if event.asset_id %}, though the card is
       on the page the link opens{% endif %}. Each guest gets their own link.</p>
   </details>
   {% endif %}

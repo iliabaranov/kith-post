@@ -10,6 +10,7 @@ SMS is instance-level, so there is deliberately no linking page and no
 """
 
 import html
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -325,9 +326,9 @@ def test_a_long_note_shows_a_higher_segment_count(sms_client):
         follow_redirects=False,
     )
     ev = r.headers["location"].split("/events/")[1].split("?")[0]
-    body = sms_client.get(f"/events/{ev}").text
-    assert "segments" in body
-    assert "1 segment —" not in body
+    body = html.unescape(sms_client.get(f"/events/{ev}").text)
+    m = re.search(r"(\d+) segments? —", body)
+    assert m and int(m.group(1)) > 1
 
 
 def test_there_is_no_sms_preview_without_sms_recipients(sms_client):
@@ -353,7 +354,10 @@ def test_the_phone_field_is_no_longer_labelled_whatsapp(sms_client):
     page = body.split("</style>", 1)[-1]
     assert 'name="phone"' in page
     assert "Mobile number" in page
-    assert "WhatsApp" not in page
+    # Scoped to the field's own row, not the whole page: a nav or footer that
+    # one day mentions WhatsApp is not this test's business.
+    field = page[page.index('name="phone"') - 400: page.index('name="phone"') + 400]
+    assert "WhatsApp" not in field
     assert "mobile number" in page          # the softened hint
 
 
@@ -371,3 +375,109 @@ def test_the_whatsapp_box_and_badge_still_work(both_client):
     body = both_client.get(f"/events/{ev}").text
     assert "· WhatsApp" in body and "· SMS" not in body
     assert "What the WhatsApp message will say" in body
+
+
+# --- switching the channel off must not delete anyone --------------------------
+
+def test_switching_sms_off_keeps_sms_guests_through_an_edit(sms_client, monkeypatch):
+    """The compose form hides the SMS box when the channel is off, so an edit
+    posts nothing for it. That must read as "leave them alone", not "remove
+    them" — the plan's own advice is to provision a number only for the month
+    of the event, which makes switching off an ordinary thing to do."""
+    from kith.core.channels import CHANNEL_SMS
+
+    r = sms_client.post(
+        "/events",
+        data={"title": "Party", "event_date": "2099-06-14",
+              "recipients": "mara@example.com", "sms_recipients": "+15551110000",
+              "block_date": "on"},
+        follow_redirects=False,
+    )
+    ev = r.headers["location"].split("/events/")[1].split("?")[0]
+    db, _ = _db_and_user()
+    before = {(x.channel, x.id) for x in
+              db.execute(select(Recipient).where(Recipient.event_id == ev)).scalars()}
+    assert CHANNEL_SMS in {c for c, _ in before}
+
+    off = _fresh_client(monkeypatch, KITH_SMS_ENABLED="false", KITH_SMS_PROVIDER="none")
+    try:
+        page = off.get(f"/events/{ev}/edit").text
+        assert 'name="sms_recipients"' not in page
+        off.post(
+            f"/events/{ev}",
+            data={"title": "Party, renamed", "event_date": "2099-06-14",
+                  "recipients": "mara@example.com", "block_date": "on"},
+            follow_redirects=False,
+        )
+    finally:
+        off.__exit__(None, None, None)
+    db, _ = _db_and_user()
+    after = {(x.channel, x.id) for x in
+             db.execute(select(Recipient).where(Recipient.event_id == ev)).scalars()}
+    assert after == before, "an edit with the box hidden must not touch its rows"
+
+
+# --- why the texts are stuck, on every page load ------------------------------
+
+def _sms_event(client):
+    r = client.post(
+        "/events",
+        data={"title": "Party", "event_date": "2099-06-14", "recipients": "",
+              "sms_recipients": "+15551110000", "block_date": "on"},
+        follow_redirects=False,
+    )
+    return r.headers["location"].split("/events/")[1].split("?")[0]
+
+
+def test_a_stopped_sms_batch_explains_itself_on_later_loads(sms_client):
+    """The batch runs after the response, so the redirect can't carry the reason;
+    the dashboard reads it from the site-wide note the batch leaves instead."""
+    from kith.services import send as sender
+
+    ev = _sms_event(sms_client)
+    sender._remember_sms_block("misconfigured")
+    try:
+        body = html.unescape(sms_client.get(f"/events/{ev}").text)
+        assert "rejected this site's setup" in body
+    finally:
+        sender._remember_sms_block(None)
+    body = html.unescape(sms_client.get(f"/events/{ev}").text)
+    assert "rejected this site's setup" not in body
+
+
+def test_self_only_without_a_test_number_says_texts_are_held(sms_client, monkeypatch):
+    """Both the stuck note on the page and the button's hint say so — and stop
+    saying so the moment a test number is configured. (The hint is asserted on
+    the helper: the detail template shows the label and confirmation but has
+    never rendered the hint, for any channel.)"""
+    from kith.web.routes_events import _send_ui
+
+    ev = _sms_event(sms_client)
+    monkeypatch.setenv("KITH_SEND_MODE", "self-only")
+    get_settings.cache_clear()
+    body = html.unescape(sms_client.get(f"/events/{ev}").text)
+    assert "has no test number for texts" in body
+
+    db, _ = _db_and_user()
+    rows = db.execute(select(Recipient).where(Recipient.event_id == ev)).scalars().all()
+    _, hint, _ = _send_ui("self-only", rows, "invitation", sms_test_number=False)
+    assert "Sends only to you (by text)" in hint and "Texts are held" in hint
+    _, hint, _ = _send_ui("self-only", rows, "invitation", sms_test_number=True)
+    assert "Texts are held" not in hint
+
+    monkeypatch.setenv("KITH_SMS_SELF_NUMBER", "+15550009999")
+    get_settings.cache_clear()
+    body = html.unescape(sms_client.get(f"/events/{ev}").text)
+    assert "has no test number" not in body
+
+
+def test_the_segment_hint_explains_a_non_gsm_title(sms_client):
+    r = sms_client.post(
+        "/events",
+        data={"title": "Maya turns five! \U0001F389", "event_date": "2099-06-14",
+              "recipients": "", "sms_recipients": "+15551110000", "block_date": "on"},
+        follow_redirects=False,
+    )
+    ev = r.headers["location"].split("/events/")[1].split("?")[0]
+    body = html.unescape(sms_client.get(f"/events/{ev}").text)
+    assert "70 characters here" in body and "emoji or a curly quote" in body

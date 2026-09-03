@@ -155,13 +155,13 @@
           </select>
         </div>
         <div class="book-items">
-          {% for c in contacts %}
           {# A stored number is just a number; which phone channel to use is a
              choice made here, so the picker offers every channel that's on. #}
           {% set phone_on = wa_ready or sms_ready %}
-          {% set has_phone = phone_on and c.phone %}
           {% set phone_channels = ([('whatsapp', 'WhatsApp')] if wa_ready else [])
                                 + ([('sms', 'text')] if sms_ready else []) %}
+          {% for c in contacts %}
+          {% set has_phone = phone_on and c.phone %}
           <div class="book-row" data-groups="{{ (c.groups or [])|join('|')|lower }}">
             <label class="chk"><input type="checkbox" class="book-item"
                    data-email="{{ c.email }}" data-phone="{{ c.phone or '' if phone_on else '' }}"
@@ -296,6 +296,16 @@
     }).filter(Boolean));
   }
 
+  function removeFrom(box, key) {
+    // Drop the entry for one address, keeping everything else as typed.
+    if (!box) return;
+    var kept = box.value.split(/\n/).filter(function (line) {
+      var m = line.match(/<([^>]+)>/);
+      return (m ? m[1] : line).trim().toLowerCase() !== key;
+    });
+    box.value = kept.join("\n").replace(/\n+$/, "") + (kept.length ? "\n" : "");
+  }
+
   function appendTo(box, lines) {
     if (!box || !lines.length) return;
     var cur = box.value.replace(/\s+$/, "");
@@ -325,6 +335,14 @@
       if (!value || !boxes[channel]) return;
       var key = value.toLowerCase();
       if (have[channel].has(key)) return;
+      // One person, one channel. A number already in the *other* phone box moves
+      // to the one just chosen: the host's latest choice wins, rather than the
+      // server quietly keeping the old box on save.
+      var other = channel === "whatsapp" ? "sms" : (channel === "sms" ? "whatsapp" : null);
+      if (other && have[other].has(key)) {
+        removeFrom(boxes[other], key);
+        have[other].delete(key);
+      }
       have[channel].add(key);
       added[channel].push(name ? name + " <" + value + ">" : value);
       cb.checked = false;

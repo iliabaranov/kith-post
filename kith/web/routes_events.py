@@ -18,7 +18,7 @@ from starlette.background import BackgroundTask
 
 from kith.config import SendMode, get_settings
 from kith.core import calendar as cal
-from kith.core import eventkind, images, smsmessage, wamessage
+from kith.core import eventkind, images, phones, smsmessage, wamessage
 from kith.core import recipients as rcpt
 from kith.core.cardstyles import CARD_STYLES, normalize_card_style
 from kith.core.channels import (
@@ -122,6 +122,21 @@ _SMS_BLOCKED = {
         "invitations weren't sent. They're still queued — ask whoever runs it to "
         "check the settings."
     ),
+    "misconfigured": (
+        "The text-message service rejected this site's setup — the sending "
+        "number or account details — so those invitations weren't sent. They're "
+        "still queued — ask whoever runs it to check the settings."
+    ),
+    "rate-limited": (
+        "The text-message service asked this site to slow down, so the rest of "
+        "those invitations weren't sent. They're still queued — try again in a "
+        "few minutes."
+    ),
+    "no-self-number": (
+        "This site is in test mode and has no test number for texts, so those "
+        "invitations were held. They're still queued — ask whoever runs it to set "
+        "one, or to switch to live sending."
+    ),
 }
 
 # Why a WhatsApp batch stopped, in words a host can act on. Deliberately blames
@@ -206,7 +221,7 @@ def _sms_send_preview(
         r for r in rows if channel_of(r) == CHANNEL_SMS and r.status == "queued"
     ]
     if not settings.sms_configured or not queued_sms:
-        return {"sms_preview": None, "sms_segments": None}
+        return {"sms_preview": None, "sms_segments": None, "sms_gsm7": True}
     r = queued_sms[0]
     preview = smsmessage.invite_text(
         title=ev.title,
@@ -217,7 +232,14 @@ def _sms_send_preview(
         rsvp=bool((ev.blocks or {}).get("rsvp")),
         invitation=eventkind.is_invitation(ev.blocks, ev.event_date),
     )
-    return {"sms_preview": preview, "sms_segments": smsmessage.segments(preview)}
+    return {
+        "sms_preview": preview,
+        "sms_segments": smsmessage.segments(preview),
+        # One character outside GSM-7 — a curly quote, an emoji in the title —
+        # cuts every chunk from 160 to 70. The count is right either way; this
+        # is so the hint can say why it jumped.
+        "sms_gsm7": smsmessage.is_gsm7(preview),
+    }
 
 
 def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN001
@@ -236,6 +258,29 @@ def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN0
     if (user.wa_capping or {}).get("status") == "CAPPED":
         return _WA_BLOCKED["capped"]
     return None
+
+
+def _sms_stuck_note(rows: Sequence[Recipient]) -> str | None:
+    """The reason this card's texts can't go out, if there is one.
+
+    Worked out from the site's state rather than echoed from the send that just
+    happened, for the same reason as the WhatsApp note: the batch runs after the
+    response, so what stopped it is learned too late for the redirect — and this
+    stays true on every later page load. SMS is instance-level, so the reason
+    the last batch stopped applies to every card with texts still waiting.
+    """
+    settings = get_settings()
+    if not any(channel_of(r) == CHANNEL_SMS and r.status == "queued" for r in rows):
+        return None          # nothing waiting, so nothing to explain
+    if not settings.sms_configured:
+        return _SMS_BLOCKED["not-configured"]
+    if (
+        settings.send_mode == SendMode.self_only
+        and not phones.normalize(settings.sms_self_number or "")
+    ):
+        return _SMS_BLOCKED["no-self-number"]
+    reason = send.sms_last_block()
+    return _SMS_BLOCKED.get(reason) if reason else None
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -453,7 +498,9 @@ def _and_list(parts: list[str]) -> str:
     return f"{', '.join(parts[:-1])} and {parts[-1]}"
 
 
-def _send_ui(mode: str, queued_rows: list[Recipient], noun: str) -> tuple[str, str, str]:
+def _send_ui(
+    mode: str, queued_rows: list[Recipient], noun: str, *, sms_test_number: bool = True,
+) -> tuple[str, str, str]:
     """Label, hint and confirmation for the send button.
 
     The wording names the channels this particular card will actually use. Saying
@@ -469,22 +516,21 @@ def _send_ui(mode: str, queued_rows: list[Recipient], noun: str) -> tuple[str, s
     if len(present) == 1:
         via, dest = _VIA_ALONE[present[0]], _DEST_ALONE[present[0]]
     else:
+        via = "by " + _and_list([_VIA_JOINED[c] for c in present])
         # The first channel keeps its standalone form so the phrase still opens
         # with "your ..."; the rest are the shorter joined names.
-        via = "by " + _and_list(
-            [_VIA_JOINED[present[0]]] + [_VIA_JOINED[c] for c in present[1:]]
-        )
         dest = _and_list(
             [_DEST_ALONE[present[0]]] + [_DEST_JOINED[c] for c in present[1:]]
         )
     thing = _plural(n, noun)
 
     if mode == "self-only":
-        return (
-            "Send a test to yourself",
-            f"Sends only to you ({via}), for testing.",
-            f"Send {thing} to yourself as a test?",
-        )
+        hint = f"Sends only to you ({via}), for testing."
+        if CHANNEL_SMS in present and not sms_test_number:
+            # self-only texts go to a site-wide test number, and without one they
+            # go nowhere. Say so here, before the button, not after.
+            hint += " Texts are held until whoever runs this site sets a test number."
+        return ("Send a test to yourself", hint, f"Send {thing} to yourself as a test?")
     if mode == "live":
         return (
             f"Send to {n} now",
@@ -812,7 +858,8 @@ def event_detail(
     queued = sum(1 for r in rows if r.status == "queued")
     noun = _event_noun(ev)
     label, hint, confirm = _send_ui(
-        settings.send_mode.value, [r for r in rows if r.status == "queued"], noun
+        settings.send_mode.value, [r for r in rows if r.status == "queued"], noun,
+        sms_test_number=bool(phones.normalize(settings.sms_self_number or "")),
     )
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
@@ -847,7 +894,7 @@ def event_detail(
         "wa_pending": wa_pending,
         "sms_sending": send.sms_batch_running(ev.id) or bool(sms_pending),
         "sms_pending": sms_pending,
-        "sms_blocked_msg": _SMS_BLOCKED.get(sms_blocked),
+        "sms_blocked_msg": _sms_stuck_note(rows) or _SMS_BLOCKED.get(sms_blocked),
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
