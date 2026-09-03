@@ -23,6 +23,8 @@ from kith.services.sms import (
     SmsAuthError,
     SmsCaps,
     SmsError,
+    SmsMisconfigured,
+    SmsRateLimited,
     SmsResult,
     SmsTimeout,
 )
@@ -33,10 +35,20 @@ log = logging.getLogger("kith")
 # the contract this module was written against, not something to configure.
 API_ROOT = "https://api.twilio.com/2010-04-01"
 
-# A Messaging Service SID starts with "MG"; an Account SID with "AC". Used only
-# to catch a from-number and a service SID swapped in the config, which
-# otherwise fails as an opaque 400 on the first real send.
+# A Messaging Service SID starts with "MG"; an Account SID with "AC". Checked
+# before the first request so a from-number and a service SID swapped in the
+# config stop the batch with a sentence, not an opaque 400 per recipient.
 MESSAGING_SERVICE_PREFIX = "MG"
+
+# Twilio error codes that describe *our* setup rather than this recipient, so
+# every remaining recipient would fail identically: 20404 is "resource not
+# found" (an account SID Twilio has never heard of); 21606 is a From number
+# that isn't a Twilio number of ours, or can't send SMS. Codes about the To
+# number (21211 invalid, 21610 opted out, 21408 region not enabled) are left to
+# cost one recipient — the next guest may well be fine.
+MISCONFIGURED_CODES = frozenset({20404, 21606})
+# Twilio's own code for "too many requests", alongside the HTTP 429 it rides on.
+RATE_LIMITED_CODE = 20429
 
 
 class TwilioProvider:
@@ -58,7 +70,7 @@ class TwilioProvider:
         self._mss = (messaging_service_sid or "").strip()
         # A short connect timeout separates "the internet is down" from "Twilio
         # is thinking about it", the same split services.waha makes.
-        self._timeout = httpx.Timeout(timeout, connect=5.0)
+        self._timeout = httpx.Timeout(timeout, connect=min(5.0, timeout))
         # Tests inject an httpx.MockTransport here; production leaves it None.
         self._transport = transport
 
@@ -67,6 +79,7 @@ class TwilioProvider:
         return f"{API_ROOT}/Accounts/{self._sid}/Messages.json"
 
     def send(self, to_e164: str, text: str) -> SmsResult:
+        self._check_sender()
         data = {"To": to_e164, "Body": text}
         if self._mss:
             # A Messaging Service picks the sender itself, which is how you get
@@ -84,7 +97,16 @@ class TwilioProvider:
             raise SmsError(f"Twilio send failed: {e}") from e
 
         if resp.status_code in (401, 403):
-            raise SmsAuthError("Twilio rejected the credentials")
+            # Twilio's words are kept: 20003 (bad token) and 20005 (account
+            # suspended) both land here, and they are not the same problem.
+            raise SmsAuthError(f"Twilio rejected the credentials: {_error_detail(resp)}")
+        code = _error_code(resp)
+        if resp.status_code == 429 or code == RATE_LIMITED_CODE:
+            raise SmsRateLimited(f"Twilio {resp.status_code}: {_error_detail(resp)}")
+        if resp.status_code == 404 or code in MISCONFIGURED_CODES:
+            # 404 on the Messages endpoint means the account SID in the URL is
+            # not an account: an empty or mistyped KITH_SMS_TWILIO_ACCOUNT_SID.
+            raise SmsMisconfigured(f"Twilio {resp.status_code}: {_error_detail(resp)}")
         if resp.status_code >= 400:
             raise SmsError(f"Twilio {resp.status_code}: {_error_detail(resp)}")
 
@@ -100,6 +122,20 @@ class TwilioProvider:
             )
         return SmsResult(message_id=str(sid) if sid else None)
 
+    def _check_sender(self) -> None:
+        """Catch the two sender settings swapped, before spending a request on it."""
+        if self._mss and not self._mss.startswith(MESSAGING_SERVICE_PREFIX):
+            raise SmsMisconfigured(
+                "KITH_SMS_TWILIO_MESSAGING_SERVICE_SID should start with "
+                f"{MESSAGING_SERVICE_PREFIX!r} but starts {self._mss[:2]!r} — are the "
+                "sender number and the service SID swapped?"
+            )
+        if not self._mss and not self._from.startswith("+"):
+            raise SmsMisconfigured(
+                "KITH_SMS_TWILIO_FROM should be a number in E.164 (starting '+'), "
+                f"but is {self._from[:4]!r}… — set it, or set a Messaging Service SID"
+            )
+
     def capabilities(self) -> SmsCaps:
         # Twilio posts both, but nothing is wired to receive them yet: a
         # StatusCallback URL is only set once the webhook endpoint exists.
@@ -113,6 +149,12 @@ def _json_or_empty(resp: httpx.Response) -> dict:
     except ValueError:
         return {}
     return body if isinstance(body, dict) else {}
+
+
+def _error_code(resp: httpx.Response) -> int | None:
+    """Twilio's numeric error code from the body, when there is one."""
+    code = _json_or_empty(resp).get("code")
+    return code if isinstance(code, int) else None
 
 
 def _error_detail(resp: httpx.Response) -> str:

@@ -51,3 +51,10 @@ data_dir = "data"
 # WhatsApp's: a carrier throttles a burst rather than banning the number.
 # sms_send_gap_min_seconds = 1
 # sms_send_gap_max_seconds = 4
+# Your own number, for a self-only test send; any readable form, normalised to
+# E.164. Unset, self-only holds every text rather than sending it anywhere.
+# sms_self_number = "+1 555 123 4567"
+# Twilio's sender is not a secret: a number you rent, or a Messaging Service SID.
+# The account SID and auth token belong in .env.
+# sms_twilio_from = "+15551234567"
+# sms_twilio_messaging_service_sid = "MG..."

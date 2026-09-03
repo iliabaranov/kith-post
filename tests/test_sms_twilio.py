@@ -385,3 +385,79 @@ def test_a_timeout_costs_one_recipient_and_the_batch_carries_on(live_client, mon
     assert (res.sms_sent, res.sms_failed) == (1, 1)
     assert res.sms_blocked is None
     assert sorted(r.status for r in rows) == ["queued", "sent"]
+
+
+# --- ours to fix, not this recipient's: the batch-stopping refusals -----------
+
+@pytest.mark.parametrize(("status", "body"), [
+    (404, {"code": 20404, "message": "The requested resource /Accounts//Messages.json "
+                                     "was not found"}),
+    (400, {"code": 21606, "message": "The From phone number is not a valid, SMS-capable "
+                                     "inbound phone number"}),
+])
+def test_a_setup_problem_is_misconfigured_not_a_bad_recipient(status, body):
+    """20404 is an account SID Twilio has never heard of; 21606 a From number that
+    isn't ours. Both would fail every guest identically, so one call must do."""
+    def handler(request):
+        return httpx.Response(status, json=body)
+
+    with pytest.raises(sms.SmsMisconfigured) as e:
+        _provider(handler, from_number="+15550001234").send(TO, TEXT)
+    assert str(body["code"]) in str(e.value)
+
+
+def test_a_bad_recipient_number_still_costs_only_that_recipient():
+    def handler(request):
+        return httpx.Response(400, json={"code": 21211, "message": "not a valid phone number"})
+
+    with pytest.raises(sms.SmsError) as e:
+        _provider(handler, from_number="+15550001234").send("nonsense", TEXT)
+    assert not isinstance(e.value, sms.SmsMisconfigured | sms.SmsRateLimited)
+
+
+@pytest.mark.parametrize(("status", "body"), [
+    (429, {"code": 20429, "message": "Too Many Requests"}),
+    (429, {}),                                   # a proxy's bare 429
+    (400, {"code": 20429, "message": "Too Many Requests"}),
+])
+def test_too_many_requests_stops_the_batch_rather_than_retrying_faster(status, body):
+    def handler(request):
+        return httpx.Response(status, json=body)
+
+    with pytest.raises(sms.SmsRateLimited):
+        _provider(handler, from_number="+15550001234").send(TO, TEXT)
+
+
+def test_rejected_credentials_keep_twilios_own_words():
+    """20003 (bad token) and 20005 (account suspended) are different problems."""
+    def handler(request):
+        return httpx.Response(401, json={"code": 20005, "message": "Account not active"})
+
+    with pytest.raises(sms.SmsAuthError) as e:
+        _provider(handler, from_number="+15550001234").send(TO, TEXT)
+    assert "20005" in str(e.value) and "Account not active" in str(e.value)
+    assert TOKEN not in str(e.value)
+
+
+def test_swapped_sender_settings_are_caught_before_any_request():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(201, json={"sid": "SM1"})
+
+    # The service SID where the number should be, and vice versa.
+    with pytest.raises(sms.SmsMisconfigured) as e:
+        _provider(handler, from_number="MG999").send(TO, TEXT)
+    assert "E.164" in str(e.value)
+    with pytest.raises(sms.SmsMisconfigured) as e:
+        _provider(handler, messaging_service_sid="+15550001234").send(TO, TEXT)
+    assert "swapped" in str(e.value)
+    assert calls == [], "a request would have cost a paced slot to learn the same thing"
+
+
+def test_the_connect_timeout_never_exceeds_the_configured_one():
+    p = _provider(_ok(), from_number="+15550001234", timeout=2.0)
+    assert p._timeout.connect == 2.0
+    p = _provider(_ok(), from_number="+15550001234", timeout=20.0)
+    assert p._timeout.connect == 5.0
