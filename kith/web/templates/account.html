@@ -21,6 +21,10 @@
   {# No manage link: SMS is configured once for the whole site, so there is
      nothing here for a host to set up or change. #}
   <p class="reassure">Text messages: on</p>
+  {% elif settings.sms_enabled %}
+  {# Switched on but a credential is missing — the failure an operator is most
+     likely to hit, and the one place saying so costs nothing. #}
+  <p class="reassure">Text messages: switched on, but not finished setting up — ask whoever runs this site.</p>
   {% endif %}
 
   <div class="account-actions">

@@ -86,7 +86,12 @@ power, or a guest list big enough that carrier filtering is a real worry.
    KITH_SMS_GATEWAY_URL=http://192.168.1.50:8080
    KITH_SMS_GATEWAY_USER=<the username the app shows>
    KITH_SMS_GATEWAY_PASS=<the password the app shows>
+   KITH_SMS_WEBHOOK_SECRET=<a long random string>
    ```
+
+   The last line is not optional in practice: it is what lets STOP replies
+   reach the app at all (see "Receipts and STOP" below, and §5). Without it the
+   channel sends, and never hears back.
 
 6. Restart the app. The SMS box should appear on the compose form, and
    `/account` should say "Text messages: on".
@@ -98,11 +103,13 @@ the other path:
 
 ```
 KITH_SMS_GATEWAY_PATH=/3rdparty/v1/messages
+KITH_SMS_GATEWAY_DEVICE_ID=<the device id from the relay>   # only if it fronts several phones
 ```
 
 The on-device Local Server answers at `/message` (the default); the relay and
 cloud server answer the same call at `/3rdparty/v1/messages`. Getting this wrong
-is a 404, and the error message will say so and name both.
+is a 404, and the error message will say so and name both — and stop the batch
+after one attempt, since every guest would hit the same wall.
 
 **Never put the gateway behind the public tunnel.** Not being reachable from the
 internet is the whole of its security model.
@@ -112,8 +119,9 @@ internet is the whole of its security model.
 1. Set a signing key in the app: **Settings → Webhooks → Signing Key**.
 2. Put the same value in `.env` as `KITH_SMS_WEBHOOK_SECRET`.
 3. Register a webhook in the app pointing at `…/sms/webhook/gateway`, for the
-   `sms:delivered` and `sms:received` events. The URL has to be one the phone can
-   reach — the container's LAN address is fine, and is better than the public one.
+   `sms:received`, `sms:delivered`, `sms:failed` and `sms:cancelled` events. The
+   URL has to be one the phone can reach — the container's LAN address is fine,
+   and is better than the public one.
 4. Make sure the phone's clock is roughly right. Signed POSTs more than five
    minutes old are refused, which is what stops a captured receipt being replayed.
 
@@ -151,6 +159,7 @@ KITH_SMS_PROVIDER=twilio
 KITH_SMS_TWILIO_ACCOUNT_SID=AC...
 KITH_SMS_TWILIO_AUTH_TOKEN=...
 KITH_SMS_TWILIO_FROM=+15551234567
+KITH_SMS_WEBHOOK_SECRET=<a long random string>
 ```
 
 or, if you are sending through a messaging service (which is what 10DLC campaign
@@ -165,12 +174,13 @@ instruction, and it picks the number itself.
 
 ### Receipts and STOP, on Twilio
 
-Set `KITH_SMS_WEBHOOK_SECRET` to any long random string. It is the on/off switch
-for receipts on both providers; Twilio's own callbacks are verified with your
-auth token rather than with this secret, but nothing is recorded until it is set.
+`KITH_SMS_WEBHOOK_SECRET` (any long random string) is what turns the Twilio
+endpoint on. Twilio's own callbacks are verified with your auth token rather
+than with this secret, but nothing is recorded — and no STOP is heard — until it
+is set. The gateway's endpoint stays a 404 on a Twilio box, and vice versa.
 
-Once it is, every send registers a `StatusCallback` automatically. Two things to
-know:
+Once it is set, every send registers a `StatusCallback` automatically. Two things
+to know:
 
 - **The callback comes from Twilio's servers, so it must be publicly
   reachable.** It uses `KITH_BASE_URL`, unlike the WhatsApp webhook, which is
@@ -188,7 +198,7 @@ The same three modes as every other channel, and they behave the way you'd hope:
 | `KITH_SEND_MODE` | What happens |
 | --- | --- |
 | `dry-run` (default) | Each text is written to `data/outbox/<event>/sms/<recipient>.txt`, with the destination number and the **segment count**. Nothing is sent and no provider is called. |
-| `self-only` | Sends only to `KITH_SMS_SELF_NUMBER`. With that unset it writes the outbox instead — it never falls through to the real guest. |
+| `self-only` | Sends every text to `KITH_SMS_SELF_NUMBER` (any readable form; it is normalised). With that unset the texts are **held** — the guests stay queued and the card says why — rather than written anywhere or sent to anyone. |
 | `live` | Sends to the actual recipients. |
 
 Read the outbox before you go live. The segment count is the thing you can't
@@ -210,13 +220,22 @@ on this software. Text people who have given you their number for this purpose.
 That is the whole of the rule, and at this app's scale — people you know, invited
 to something you're hosting — it isn't a hard one to keep.
 
-STOP is handled for you, and cannot be turned off:
+STOP is handled for you **once the webhook is set up** — `KITH_SMS_WEBHOOK_SECRET`
+in `.env`, and the provider's inbound-message webhook pointed at this site, as
+described in §2 or §3. Until then no reply of any kind reaches the app, so treat
+that step as part of turning the channel on, not as an extra. (The app logs a
+warning at startup while the channel is configured and the secret is not.) Once
+it is on:
 
 - A reply of **STOP**, **STOPALL**, **UNSUBSCRIBE**, **CANCEL**, **END** or
-  **QUIT** opts that number out **permanently, across every card you ever send** —
-  not just the one they were invited to.
+  **QUIT** opts that number out **permanently, across every card anyone on this
+  site ever sends** — not just the one they were invited to. The record is kept
+  as a hash of the number in a table of its own, so it outlives the card, the
+  address-book entry and even the host's account; deleting any of those does not
+  forget it.
 - **START** or **UNSTOP** undoes it, so a number that opted out by accident has a
-  way back.
+  way back. A bare "yes" does not — that is a reply to an invitation, not a
+  re-subscription.
 - It is enforced on first sends *and* on reminders, and in `dry-run` too, so the
   outbox shows you the same set of texts a live send would produce.
 - The opt-out has to be a message that says only that. Someone writing "stop by
@@ -234,6 +253,10 @@ already having with them.
 - **"Delivered by text"** once the carrier confirms it, if you've enabled
   receipts. There is no read receipt for SMS at all, so that is the only delivery
   fact on offer.
+- **"The carrier couldn't deliver the text"** when the provider reports a
+  failure — the only signal you get that a number is bad.
+- **"Replied STOP — won't be texted"** on a guest who opted out. They stay
+  "queued" for ever, because neither "sent" nor "failed" would be true.
 - **"Opened"** still means, and only means, that a person loaded the invitation
   page. A delivery receipt is never counted as one — same rule as WhatsApp.
 
@@ -244,8 +267,11 @@ already having with them.
 | No SMS box on the compose form | The provider isn't fully configured. A named provider with missing credentials counts as not configured, on purpose. |
 | `gateway 404 … check KITH_SMS_GATEWAY_PATH` | On-device path against a relay, or the reverse. See §2. |
 | Connection timeout to the gateway | Phone asleep, off the LAN, or its IP moved. |
-| `Twilio 21211` | Not a valid number — usually a missing country code. Numbers must be E.164. |
-| `Twilio 21610` | You are texting a number that opted out at Twilio's end. |
-| Recipients stuck on "queued" after a live send | Check the logs. Bad credentials stop the whole batch on purpose and leave everyone queued; a single bad number costs only that recipient. |
+| `Twilio 400: 21211 …` | Not a valid number — usually a missing country code. Numbers must be E.164. Costs that one recipient. |
+| `Twilio 400: 21610 …` | That number opted out at Twilio's end, but this app has no record of it — the STOP arrived before the webhook was set up. It will fail the same way on every card until the guest texts STOP again with the webhook on. |
+| `Twilio 400: 21606 …` / a bare 404 | The From number isn't yours, or the account SID is wrong. Stops the whole batch after one call; the card says "rejected this site's setup". |
+| `Twilio 429 …` / gateway `429` | The provider asked us to slow down. The batch stops; press Send again in a few minutes. |
+| Recipients stuck on "queued" after a live send | The card itself says why (bad credentials, a setup problem, no test number, slowed down). Each of those stops the whole batch on purpose and leaves everyone queued; a single bad number costs only that recipient. |
+| STOP replies do nothing | `KITH_SMS_WEBHOOK_SECRET` is unset, or the provider's *inbound* webhook (not just the status callback) isn't pointed at `…/sms/webhook/<provider>`. The app warns about the first at startup. |
 | Receipts never arrive (Twilio) | `KITH_BASE_URL` isn't publicly reachable, or `KITH_SMS_WEBHOOK_SECRET` is unset. |
 | Receipts never arrive (gateway) | Webhook not registered in the app, signing key mismatch, or the phone's clock is more than five minutes out. |

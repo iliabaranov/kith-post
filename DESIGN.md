@@ -361,15 +361,28 @@ Twilio signs a base64 HMAC-SHA1 over the callback URL plus sorted parameters
 (and the callback is public, since it arrives from Twilio's servers), while the
 gateway signs a hex HMAC-SHA256 over the body plus a timestamp, with a
 five-minute replay window. Both are secret-gated and 404 until receipts are
-turned on. `sms_delivered_at` shows as "Delivered by text"; there is no read
-receipt for SMS, and a delivery is never an "Opened" — the §7 rule holds
-unchanged.
+turned on, and each exists only for the provider that is configured — on a
+Twilio box the secret is a switch, not a key, and an endpoint it alone unlocked
+could forge a STOP for any number on the site. Twilio's inbound and status
+POSTs share one URL and are told apart by the status *value* (`received`), never
+by whether a status field is present. `sms_delivered_at` shows as "Delivered by
+text" and `sms_failed_at` as a carrier failure; there is no read receipt for
+SMS, and a delivery is never an "Opened" — the §7 rule holds unchanged.
 
-**STOP is compliance-critical and not optional.** An opt-out keyword sets
-`Contact.opted_out_sms` and `Recipient.opted_out`, and the send paths union both
-sources, so a number is recognised on a card composed months later — including
-one typed straight into the compose box that never became a contact. Enforced on
-first sends, on reminders, and in dry-run.
+**STOP is compliance-critical, and it outlives everything the host owns.** An
+opt-out keyword appends a row to `sms_opt_out_events` — the number's blind
+index, the keyword's intent, the provider, and the provider's message id (unique,
+so a replayed POST records nothing twice). The suppression set is "every number
+whose latest event is a stop", read by the send paths, the dashboard and the
+export; nothing is stored on the contact or the recipient. That is deliberate:
+those rows are the host's to delete, and an opt-out has to survive the card, the
+address-book entry and the account itself, or the same number is textable again
+the moment someone re-adds it. The log has no user_id — the site texts from one
+number, so a STOP binds every host on it — and holds nothing readable, which is
+what lets it be the one record an account delete keeps (§5). Enforced on first
+sends, on reminders, and in dry-run. STOP handling depends on the webhook being
+configured, so the app warns at startup when the channel is on and the webhook
+secret is not.
 
 ---
 
@@ -617,10 +630,13 @@ with the "store little to no data" goal. We resolve it deliberately:
   external analytics or trackers.
 - **Auto-purge heavy/ephemeral data:** hosted images and (optionally) whole past
   events expire on a schedule.
-- **User control:** one-click **Export** (JSON of everything we hold on them) and
-  **Delete account** (hard delete of user, contacts, events, assets, tokens; we
-  do *not* keep tombstones beyond what's legally trivial for a free hobby
-  service). Revoking Google access is linked from settings.
+- **User control:** one-click **Export** (JSON of the account, contacts, events
+  and every recipient with both channels' delivery facts) and **Delete account**
+  (hard delete of user, contacts, events, recipients, reminders, assets, tokens
+  and the dry-run outbox on disk; we do *not* keep tombstones beyond what's
+  legally trivial for a free hobby service — the one exception is the hashed
+  SMS opt-out log, §6b, which must outlive the account to be honoured). Revoking
+  Google access is linked from settings.
 - **Gmail scope minimization:** `gmail.send` only — we can send but can never read
   the user's mailbox.
 

@@ -107,7 +107,8 @@ Setup, and what to do when WhatsApp throttles an account, is in
   delete, heavy assets auto-purged. We use the `gmail.send` scope only and can
   never read your mailbox.
 - **Self-hosted & free** — one container on your own hardware (two if you enable
-  WhatsApp; the SMS gateway is a phone you already own, so it adds none), exposed
+  WhatsApp; the SMS gateway is a phone you already own, so it adds none — unless
+  you run its optional self-hosted relay, which is a third), exposed
   via a Cloudflare Tunnel with automatic HTTPS (no open router ports, works behind
   CGNAT). No paid dependencies, no monetization — the only channel that costs
   anything is Twilio, and it's optional twice over. See

@@ -6,16 +6,20 @@ the one that matters most is the opt-out: a record that someone asked not to be
 texted is exactly the fact they are most entitled to see in an export.
 
 Delete already cascades through foreign keys, so most of this asserts that the
-cascade is real rather than assumed — and that it reaches the flags, not just
-the rows.
+cascade is real rather than assumed — that it reaches the outbox on disk, and
+that it deliberately does NOT reach the opt-out log, which has to outlive the
+account or the same number is textable again the moment someone signs back in.
 """
+
+import json
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from kith.config import get_settings
-from kith.db.models import Contact, Event, Recipient, User
+from kith.db.models import Contact, Event, Recipient, SmsOptOutEvent, User
+from kith.services.contacts import phone_hash
 
 GUEST_SMS = "+15551110000"
 GUEST_WA = "+15552220000"
@@ -74,8 +78,10 @@ def _db():
 
 
 def _seed(client):
-    """A card sent by text and by WhatsApp, with a delivery receipt and an
-    opt-out on the SMS guest, plus a contact carrying the opt-out flag."""
+    """A card sent by text and by WhatsApp, with a delivery receipt on the SMS
+    guest, an opt-out recorded for their number, and a contact for them —
+    written the way it lands in production: the outbox from a dry-run send, the
+    opt-out as a row in the log rather than a flag on anything the host owns."""
     from datetime import UTC, datetime
 
     from kith.services import contacts as book
@@ -94,16 +100,23 @@ def _seed(client):
     )
     ev = r.headers["location"].split("/events/")[1].split("?")[0]
 
+    # A dry-run send, so the outbox on disk holds the guests' addresses and texts.
+    client.post(f"/events/{ev}/send", follow_redirects=False)
+    from kith.services import send as sender
+
+    assert sender.wait_for_batches(timeout=30)
+
+    # The STOP arrives after the invitation went out, as it would in life.
     db2 = _db()
+    db2.add(SmsOptOutEvent(
+        phone_hash=phone_hash(GUEST_SMS), kind="stop", source="twilio", message_sid="SM_in_1",
+    ))
     for row in db2.execute(select(Recipient).where(Recipient.event_id == ev)).scalars():
         if row.phone == GUEST_SMS:
             row.status = "sent"
             row.sms_message_id = "SM_abc"
             row.sms_delivered_at = datetime.now(UTC)
-            row.opted_out = True
             row.note = "can't make it, sorry!"
-    contact = db2.execute(select(Contact)).scalars().one()
-    contact.opted_out_sms = True
     db2.commit()
     return ev
 
@@ -134,12 +147,49 @@ def test_the_export_carries_every_sms_field(sms_client):
 
 
 def test_the_export_records_that_a_contact_opted_out(sms_client):
-    """The durable half of the opt-out, and the fact a person is most entitled
-    to find in their own export."""
+    """Derived from the opt-out log by the contact's number, and the fact a
+    person is most entitled to find in their own export."""
     _seed(sms_client)
     data = sms_client.get("/account/export").json()
     assert data["contacts"][0]["opted_out_sms"] is True
     assert data["contacts"][0]["phone"] == GUEST_SMS
+
+
+def test_every_exported_timestamp_says_its_zone(sms_client):
+    """SQLite hands back naive datetimes. A file a person reads should not have
+    to guess: every one ends in +00:00."""
+    _seed(sms_client)
+    data = sms_client.get("/account/export").json()
+    sms_row = next(r for r in data["events"][0]["recipients"] if r["channel"] == "sms")
+    for value in (sms_row["sent_at"], sms_row["sms"]["delivered_at"], data["created_at"]):
+        assert value is not None and value.endswith("+00:00"), value
+    assert sms_row["sms"]["failed_at"] is None
+
+
+def test_the_export_is_scoped_to_the_signed_in_host(sms_client):
+    """Another host's card and address book never appear."""
+    _seed(sms_client)
+    db = _db()
+    other = User(google_sub="someone-else", email="other@example.com", display_name="Other")
+    db.add(other)
+    db.commit()
+    db.add(Event(user_id=other.id, title="Not yours", status="draft"))
+    db.add(Contact(user_id=other.id, email="theirs@example.com", email_hash="h-theirs"))
+    db.commit()
+    data = sms_client.get("/account/export").json()
+    assert [e["title"] for e in data["events"]] == ["Joe's 3rd Birthday"]
+    assert [c["email"] for c in data["contacts"]] == [""]           # Mara has no email
+
+
+def test_the_export_carries_no_secrets_or_blind_indexes(sms_client):
+    _seed(sms_client)
+    dump = json.dumps(sms_client.get("/account/export").json())
+    assert "refresh_token" not in dump
+    assert "_hash" not in dump
+    assert phone_hash(GUEST_SMS) not in dump
+    db = _db()
+    for row in db.execute(select(Recipient)).scalars():
+        assert row.token not in dump, "an invite token is a credential"
 
 
 def test_the_export_keeps_delivery_facts_apart_from_opened(sms_client):
@@ -191,27 +241,42 @@ def test_an_export_needs_a_session(sms_client):
 
 # --- delete --------------------------------------------------------------------
 
-def test_deleting_the_account_removes_the_sms_rows_and_flags(sms_client):
+def test_deleting_the_account_removes_the_rows_but_keeps_the_opt_out(sms_client):
+    """Everything the host owns goes. The one thing kept is the hashed record
+    that a number said STOP — with no user_id and nothing readable, it is the
+    only record that has to outlive the account: without it the same number is
+    textable again the moment someone signs back in and re-adds it."""
+    from kith.services import send as sender
+
     _seed(sms_client)
-    db = _db()
-    assert db.execute(
-        select(func.count()).select_from(Recipient).where(Recipient.opted_out.is_(True))
-    ).scalar_one() == 1
-    assert db.execute(
-        select(func.count()).select_from(Contact).where(Contact.opted_out_sms.is_(True))
-    ).scalar_one() == 1
+    assert sender.opted_out_hashes(_db()) == {phone_hash(GUEST_SMS)}
 
     assert sms_client.post("/account/delete", follow_redirects=False).status_code == 303
 
     db2 = _db()
     for model in (User, Event, Recipient, Contact):
         assert db2.execute(select(func.count()).select_from(model)).scalar_one() == 0
+    assert db2.execute(select(func.count()).select_from(SmsOptOutEvent)).scalar_one() == 1
+    assert sender.opted_out_hashes(db2) == {phone_hash(GUEST_SMS)}
+
+
+def test_deleting_the_account_removes_the_outbox_too(sms_client):
+    """The dry-run outbox holds real addresses and full message texts, and
+    dry-run is the default mode, so every default install accumulates them.
+    "Delete all your data" has to reach them or it isn't that."""
+    ev = _seed(sms_client)
+    outbox = get_settings().outbox_dir / ev
+    assert list((outbox / "sms").glob("*.txt")), "the seed should have written texts"
+    assert list(outbox.glob("*.eml")), "...and an email"
+
+    sms_client.post("/account/delete", follow_redirects=False)
+    assert not outbox.exists()
 
 
 def test_the_cascade_reaches_reminders_for_an_sms_recipient(sms_client):
-    """Reminders hang off the recipient, and SMS recipients get them now."""
-    from datetime import UTC, datetime, timedelta
-
+    """Reminders hang off the recipient, and the SMS batch schedules them itself
+    once the texts have gone — so the seed's dry-run send has already planned
+    some for the SMS guest."""
     from kith.db.models import Reminder
 
     ev = _seed(sms_client)
@@ -221,12 +286,10 @@ def test_the_cascade_reaches_reminders_for_an_sms_recipient(sms_client):
             select(Recipient).where(Recipient.event_id == ev)
         ).scalars() if r.phone == GUEST_SMS
     )
-    db.add(Reminder(
-        event_id=ev, recipient_id=sms_row.id, offset_label="manual",
-        status="pending", scheduled_for=datetime.now(UTC) + timedelta(days=1),
-    ))
-    db.commit()
-    assert _db().execute(select(func.count()).select_from(Reminder)).scalar_one() == 1
+    planned = db.execute(
+        select(func.count()).select_from(Reminder).where(Reminder.recipient_id == sms_row.id)
+    ).scalar_one()
+    assert planned >= 1
 
     sms_client.post("/account/delete", follow_redirects=False)
     assert _db().execute(select(func.count()).select_from(Reminder)).scalar_one() == 0

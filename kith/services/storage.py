@@ -8,7 +8,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from kith.config import get_settings
+from kith.config import Settings, get_settings
 from kith.core.images import Derived
 from kith.db.models import Asset
 
@@ -45,6 +45,19 @@ def store_asset(db: Session, user_id: str, d: Derived) -> Asset:
 def delete_user_assets(user_id: str) -> None:
     """Remove a user's asset files from disk (DB rows cascade separately)."""
     shutil.rmtree(_assets_root() / user_id, ignore_errors=True)
+
+
+def delete_outbox(settings: Settings, event_ids: list[str]) -> None:
+    """Remove the dry-run outbox for these events.
+
+    The outbox holds real addresses and the full text of every message,
+    reminder included, and dry-run is the default mode — so a default install
+    accumulates them. Nothing else ever removes them, and "delete all your data"
+    has to reach them or it isn't that. Keyed by event, so it has to run before
+    the events themselves cascade away.
+    """
+    for event_id in event_ids:
+        shutil.rmtree(settings.outbox_dir / event_id, ignore_errors=True)
 
 
 def delete_asset(db: Session, asset: Asset) -> None:

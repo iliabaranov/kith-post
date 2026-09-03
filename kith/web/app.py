@@ -26,8 +26,9 @@ from kith.config import get_settings
 from kith.core.channels import channel_of
 from kith.db.models import Contact, Event, Recipient, User
 from kith.db.session import init_db, make_engine, make_session_factory
-from kith.services import google_auth, scheduler, storage, waha
+from kith.services import google_auth, scheduler, send, storage, waha
 from kith.services import wa_session as wa_link
+from kith.services.contacts import phone_hash
 from kith.services.google_auth import GoogleIdentity
 from kith.web.deps import WEB_DIR, get_db, load_user, templates
 from kith.web.ratelimit import limiter
@@ -73,6 +74,15 @@ async def lifespan(app: FastAPI):
     if problems:
         raise RuntimeError(
             "refusing to start: " + "; ".join(problems)
+        )
+    if settings.sms_configured and not settings.sms_webhooks_configured:
+        # Not fatal — texts still go out — but this is the one combination an
+        # operator cannot see is wrong: the channel works, and no STOP reply
+        # will ever reach the app.
+        log.warning(
+            "sms: the channel is configured but KITH_SMS_WEBHOOK_SECRET is unset, so "
+            "no STOP reply can be received. Set it, and point the provider's inbound "
+            "webhook at this site — see docs/sms-setup.md"
         )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.outbox_dir.mkdir(parents=True, exist_ok=True)
@@ -363,6 +373,14 @@ def create_app() -> FastAPI:
             ).scalars().all()
             for r in rows:
                 by_event.setdefault(r.event_id, []).append(r)
+        # Derived, not stored: the opt-out record lives in its own log, keyed on
+        # the number's blind index, so it survives the rows this export walks.
+        opted_out = send.opted_out_hashes(db)
+
+        def _iso(dt: datetime | None) -> str | None:
+            # SQLite hands back naive datetimes. A file a person reads — or a
+            # regulator — should not have to guess the zone: always +00:00.
+            return _as_utc_dt(dt).isoformat() if dt else None
 
         def _recipient(r: Recipient) -> dict:
             return {
@@ -371,9 +389,9 @@ def create_app() -> FastAPI:
                 "phone": r.phone,
                 "name": r.name,
                 "status": r.status,
-                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
-                "first_open_at": r.first_open_at.isoformat() if r.first_open_at else None,
-                "rsvp_at": r.rsvp_at.isoformat() if r.rsvp_at else None,
+                "sent_at": _iso(r.sent_at),
+                "first_open_at": _iso(r.first_open_at),
+                "rsvp_at": _iso(r.rsvp_at),
                 "party_size": r.party_size,
                 "adults": r.adults,
                 "kids": r.kids,
@@ -383,18 +401,15 @@ def create_app() -> FastAPI:
                 # first_open_at above, which is the only "opened" there is.
                 "whatsapp": {
                     "message_id": r.wa_message_id,
-                    "delivered_at": (
-                        r.wa_delivered_at.isoformat() if r.wa_delivered_at else None
-                    ),
-                    "read_at": r.wa_read_at.isoformat() if r.wa_read_at else None,
+                    "delivered_at": _iso(r.wa_delivered_at),
+                    "read_at": _iso(r.wa_read_at),
                     "ack": r.wa_ack,
                 },
                 "sms": {
                     "message_id": r.sms_message_id,
-                    "delivered_at": (
-                        r.sms_delivered_at.isoformat() if r.sms_delivered_at else None
-                    ),
-                    "opted_out": bool(r.opted_out),
+                    "delivered_at": _iso(r.sms_delivered_at),
+                    "failed_at": _iso(r.sms_failed_at),
+                    "opted_out": send.is_opted_out(r, opted_out),
                 },
             }
 
@@ -403,12 +418,12 @@ def create_app() -> FastAPI:
             "google_sub": user.google_sub,
             "email": user.email,
             "display_name": user.display_name,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+            "created_at": _iso(user.created_at),
+            "last_login_at": _iso(user.last_login_at),
             "whatsapp": {
                 "linked": wa_link.linked(user),
                 "number": user.wa_number,
-                "linked_at": user.wa_linked_at.isoformat() if user.wa_linked_at else None,
+                "linked_at": _iso(user.wa_linked_at),
             },
             "sms": {
                 # Instance-level, so there is nothing per-account to export
@@ -420,7 +435,7 @@ def create_app() -> FastAPI:
                 {
                     "name": c.name, "email": c.email, "phone": c.phone,
                     "groups": c.groups or [],
-                    "opted_out_sms": bool(c.opted_out_sms),
+                    "opted_out_sms": bool(c.phone) and phone_hash(c.phone or "") in opted_out,
                 }
                 for c in contacts
             ],
@@ -450,6 +465,16 @@ def create_app() -> FastAPI:
             # which would quietly break the one-click-delete promise.
             wa_link.unlink(db, user, settings)
             storage.delete_user_assets(user.id)  # remove image files (DB rows cascade)
+            # The dry-run outbox holds addresses and full message texts, and
+            # nothing else ever removes it. Keyed by event, so before the cascade.
+            event_ids = db.execute(
+                select(Event.id).where(Event.user_id == user.id)
+            ).scalars().all()
+            storage.delete_outbox(settings, list(event_ids))
+            # Deliberately NOT touched: sms_opt_out_events. It holds no user_id
+            # and nothing readable — a hash of each number that replied STOP —
+            # and it is the one record that has to outlive the account, or the
+            # same number becomes textable again the moment someone signs back in.
             db.delete(user)
             db.commit()
         request.session.clear()
