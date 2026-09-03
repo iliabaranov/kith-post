@@ -36,8 +36,10 @@ services:
   # container: nothing to add to compose. Point the app at your LAN, note the
   # Local Server URL and credentials, and set KITH_SMS_ENABLED=true,
   # KITH_SMS_PROVIDER=gateway, KITH_SMS_GATEWAY_URL=http://<phone-ip>:8080 plus
-  # KITH_SMS_GATEWAY_USER / _PASS in .env. The container reaches the phone over
-  # the host network, so the phone has to be on the same LAN as the box.
+  # KITH_SMS_GATEWAY_USER / _PASS in .env. The container reaches the phone as
+  # ordinary outbound traffic on the default bridge network — no network_mode:
+  # host and no published port needed; the phone just has to be routable from
+  # the box, which for the Local Server means the same LAN.
   #
   # If instead you run the project's self-hosted relay (for a phone that isn't
   # directly reachable), add it here under a profiles: ["sms"] block mirroring

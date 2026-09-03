@@ -184,7 +184,8 @@ def test_a_404_names_both_paths_because_that_is_the_likely_mistake():
     msg = str(e.value)
     assert LOCAL_SERVER_PATH in msg and RELAY_PATH in msg
     assert "KITH_SMS_GATEWAY_PATH" in msg
-    assert not isinstance(e.value, sms.SmsAuthError)
+    # Ours to fix, and the same for every recipient: it stops the batch.
+    assert isinstance(e.value, sms.SmsMisconfigured)
 
 
 def test_a_400_raises_an_sms_error():
@@ -385,3 +386,32 @@ def test_rejected_credentials_stop_the_whole_batch(live_client, monkeypatch):
     assert res.sms_blocked == "auth"
     assert len(calls) == 1
     assert all(r.status == "queued" for r in rows)
+
+
+# --- states and refusals the docs don't list yet --------------------------------
+
+def test_an_unknown_state_is_accepted_not_read_as_a_refusal():
+    """The enum is the app's to extend. Read as a refusal, a new in-flight state
+    would leave the row queued and the operator's retry would double-text."""
+    assert _provider(_ok(state="Queued")).send(TO, TEXT).message_id == "msg-1"
+
+
+def test_a_full_queue_stops_the_batch_rather_than_retrying_faster():
+    def handler(request):
+        return httpx.Response(429, json={"error": "QueueLimitExceeded"})
+
+    with pytest.raises(sms.SmsRateLimited):
+        _provider(handler).send(TO, TEXT)
+
+
+def test_rejected_credentials_keep_the_gateways_own_words():
+    def handler(request):
+        return httpx.Response(401, json={"error": "invalid username or password"})
+
+    with pytest.raises(sms.SmsAuthError, match="invalid username"):
+        _provider(handler).send(TO, TEXT)
+
+
+def test_the_connect_timeout_never_exceeds_the_configured_one():
+    assert _provider(_ok(), timeout=2.0)._timeout.connect == 2.0
+    assert _provider(_ok(), timeout=20.0)._timeout.connect == 5.0

@@ -31,6 +31,8 @@ from kith.services.sms import (
     SmsAuthError,
     SmsCaps,
     SmsError,
+    SmsMisconfigured,
+    SmsRateLimited,
     SmsResult,
     SmsTimeout,
 )
@@ -40,9 +42,14 @@ from kith.services.sms import (
 LOCAL_SERVER_PATH = "/message"                    # the app's on-device server
 RELAY_PATH = "/3rdparty/v1/messages"              # the server component / cloud
 
-# Response states that mean the message is on its way. Anything else in a 2xx
-# answer is a refusal wearing a success code — see send().
-ACCEPTED_STATES = frozenset({"Pending", "Sent", "Delivered", "Processed"})
+# Response states that mean the gateway has refused or dropped the message: a
+# 2xx carrying one of these is a refusal wearing a success code — see send().
+# A denylist rather than an allowlist of the in-flight states on purpose. The
+# documented enum is Pending, Processed, Sent, Delivered, Failed, but it is the
+# app's to extend, and an unknown state must fail in the safe direction: read
+# as a refusal it leaves the row queued, and the operator's retry texts a guest
+# who already had the message.
+FAILED_STATES = frozenset({"Failed", "Cancelled", "Canceled", "Cancelling"})
 
 
 class AndroidGatewayProvider:
@@ -65,7 +72,7 @@ class AndroidGatewayProvider:
         # A short connect timeout separates "the phone is asleep or off the
         # network" — the common case, and worth failing fast on — from "it is
         # taking its time sending".
-        self._timeout = httpx.Timeout(timeout, connect=5.0)
+        self._timeout = httpx.Timeout(timeout, connect=min(5.0, timeout))
         # Tests inject an httpx.MockTransport here; production leaves it None.
         self._transport = transport
 
@@ -86,16 +93,21 @@ class AndroidGatewayProvider:
             raise SmsError(f"gateway send failed: {e}") from e
 
         if resp.status_code in (401, 403):
-            raise SmsAuthError("the gateway rejected the credentials")
+            raise SmsAuthError(f"the gateway rejected the credentials: {resp.text[:200]}")
         if resp.status_code == 404:
             # Far and away the likeliest misconfiguration: a relay URL with the
-            # on-device path, or the reverse. Say so rather than leaving the
-            # operator to guess at a bare 404.
-            raise SmsError(
+            # on-device path, or the reverse. Ours to fix, and the same for every
+            # recipient — so it stops the batch, and says so rather than leaving
+            # the operator to guess at a bare 404.
+            raise SmsMisconfigured(
                 f"gateway 404 at {self._url} — check KITH_SMS_GATEWAY_PATH "
                 f"({LOCAL_SERVER_PATH} for the on-device Local Server, "
                 f"{RELAY_PATH} for a self-hosted relay)"
             )
+        if resp.status_code == 429:
+            # The relay's queue is full (QueueLimitExceeded). Pressing on would
+            # only be refused faster; stop, and the host re-sends later.
+            raise SmsRateLimited(f"gateway 429: {resp.text[:200]}")
         if resp.status_code >= 400:
             raise SmsError(f"gateway {resp.status_code}: {resp.text[:200]}")
 
@@ -104,7 +116,7 @@ class AndroidGatewayProvider:
         # Like Twilio, the gateway can accept the request and refuse the
         # message. Reporting that as sent would flip the recipient to 'sent'
         # for a text that never went, and nothing retries a 'sent' row.
-        if state is not None and state not in ACCEPTED_STATES:
+        if state in FAILED_STATES:
             raise SmsError(f"gateway refused the message: state={state}")
         msg_id = body.get("id")
         return SmsResult(message_id=str(msg_id) if msg_id else None)
