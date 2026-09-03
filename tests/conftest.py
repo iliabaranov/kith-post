@@ -31,6 +31,16 @@ os.environ["KITH_WAHA_API_KEY"] = ""
 # ...and the receipt secret, which the deploy box's .env now has: without this a
 # test asserting receipts are off by default reads the box's real configuration.
 os.environ["KITH_WAHA_WEBHOOK_SECRET"] = ""
+# Same treatment for the SMS channel, for the same reason: it is instance-level,
+# so the moment the deploy box configures a provider its .env would become the
+# default every test sees. Forced off here; the tests that need it set it back.
+os.environ["KITH_SMS_ENABLED"] = "false"
+os.environ["KITH_SMS_PROVIDER"] = "none"
+os.environ["KITH_SMS_WEBHOOK_SECRET"] = ""
+# Never pause between sends in tests: the pacing is proved by its own unit test,
+# and a real gap would add minutes to the suite.
+os.environ.setdefault("KITH_SMS_SEND_GAP_MIN_SECONDS", "0")
+os.environ.setdefault("KITH_SMS_SEND_GAP_MAX_SECONDS", "0")
 # Rate limiting is per-client and in-memory, so its counters would bleed across
 # the in-process suite and make unrelated tests flaky. Off by default here; the
 # dedicated test flips the limiter back on to prove it works.

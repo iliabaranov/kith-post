@@ -15,30 +15,42 @@ from dataclasses import dataclass
 
 from kith.core import phones
 
+# Delivery channels now live in core.channels, alongside the resolver that reads
+# them off a stored row. Re-exported here because callers (and tests) import them
+# from this module, which is where they were first defined.
+from kith.core.channels import CHANNEL_EMAIL as CHANNEL_EMAIL
+from kith.core.channels import CHANNEL_SMS as CHANNEL_SMS
+from kith.core.channels import CHANNEL_WHATSAPP as CHANNEL_WHATSAPP
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _NAMED_RE = re.compile(r"^(.*?)<([^>]+)>$")
-
-# Delivery channels. Absent/NULL in the DB means email, since every recipient
-# written before the WhatsApp channel existed predates the column.
-CHANNEL_EMAIL = "email"
-CHANNEL_WHATSAPP = "whatsapp"
 
 
 @dataclass(frozen=True)
 class Parsed:
-    """One parsed person. ``phone`` set = WhatsApp; otherwise email.
+    """One parsed person, and which channel the host put them on.
 
-    A WhatsApp entry carries ``email=""`` to match the Recipient/Contact columns,
+    ``channel`` is a field rather than something derived from ``phone``, because
+    a number now belongs to either of two phone channels and only the box it was
+    typed into says which.
+
+    Left unset it falls back to the old rule — a phone means WhatsApp, otherwise
+    email — so every existing caller that builds a ``Parsed`` positionally keeps
+    the channel it always got. Only a caller that means SMS has to say so.
+
+    A phone entry carries ``email=""`` to match the Recipient/Contact columns,
     which are NOT NULL and can't be loosened in place on SQLite.
     """
 
     name: str | None
     email: str
     phone: str | None = None
+    channel: str = ""
 
-    @property
-    def channel(self) -> str:
-        return CHANNEL_WHATSAPP if self.phone else CHANNEL_EMAIL
+    def __post_init__(self) -> None:
+        if not self.channel:
+            derived = CHANNEL_WHATSAPP if self.phone else CHANNEL_EMAIL
+            object.__setattr__(self, "channel", derived)  # frozen
 
     @property
     def identity(self) -> str:
@@ -95,12 +107,16 @@ def parse_recipients(text: str) -> tuple[list[Parsed], list[str]]:
     return valid, invalid
 
 
-def parse_phones(text: str) -> tuple[list[Parsed], list[str]]:
-    """Parse the WhatsApp recipient list: E.164 numbers, or "Name <+1555...>".
+def _parse_phone_list(text: str, channel: str) -> tuple[list[Parsed], list[str]]:
+    """Parse a list of E.164 numbers, or "Name <+1555...>", onto one channel.
 
     Numbers without a country code are rejected rather than guessed at (see
     ``core.phones``); they come back in the invalid list so the UI can ask for
     the "+1" instead of quietly messaging the wrong country.
+
+    Shared by both phone channels: the parsing is identical and only the tag
+    differs, and two copies would drift on exactly the validation that keeps us
+    from texting a stranger in another country.
     """
     valid: list[Parsed] = []
     invalid: list[str] = []
@@ -114,8 +130,23 @@ def parse_phones(text: str) -> tuple[list[Parsed], list[str]]:
         if e164 in seen:
             continue
         seen.add(e164)
-        valid.append(Parsed(name=name, email="", phone=e164))
+        valid.append(Parsed(name=name, email="", phone=e164, channel=channel))
     return valid, invalid
+
+
+def parse_phones(text: str) -> tuple[list[Parsed], list[str]]:
+    """Parse the WhatsApp recipient list."""
+    return _parse_phone_list(text, CHANNEL_WHATSAPP)
+
+
+def parse_sms(text: str) -> tuple[list[Parsed], list[str]]:
+    """Parse the SMS recipient list.
+
+    Same numbers, same validation as :func:`parse_phones` — the only difference
+    is which channel the resulting rows are written on, which is the whole
+    reason the compose form keeps the two boxes apart.
+    """
+    return _parse_phone_list(text, CHANNEL_SMS)
 
 
 def parse_mixed(text: str) -> tuple[list[Parsed], list[str]]:
@@ -140,6 +171,9 @@ def parse_mixed(text: str) -> tuple[list[Parsed], list[str]]:
         else:
             e164 = phones.normalize(raw)
             if e164 is not None:
+                # No explicit channel: the address book stores a number without
+                # committing it to one, since which phone channel to use is a
+                # compose-time choice. The default gives it WhatsApp, as before.
                 person = Parsed(name=name, email="", phone=e164)
         if person is None:
             invalid.append(chunk)

@@ -17,6 +17,12 @@
   </p>
   {% endif %}
 
+  {% if settings.sms_configured %}
+  {# No manage link: SMS is configured once for the whole site, so there is
+     nothing here for a host to set up or change. #}
+  <p class="reassure">Text messages: on</p>
+  {% endif %}
+
   <div class="account-actions">
     <a class="btn btn-quiet" href="/account/export">Download my data (JSON)</a>
     <form method="post" action="/account/delete"
