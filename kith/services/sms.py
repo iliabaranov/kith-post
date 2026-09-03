@@ -82,7 +82,10 @@ STOP_KEYWORDS = frozenset({
 })
 # The documented way back in. Honoured because a number that opted out by
 # accident otherwise has no route back at all — the host cannot clear it either.
-START_KEYWORDS = frozenset({"start", "unstop", "yes", "subscribe"})
+# Deliberately not "yes": this app texts RSVP invitations, and a guest who once
+# said STOP answering a later card with a bare "Yes" is replying, not
+# re-consenting. Re-subscribing takes the word for it.
+START_KEYWORDS = frozenset({"start", "unstop"})
 
 
 def opt_out_intent(body: str) -> str | None:

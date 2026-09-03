@@ -176,11 +176,12 @@ class Settings(BaseSettings):
     def sms_webhooks_configured(self) -> bool:
         """Receipts and STOP handling are opt-in, and need a secret to be on.
 
-        The secret is the master switch for both endpoints. The gateway path
-        also uses it as its signing key; the Twilio path verifies Twilio's own
-        signature with the account auth token instead, but is gated on the same
-        setting so that "receipts are off" means off for the whole channel
-        rather than something an operator has to reason about per provider.
+        The secret turns the channel's webhooks on; each endpoint then exists
+        only for the provider that is configured. The gateway path uses the
+        secret as its signing key; the Twilio path verifies Twilio's own
+        signature with the account auth token instead — so on a Twilio box the
+        secret is a switch, and on a gateway box it is the key, and neither
+        provider's endpoint is left answering for the other.
         """
         return bool(self.sms_enabled and self.sms_webhook_secret)
 

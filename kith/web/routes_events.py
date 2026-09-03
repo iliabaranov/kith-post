@@ -413,7 +413,9 @@ def _recipient_state(r: Recipient) -> str:
     return "queued"
 
 
-def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
+def _rsvp_summary(
+    rows: list[Recipient], opted_out: frozenset[str] = frozenset(),
+) -> tuple[dict, list[dict]]:
     coming = [r for r in rows if r.status == "coming"]
     declined = [r for r in rows if r.status == "declined"]
     stats = {
@@ -449,8 +451,15 @@ def _rsvp_summary(rows: list[Recipient]) -> tuple[dict, list[dict]]:
                 receipt = "Read on WhatsApp"
             elif r.wa_delivered_at:
                 receipt = "Delivered on WhatsApp"
-        elif channel == CHANNEL_SMS and r.sms_delivered_at:
-            receipt = "Delivered by text"
+        elif channel == CHANNEL_SMS:
+            # Ordered by how final each fact is. A STOP outranks everything: the
+            # row stays queued for ever, and this is the only place that says why.
+            if send.is_opted_out(r, opted_out):
+                receipt = "Replied STOP — won't be texted"
+            elif r.sms_failed_at and not r.sms_delivered_at:
+                receipt = "The carrier couldn't deliver the text"
+            elif r.sms_delivered_at:
+                receipt = "Delivered by text"
         recipients.append({
             "name": r.name or address, "email": address,
             "channel": channel,
@@ -866,7 +875,7 @@ def event_detail(
     if ask_contacts:
         parsed = [rcpt.Parsed(name=r.name, email=r.email, phone=r.phone) for r in rows]
         new_contacts = len(book.new_among(db, user.id, parsed))
-    stats, recipients = _rsvp_summary(rows)
+    stats, recipients = _rsvp_summary(rows, send.opted_out_hashes(db))
     resendable = sum(1 for r in rows if r.status in ("sent", "coming", "declined"))
     ctx = {
         "settings": settings, "user": user, "event": ev,

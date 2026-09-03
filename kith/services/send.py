@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from kith.config import SendMode, Settings
@@ -45,10 +45,11 @@ from kith.core.channels import (
     CHANNEL_WHATSAPP,
     channel_of,
 )
-from kith.db.models import Asset, Contact, Event, Recipient, User
+from kith.db.models import Asset, Event, Recipient, SmsOptOutEvent, User
 from kith.services import sms as sms_channel
 from kith.services import wa_session as wa_link
 from kith.services import waha
+from kith.services.contacts import phone_hash
 from kith.services.gmail import GmailAuthError
 
 log = logging.getLogger("kith")
@@ -157,49 +158,33 @@ def _write_wa_outbox(
     (d / f"{recipient_id}.txt").write_text(f"To: {to}\n{card}\n{text}\n")
 
 
-def opted_out_numbers(db: Session, user_id: str) -> set[str]:
-    """Every E.164 number of this user's that has ever replied STOP.
+def opted_out_hashes(db: Session) -> frozenset[str]:
+    """Blind indexes of every number whose latest reply was STOP.
 
-    An opt-out is permanent and applies to every future card, so it cannot be
-    read off the recipient row alone — a card composed after the STOP has a
-    fresh row that knows nothing about it. Two sources, together covering every
-    way a number can reach us:
-
-    * contacts flagged ``opted_out_sms`` — the address-book half;
-    * recipient rows flagged ``opted_out`` — which catches a number typed
-      straight into the compose box and never saved as a contact. A number that
-      texted STOP was necessarily messaged first, so it always has one.
-
-    Returned as plaintext numbers rather than blind indexes because the caller
-    is holding a decrypted recipient and comparing is cheaper than hashing. The
-    set is small: it only ever holds people who asked to be left alone.
+    Instance-wide, not per user: the site texts from one number, so a STOP is a
+    decision about that number and it binds every host here. Read from the
+    opt-out log rather than from any flag on a contact or recipient — those rows
+    are the host's to delete, and an opt-out has to outlive both the card it
+    arrived on and the address-book entry it might be filed under. The set is
+    small: it only ever holds people who asked to be left alone.
     """
-    numbers = {
-        c.phone for c in db.execute(
-            select(Contact).where(
-                Contact.user_id == user_id, Contact.opted_out_sms.is_(True)
-            )
-        ).scalars().all()
-        if c.phone
-    }
-    numbers |= {
-        r.phone for r in db.execute(
-            select(Recipient)
-            .join(Event, Event.id == Recipient.event_id)
-            .where(Event.user_id == user_id, Recipient.opted_out.is_(True))
-        ).scalars().all()
-        if r.phone
-    }
-    return numbers
+    latest = (
+        select(SmsOptOutEvent.phone_hash, func.max(SmsOptOutEvent.id).label("last"))
+        .group_by(SmsOptOutEvent.phone_hash)
+        .subquery()
+    )
+    rows = db.execute(
+        select(SmsOptOutEvent.phone_hash)
+        .join(latest, SmsOptOutEvent.id == latest.c.last)
+        .where(SmsOptOutEvent.kind == "stop")
+    ).scalars().all()
+    return frozenset(rows)
 
 
-def is_opted_out(r: Recipient, opted_out: set[str]) -> bool:
-    """Whether this recipient must not be texted.
-
-    The row's own flag first, so a STOP that arrived mid-batch is honoured
-    before the set is even consulted.
-    """
-    return bool(r.opted_out) or (bool(r.phone) and r.phone in opted_out)
+def is_opted_out(r: Recipient, opted_out: frozenset[str] | set[str]) -> bool:
+    """Whether this recipient must not be texted."""
+    number = r.phone
+    return bool(number) and phone_hash(number or "") in opted_out
 
 
 def _write_sms_outbox(
@@ -718,7 +703,7 @@ def _send_sms(
     # the outbox should see the same set of texts a live send would produce, and
     # a dry-run that quietly includes an opted-out number is a dry run that
     # hides the bug.
-    opted_out = opted_out_numbers(db, user.id)
+    opted_out = opted_out_hashes(db)
 
     sent = failed = 0
     for i, r in enumerate(recipients):

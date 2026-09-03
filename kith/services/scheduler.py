@@ -229,7 +229,7 @@ def send_one_reminder(db: Session, reminder: Reminder, settings: Settings) -> bo
         # Compliance-critical, and checked here as well as on the first send: a
         # STOP that arrives between the invitation and the nudge has to stop the
         # nudge. Skipped, not sent — an opted-out number is never texted again.
-        if send.is_opted_out(r, send.opted_out_numbers(db, user.id)):
+        if send.is_opted_out(r, send.opted_out_hashes(db)):
             reminder.status, reminder.skip_reason = "skipped", "opted_out"
             db.commit()
             log.info("reminder: recipient %s replied STOP; not nudging them", r.id)
