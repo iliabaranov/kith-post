@@ -29,6 +29,27 @@ services:
       retries: 3
       start_period: 10s
 
+  # SMS transport — deliberately NOT a service here.
+  #
+  # The recommended SMS provider is the capcom6 SMS Gateway app running on a
+  # phone you own, so the transport is a physical handset rather than a
+  # container: nothing to add to compose. Point the app at your LAN, note the
+  # Local Server URL and credentials, and set KITH_SMS_ENABLED=true,
+  # KITH_SMS_PROVIDER=gateway, KITH_SMS_GATEWAY_URL=http://<phone-ip>:8080 plus
+  # KITH_SMS_GATEWAY_USER / _PASS in .env. The container reaches the phone as
+  # ordinary outbound traffic on the default bridge network — no network_mode:
+  # host and no published port needed; the phone just has to be routable from
+  # the box, which for the Local Server means the same LAN.
+  #
+  # If instead you run the project's self-hosted relay (for a phone that isn't
+  # directly reachable), add it here under a profiles: ["sms"] block mirroring
+  # the waha service below, set KITH_SMS_GATEWAY_URL to its compose address and
+  # KITH_SMS_GATEWAY_PATH=/3rdparty/v1/messages. Keep it off by default and
+  # never behind the public tunnel: not being reachable is the gateway's whole
+  # security model.
+  #
+  # Twilio needs nothing here at all — it is an outbound HTTPS call.
+
   # WhatsApp transport (WAHA) — one session per kith user, reached only over the
   # compose network at http://waha:3000. Off unless you opt in:
   #   docker compose --profile whatsapp up -d
