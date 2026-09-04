@@ -79,14 +79,14 @@
     <p class="panel-title">{% if link %}Change how you send{% else %}How would you like to send?{% endif %}</p>
 
     {# .chk is a flex row: one element beside the radio, or every inline run becomes its own column #}
-    <label class="chk"><input type="radio" name="provider" value="gateway" {% if form.provider == "gateway" %}checked{% endif %}> <span><strong>My own phone</strong> — an Android phone with a SIM, running the free <a href="https://github.com/capcom6/android-sms-gateway" target="_blank" rel="noopener">SMS Gateway for Android</a> app, on the same network as this site</span></label>
+    <label class="chk"><input type="radio" name="provider" value="gateway" {% if form.provider == "gateway" %}checked{% endif %}> <span><strong>My own phone</strong> — an Android phone with a SIM, running the free <a href="https://github.com/capcom6/android-sms-gateway" target="_blank" rel="noopener">SMS Gateway for Android</a> app, reachable from this site — on the same network, or over a tailnet</span></label>
     <label class="chk"><input type="radio" name="provider" value="twilio" {% if form.provider == "twilio" %}checked{% endif %}> <span><strong>Twilio</strong> — a rented number; texting guests needs Twilio's carrier registration first</span></label>
 
     <div id="gatewayFields" {% if form.provider != "gateway" %}hidden{% endif %}>
       <label class="field">
         <span class="field-label">Phone's address</span>
         <input type="url" name="gateway_url" value="{{ form.gateway_url or '' }}" placeholder="http://192.168.1.50:8080" inputmode="url" autocomplete="off">
-        <span class="field-hint">Shown in the app under <strong>Local Server</strong>. Just the address and port — no path. Give the phone a fixed address in your router so it doesn't move.</span>
+        <span class="field-hint">Shown in the app under <strong>Local Server</strong>. Just the address and port — no path. Use an address that doesn't move: a fixed address in your router, or the phone's tailnet name.</span>
       </label>
       <label class="field">
         <span class="field-label">Username</span>
@@ -101,6 +101,12 @@
         <span class="field-label">The phone's own number <span class="field-hint">(optional)</span></span>
         <input type="tel" name="sender_number" value="{{ form.sender_number or '' }}" placeholder="+1 555 123 4567" inputmode="tel">
         <span class="field-hint">The number guests will see. It helps match a STOP reply that arrives without a country code.</span>
+      </label>
+      <label class="chk"><input type="checkbox" name="gateway_encrypt" value="1" {% if form.gateway_encrypt %}checked{% endif %}> <strong>Encrypt messages for the phone</strong> — text and numbers leave here readable only by the app</label>
+      <label class="field">
+        <span class="field-label">Encryption passphrase</span>
+        <input type="password" name="gateway_passphrase" autocomplete="new-password" placeholder="{% if link and link.gateway_passphrase %}leave blank to keep the saved one{% endif %}">
+        <span class="field-hint">The same passphrase you set in the app under <strong>Settings → Encryption</strong>, set there first. Long and random — 24 characters or more. Stored encrypted; never shown again here. Untick the box to send in the clear again.</span>
       </label>
       <details class="faq">
         <summary>Using the project's relay server instead of the phone directly?</summary>

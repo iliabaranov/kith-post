@@ -177,8 +177,11 @@ power, or a guest list big enough that carrier filtering is a real worry.
    project's releases or F-Droid.
 2. In the app, turn on **Local Server**. It listens on port `8080` and shows a
    username and password — the app generates them, you don't choose them.
-3. Note the phone's LAN IP. Give it a DHCP reservation or a static lease; if the
-   address moves, sends start failing with a connection timeout.
+3. Note an address for the phone that won't move: its LAN IP with a DHCP
+   reservation, or — if the phone isn't always on the same network as the
+   site — its Tailscale (or other VPN) name, which the container can reach as
+   long as the host is on the tailnet. If the address moves, sends fail with a
+   connection timeout.
 4. Keep the phone plugged in, and turn off any battery optimisation for the app.
    A phone that goes to sleep is a channel that goes down.
 5. In `.env`:
@@ -216,6 +219,23 @@ after one attempt, since every guest would hit the same wall.
 
 **Never put the gateway behind the public tunnel.** Not being reachable from the
 internet is the whole of its security model.
+
+#### Encryption
+
+The app can decrypt message text and phone numbers that were encrypted with a
+passphrase set once on the phone (**Settings → Encryption**). Turn it on here
+too — `KITH_SMS_GATEWAY_PASSPHRASE` in `.env`, or the "Encrypt messages for
+the phone" box on the account page — and text and numbers leave the app as
+ciphertext only the phone can read. That is belt and braces over a LAN or
+tailnet, and the whole point through a relay: the relay's database and
+anything terminating TLS in front of it see ciphertext.
+
+Two rules. Set the passphrase on the phone **first** — a message marked
+encrypted arriving at a phone with no passphrase fails on the handset — and
+make it long and random (24+ characters): the scheme's key derivation is
+deliberately cheap, so the passphrase carries the strength. Receipts and STOP
+replies are posted by the app in the clear regardless; the app does not encrypt
+webhooks.
 
 #### Receipts and STOP, on the gateway
 

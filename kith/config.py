@@ -145,9 +145,9 @@ class Settings(BaseSettings):
 
     # Android SMS gateway provider (KITH_SMS_PROVIDER=gateway)
     # Where the gateway is: the phone's own Local Server
-    # (http://<phone-ip>:8080) or a self-hosted relay. Reached over the LAN or
-    # the compose network, never the public tunnel — not being reachable is the
-    # gateway's whole security model.
+    # (http://<phone-ip>:8080 — a LAN or tailnet address) or a self-hosted
+    # relay on the compose network. Never the public tunnel: not being reachable
+    # from the internet is the gateway's whole security model.
     sms_gateway_url: str = ""
     sms_gateway_user: str = ""            # Basic auth username (shown in the app)
     sms_gateway_pass: str = ""            # Basic auth password
@@ -157,6 +157,10 @@ class Settings(BaseSettings):
     sms_gateway_path: str = "/message"
     # Only needed when a relay fronts more than one phone.
     sms_gateway_device_id: str = ""
+    # The passphrase set on the phone under Settings -> Encryption. When set,
+    # message text and phone numbers are encrypted for the phone before they
+    # leave here (kith.services.sms_crypto). Long and random; the KDF is cheap.
+    sms_gateway_passphrase: str = ""
 
     reminders: ReminderSettings = ReminderSettings()
 

@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from kith.config import Settings
 from kith.core import phones
 from kith.db.models import SmsLink, User
-from kith.services import sms
+from kith.services import sms, sms_crypto
 from kith.services.sms_gateway import LOCAL_SERVER_PATH, RELAY_PATH
 
 log = logging.getLogger("kith")
@@ -81,6 +81,7 @@ def config_from_link(link: SmsLink, settings: Settings) -> sms.SmsConfig:
         gateway_pass=link.gateway_pass or "",
         gateway_path=link.gateway_path or LOCAL_SERVER_PATH,
         gateway_device_id=link.gateway_device_id or "",
+        gateway_passphrase=link.gateway_passphrase or "",
         twilio_account_sid=link.twilio_account_sid or "",
         twilio_auth_token=link.twilio_auth_token or "",
         twilio_from=link.twilio_from or "",
@@ -156,7 +157,10 @@ def _clean_url(url: str) -> str:
     if not url:
         raise SmsLinkError("Enter the phone's address — the app shows it under Local Server.")
     if not url.startswith(("http://", "https://")):
-        raise SmsLinkError("The phone's address should start with http:// — for example http://192.168.1.50:8080.")
+        raise SmsLinkError(
+            "The phone's address should start with http:// or https:// — for example "
+            "http://192.168.1.50:8080, or the phone's tailnet name with :8080."
+        )
     # The path is its own setting; a URL that already ends in /message would
     # send to /message/message.
     for p in (LOCAL_SERVER_PATH, RELAY_PATH):
@@ -192,6 +196,8 @@ def save(
     gateway_pass: str = "",
     gateway_relay: bool = False,
     gateway_device_id: str = "",
+    gateway_encrypt: bool = False,
+    gateway_passphrase: str = "",
     twilio_account_sid: str = "",
     twilio_auth_token: str = "",
     twilio_from: str = "",
@@ -232,6 +238,24 @@ def save(
             link.gateway_pass = pass_
         link.gateway_path = RELAY_PATH if gateway_relay else LOCAL_SERVER_PATH
         link.gateway_device_id = (gateway_device_id or "").strip() or None
+        if gateway_encrypt:
+            pp = (gateway_passphrase or "").strip()
+            if not pp and not link.gateway_passphrase:
+                raise SmsLinkError(
+                    "Enter the encryption passphrase you set in the app under "
+                    "Settings → Encryption."
+                )
+            if pp:
+                if len(pp) < sms_crypto.MIN_PASSPHRASE:
+                    raise SmsLinkError(
+                        f"The encryption passphrase should be at least {sms_crypto.MIN_PASSPHRASE} "
+                        "characters — the same long one you set on the phone."
+                    )
+                link.gateway_passphrase = pp
+        else:
+            # Off means off: a stored passphrase would keep encrypting texts the
+            # phone can no longer read if the host also cleared it there.
+            link.gateway_passphrase = None
         link.sender_number = _clean_phone(
             sender_number, label="the phone's own number", required=False,
         ) or None
@@ -263,7 +287,7 @@ def save(
         link.sender_number = from_ or None
         if switched:
             link.gateway_url = link.gateway_user = link.gateway_pass = None
-            link.gateway_path = link.gateway_device_id = None
+            link.gateway_path = link.gateway_device_id = link.gateway_passphrase = None
             link.webhooks_registered_at = None
 
     link.self_number = _clean_phone(self_number, label="your own mobile", required=False) or None
@@ -344,7 +368,10 @@ def _plain(e: Exception) -> str:
     """A provider error in the host's terms, capped so a stack trace of an
     upstream HTML page doesn't end up on the settings page."""
     if isinstance(e, sms.SmsTimeout):
-        return "No answer in time. Is the phone awake and on the same network as this site?"
+        return (
+            "No answer in time. Is the phone awake, its Local Server on, and reachable from "
+            "this site — on the same network, or on the tailnet?"
+        )
     if isinstance(e, sms.SmsAuthError):
         return "The username or password was refused. Check them against what the app shows."
     return str(e)[:300]

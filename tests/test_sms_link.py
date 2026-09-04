@@ -919,3 +919,93 @@ def test_get_provider_still_builds_the_sites_provider_from_settings_alone(monkey
     )
     assert isinstance(sms.get_provider(gw), AndroidGatewayProvider)
     assert isinstance(sms.get_provider(Settings(sms_enabled=False)), sms.NullProvider)
+
+
+# --- 12. encryption for the phone -----------------------------------------------
+
+PASSPHRASE = "correct horse battery staple"
+
+
+def test_ticking_encrypt_stores_the_passphrase_and_the_provider_uses_it(host):
+    r = _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=PASSPHRASE))
+    assert r.status_code == 303
+    db, link = _link()
+    assert link.gateway_passphrase == PASSPHRASE
+    cfg = sms_link.config_from_link(link, get_settings())
+    assert cfg.gateway_passphrase == PASSPHRASE
+    assert sms.provider_from(cfg)._passphrase == PASSPHRASE
+
+
+def test_the_passphrase_is_encrypted_at_rest_and_never_echoed(host):
+    _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=PASSPHRASE))
+    import sqlite3
+
+    raw = sqlite3.connect(get_settings().db_path).execute(
+        "select gateway_passphrase from sms_links"
+    ).fetchone()[0]
+    assert raw and PASSPHRASE not in raw
+    page = host.get("/account/sms").text
+    assert PASSPHRASE not in page
+    assert "leave blank to keep the saved one" in page
+
+
+def test_a_blank_passphrase_with_the_box_ticked_keeps_the_stored_one(host):
+    _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=PASSPHRASE))
+    r = _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase="", gateway_pass=""))
+    assert r.status_code == 303
+    _db, link = _link()
+    assert link.gateway_passphrase == PASSPHRASE
+
+
+def test_unticking_the_box_clears_the_passphrase(host):
+    _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=PASSPHRASE))
+    r = _save(host, _gateway_form(gateway_pass=""))
+    assert r.status_code == 303
+    _db, link = _link()
+    assert link.gateway_passphrase is None
+    assert sms_link.config_from_link(link, get_settings()).gateway_passphrase == ""
+
+
+def test_the_box_ticked_with_nothing_stored_and_nothing_typed_is_an_error(host):
+    r = _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=""))
+    assert r.status_code == 200
+    assert "Settings → Encryption" in r.text
+    _db, link = _link()
+    assert link is None
+
+
+def test_a_short_passphrase_is_refused(host):
+    r = _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase="abc"))
+    assert r.status_code == 200
+    assert "at least 8 characters" in r.text
+
+
+def test_switching_to_twilio_clears_the_passphrase_too(host):
+    _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=PASSPHRASE))
+    r = _save(host, _twilio_form())
+    assert r.status_code == 303
+    _db, link = _link()
+    assert link.gateway_passphrase is None
+
+
+def test_the_test_text_is_encrypted_when_the_passphrase_is_set(host, monkeypatch):
+    """The test button goes through the same provider, so it is the check that
+    the phone and the site agree on the passphrase — before a guest is involved."""
+    import json
+
+    from kith.services import sms_crypto, sms_gateway
+
+    seen = {}
+
+    def fake_send(self, to, text):
+        seen["to"], seen["text"], seen["pp"] = to, text, self._passphrase
+        return sms.SmsResult(message_id="t-1")
+
+    monkeypatch.setattr(sms_gateway.AndroidGatewayProvider, "send", fake_send)
+    _save(host, _gateway_form(gateway_encrypt="1", gateway_passphrase=PASSPHRASE))
+    r = host.post("/account/sms/test", follow_redirects=False)
+    assert r.status_code == 303
+    assert seen["pp"] == PASSPHRASE
+    # Belt and braces: the real send() would encrypt with that passphrase.
+    token = sms_crypto.encrypt(seen["pp"], seen["text"])
+    assert json.dumps(token).startswith('"$aes-256-cbc/pbkdf2-sha1$')

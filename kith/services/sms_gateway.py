@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import httpx
 
+from kith.services import sms_crypto
 from kith.services.sms import (
     SmsAuthError,
     SmsCaps,
@@ -63,6 +64,7 @@ class AndroidGatewayProvider:
         *,
         device_id: str = "",
         path: str = LOCAL_SERVER_PATH,
+        passphrase: str = "",
         timeout: float = 20.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -71,6 +73,10 @@ class AndroidGatewayProvider:
         self._url = self._base + self._path
         self._auth = (user, password)
         self._device_id = (device_id or "").strip()
+        # With a passphrase, text and number travel as ciphertext the phone
+        # decrypts (kith.services.sms_crypto). The rest of the body — and every
+        # status the gateway answers with — is unchanged.
+        self._passphrase = passphrase or ""
         # A short connect timeout separates "the phone is asleep or off the
         # network" — the common case, and worth failing fast on — from "it is
         # taking its time sending".
@@ -82,7 +88,14 @@ class AndroidGatewayProvider:
         # One recipient per call even though phoneNumbers is a list: the send
         # path paces and commits per recipient, and a batch would make one
         # failure ambiguous across several people.
-        payload: dict = {"textMessage": {"text": text}, "phoneNumbers": [to_e164]}
+        if self._passphrase:
+            payload: dict = {
+                "textMessage": {"text": sms_crypto.encrypt(self._passphrase, text)},
+                "phoneNumbers": [sms_crypto.encrypt(self._passphrase, to_e164)],
+                "isEncrypted": True,
+            }
+        else:
+            payload = {"textMessage": {"text": text}, "phoneNumbers": [to_e164]}
         if self._device_id:
             # Only meaningful when a relay fronts several phones.
             payload["deviceId"] = self._device_id

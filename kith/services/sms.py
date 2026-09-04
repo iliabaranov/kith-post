@@ -215,6 +215,7 @@ class SmsConfig:
     gateway_pass: str = ""
     gateway_path: str = ""
     gateway_device_id: str = ""
+    gateway_passphrase: str = ""            # app-level encryption, when set
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_from: str = ""
@@ -255,6 +256,7 @@ class SmsConfig:
             gateway_pass=settings.sms_gateway_pass,
             gateway_path=settings.sms_gateway_path,
             gateway_device_id=settings.sms_gateway_device_id,
+            gateway_passphrase=settings.sms_gateway_passphrase,
             twilio_account_sid=settings.sms_twilio_account_sid,
             twilio_auth_token=settings.sms_twilio_auth_token,
             twilio_from=settings.sms_twilio_from,
@@ -301,6 +303,7 @@ def provider_from(config: SmsConfig | None) -> SmsProvider:
         config.gateway_pass,
         device_id=config.gateway_device_id,
         path=config.gateway_path,
+        passphrase=config.gateway_passphrase,
         timeout=config.timeout,
     )
 

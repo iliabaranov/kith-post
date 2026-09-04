@@ -418,3 +418,44 @@ def test_rejected_credentials_keep_the_gateways_own_words():
 def test_the_connect_timeout_never_exceeds_the_configured_one():
     assert _provider(_ok(), timeout=2.0)._timeout.connect == 2.0
     assert _provider(_ok(), timeout=20.0)._timeout.connect == 5.0
+
+
+# --- encryption for the phone --------------------------------------------------
+
+def test_with_a_passphrase_text_and_number_leave_as_ciphertext_the_phone_can_read():
+    """The app decrypts textMessage.text and every phoneNumbers[] entry with the
+    passphrase set on the handset; isEncrypted tells it to. Nothing else in the
+    body changes, so the gateway's answers — and our mapping of them — do not."""
+    import json
+
+    from kith.services import sms_crypto
+
+    h = _ok()
+    r = _provider(h, passphrase="correct horse battery staple").send(TO, TEXT)
+    body = json.loads(h.request.content)
+    assert body["isEncrypted"] is True
+    assert body["textMessage"]["text"] != TEXT
+    assert body["phoneNumbers"][0] != TO
+    assert sms_crypto.decrypt("correct horse battery staple", body["textMessage"]["text"]) == TEXT
+    assert sms_crypto.decrypt("correct horse battery staple", body["phoneNumbers"][0]) == TO
+    assert r.message_id == "msg-1"
+
+
+def test_without_a_passphrase_the_body_is_exactly_as_before():
+    import json
+
+    h = _ok()
+    _provider(h).send(TO, TEXT)
+    body = json.loads(h.request.content)
+    assert "isEncrypted" not in body
+    assert body == {"textMessage": {"text": TEXT}, "phoneNumbers": [TO]}
+
+
+def test_provider_from_carries_the_passphrase_through():
+    cfg = sms.SmsConfig(
+        provider="gateway", gateway_url=BASE, gateway_user=USER, gateway_pass=PASSWORD,
+        gateway_passphrase="correct horse battery staple",
+    )
+    p = sms.provider_from(cfg)
+    assert isinstance(p, AndroidGatewayProvider)
+    assert p._passphrase == "correct horse battery staple"

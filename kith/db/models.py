@@ -310,6 +310,11 @@ class SmsLink(Base):
     gateway_pass: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     gateway_path: Mapped[str | None] = mapped_column(String, nullable=True)
     gateway_device_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The app's message-encryption passphrase (Settings -> Encryption on the
+    # phone). Set: text and numbers leave here as ciphertext only the phone can
+    # read. Unset: plaintext, which over a tailnet or LAN is still inside an
+    # encrypted hop. See kith.services.sms_crypto.
+    gateway_passphrase: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
 
     # --- the Twilio route ---
     # Plain and indexed on purpose: Twilio posts AccountSid with every callback,
