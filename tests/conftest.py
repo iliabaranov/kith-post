@@ -23,6 +23,9 @@ os.environ.setdefault("KITH_REMINDERS__SWEEP_SECONDS", "0")
 # (dev-login) baseline; the configured-OAuth test monkeypatches these back.
 os.environ["KITH_GOOGLE_CLIENT_ID"] = ""
 os.environ["KITH_GOOGLE_CLIENT_SECRET"] = ""
+# And the allow-list: the deploy box's .env restricts sign-in to one address,
+# which would turn the auth tests' fake Google identity into a 403.
+os.environ["KITH_ALLOWED_EMAILS"] = ""
 # Same for the WhatsApp channel: on the deploy box .env has it switched on, and
 # tests that assert the default-off behaviour would read that as the default.
 # Forced off here; the tests that need it monkeypatch it back on.

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from kith.config import get_settings
 from kith.services import contacts as book
+from kith.services import sms_link
 from kith.web.deps import get_db, load_user, templates
 
 router = APIRouter()
@@ -26,6 +27,7 @@ def contacts_page(
         return RedirectResponse("/", status_code=303)
     ctx = {
         "settings": get_settings(), "user": user,
+        "sms_on": sms_link.configured_for(db, user, get_settings()),
         "contacts": book.list_contacts(db, user.id),
         "all_groups": book.all_groups(db, user.id),
         "added": added, "skipped": skipped, "invalid": invalid,

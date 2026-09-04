@@ -205,10 +205,17 @@ def test_the_export_keeps_delivery_facts_apart_from_opened(sms_client):
 
 
 def test_the_export_says_whether_the_channel_was_available(sms_client):
-    """Instance-level, so there is nothing else per-account to say about it."""
+    """Whether this host could text, through what, and whose settings did it.
+
+    ``source`` matters to the person reading the file: "the site texted for me"
+    and "I texted through my own Twilio" are different facts about their data.
+    ``own_setup`` is None here because this host set nothing up — the site did.
+    """
     _seed(sms_client)
     data = sms_client.get("/account/export").json()
-    assert data["sms"] == {"configured": True, "provider": "twilio"}
+    assert data["sms"] == {
+        "configured": True, "provider": "twilio", "source": "site", "own_setup": None,
+    }
 
 
 def test_the_export_does_not_leak_the_provider_when_the_channel_is_off(off_client):

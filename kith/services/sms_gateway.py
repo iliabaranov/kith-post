@@ -66,7 +66,9 @@ class AndroidGatewayProvider:
         timeout: float = 20.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        self._url = (base_url or "").rstrip("/") + (path or LOCAL_SERVER_PATH)
+        self._base = (base_url or "").rstrip("/")
+        self._path = path or LOCAL_SERVER_PATH
+        self._url = self._base + self._path
         self._auth = (user, password)
         self._device_id = (device_id or "").strip()
         # A short connect timeout separates "the phone is asleep or off the
@@ -125,6 +127,52 @@ class AndroidGatewayProvider:
         # The gateway posts both message-status and inbound-SMS webhooks, but
         # nothing receives them until the webhook endpoint exists.
         return SmsCaps(can_receipt=True, can_inbound=True)
+
+    def register_webhooks(self, url: str, events: tuple[str, ...] | list[str]) -> int:
+        """Point the phone's webhooks at ``url`` for each event. Returns how many.
+
+        One POST per event, because that is the shape of the gateway's API: a
+        webhook is (id, url, event). The id is derived from the event so a
+        second registration replaces the first instead of stacking duplicates —
+        the app treats a repeated id as an update. The signing key cannot be set
+        this way; the host types it into the app, which is why the page shows it.
+        """
+        endpoint = self._base + (
+            RELAY_WEBHOOKS_PATH if self._path == RELAY_PATH else LOCAL_WEBHOOKS_PATH
+        )
+        done = 0
+        try:
+            with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
+                for event in events:
+                    body: dict = {
+                        "id": "kith-" + event.replace(":", "-"), "url": url, "event": event,
+                    }
+                    if self._device_id:
+                        body["deviceId"] = self._device_id
+                    resp = client.post(endpoint, json=body, auth=self._auth)
+                    if resp.status_code in (401, 403):
+                        raise SmsAuthError(
+                            f"the gateway rejected the credentials: {resp.text[:200]}"
+                        )
+                    if resp.status_code == 404:
+                        raise SmsMisconfigured(
+                            f"gateway 404 at {endpoint} — is the URL the phone's Local "
+                            "Server, with no path after the port?"
+                        )
+                    if resp.status_code >= 400:
+                        raise SmsError(f"gateway {resp.status_code}: {resp.text[:200]}")
+                    done += 1
+        except httpx.TimeoutException as e:
+            raise SmsTimeout("the phone did not answer in time") from e
+        except httpx.HTTPError as e:
+            raise SmsError(f"could not reach the phone: {e}") from e
+        return done
+
+
+# Where the gateway keeps its webhook registrations, per deployment shape —
+# the same split as the send path.
+LOCAL_WEBHOOKS_PATH = "/webhooks"
+RELAY_WEBHOOKS_PATH = "/3rdparty/v1/webhooks"
 
 
 def _json_or_empty(resp: httpx.Response) -> dict:

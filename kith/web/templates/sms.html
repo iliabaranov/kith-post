@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Texting — {{ settings.app_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="detail-eyebrow"><a class="link" href="/account">← your account</a></p>
+  <p class="eyebrow">text messages</p>
+  <h1 class="hero-title">Send invitations by text</h1>
+
+  {% if error %}
+  <p class="form-error">{{ error }}</p>
+  {% elif notice %}
+  <p class="reassure">{{ notice }}</p>
+  {% endif %}
+
+  {# ---- status ------------------------------------------------------------- #}
+  {% if own_ready %}
+  <p class="hero-sub">Texting is set up through your
+    {% if link.provider == "gateway" %}phone{% if link.sender_number %} (<strong>{{ link.sender_number }}</strong>){% endif %}{% else %}Twilio account{% if link.twilio_from %}, sending from <strong>{{ link.twilio_from }}</strong>{% endif %}{% endif %}.
+    New cards offer a text box next to the email one.</p>
+  {% if link.last_error %}
+  <div class="ask-note reconnect"><div><strong>Last attempt failed:</strong> {{ link.last_error }}</div></div>
+  {% elif link.last_ok_at %}
+  <p class="field-hint">Last test text went through {{ link.last_ok_at.strftime('%b %-d at %-I:%M %p') }}.</p>
+  {% else %}
+  <div class="ask-note"><div>Not tested yet. Send yourself a test text before a card depends on it.</div></div>
+  {% endif %}
+  <div class="wa-actions">
+    <form method="post" action="/account/sms/test" class="inline-form">
+      <button class="btn btn-primary" type="submit">Send me a test text</button>
+    </form>
+  </div>
+  {% if link.provider == "gateway" %}
+  <div class="ask-note{% if not link.webhooks_registered_at %} reconnect{% endif %}">
+    <div>
+      <p><strong>Deliveries and STOP replies.</strong> Your phone reports them here, signed with a key you type into the app once.</p>
+      <p>In the app: <strong>Settings → Webhooks → Signing key</strong>, enter exactly:</p>
+      <p class="wa-code" style="font-size:1rem">{{ link.webhook_secret }}</p>
+      {% if link.webhooks_registered_at %}
+      <p class="field-hint">Webhooks registered on the phone {{ link.webhooks_registered_at.strftime('%b %-d') }}. Register again if you reinstall the app.</p>
+      {% else %}
+      <p class="field-hint">Then press this once, while the phone is on the network. It tells the app where to send its reports.</p>
+      {% endif %}
+      <form method="post" action="/account/sms/webhooks" class="inline-form">
+        <button class="btn btn-quiet" type="submit">{% if link.webhooks_registered_at %}Register again{% else %}Register webhooks on the phone{% endif %}</button>
+      </form>
+      <p class="field-hint">If you'd rather add it in the app yourself, the address is
+        <code>{{ webhook_url }}</code>, for the events sms:received, sms:delivered, sms:failed and sms:cancelled.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="ask-note">
+    <div>
+      <p><strong>STOP replies.</strong> In the Twilio console, open your number's <strong>Messaging configuration</strong> and set "A message comes in" to this URL, HTTP POST:</p>
+      <p class="wa-code" style="font-size:1rem">{{ settings.base_url.rstrip('/') }}/sms/webhook/twilio</p>
+      <p class="field-hint">Delivery receipts need no setup — every text asks Twilio to report back here.</p>
+    </div>
+  </div>
+  {% endif %}
+  {% elif site_ready %}
+  <p class="hero-sub">This site already provides texting{% if site_provider == "gateway" %} from its own phone{% else %} through its Twilio account{% endif %}, so your cards can offer a text box now.
+    Set up your own below if you'd rather texts come from your number.</p>
+  {% else %}
+  <p class="hero-sub">Invitations can go out as a plain text message with a short note and each guest's
+    invitation link — the card and the RSVP live on the page the link opens, exactly as they do over email.
+    Two ways to send: from a phone you own, or through a Twilio account.</p>
+  {% endif %}
+
+  <div class="ask-note wa-warn">
+    <div>
+      <p><strong>Only text people who'd expect it.</strong> The same rule as email: people you know, who gave you their number.
+        A STOP reply opts a number out for good, across every card on this site.</p>
+      <p>Sending from your own phone costs nothing, but carriers throttle a personal number that sends a lot at once —
+        keep lists small. Texts are already spaced a few seconds apart.</p>
+    </div>
+  </div>
+
+  {# ---- the form ----------------------------------------------------------- #}
+  <form method="post" action="/account/sms" class="wa-bynumber" id="smsForm">
+    <p class="panel-title">{% if link %}Change how you send{% else %}How would you like to send?{% endif %}</p>
+
+    {# .chk is a flex row: one element beside the radio, or every inline run becomes its own column #}
+    <label class="chk"><input type="radio" name="provider" value="gateway" {% if form.provider == "gateway" %}checked{% endif %}> <span><strong>My own phone</strong> — an Android phone with a SIM, running the free <a href="https://github.com/capcom6/android-sms-gateway" target="_blank" rel="noopener">SMS Gateway for Android</a> app, on the same network as this site</span></label>
+    <label class="chk"><input type="radio" name="provider" value="twilio" {% if form.provider == "twilio" %}checked{% endif %}> <span><strong>Twilio</strong> — a rented number; texting guests needs Twilio's carrier registration first</span></label>
+
+    <div id="gatewayFields" {% if form.provider != "gateway" %}hidden{% endif %}>
+      <label class="field">
+        <span class="field-label">Phone's address</span>
+        <input type="url" name="gateway_url" value="{{ form.gateway_url or '' }}" placeholder="http://192.168.1.50:8080" inputmode="url" autocomplete="off">
+        <span class="field-hint">Shown in the app under <strong>Local Server</strong>. Just the address and port — no path. Give the phone a fixed address in your router so it doesn't move.</span>
+      </label>
+      <label class="field">
+        <span class="field-label">Username</span>
+        <input type="text" name="gateway_user" value="{{ form.gateway_user or '' }}" autocomplete="off" autocapitalize="off">
+      </label>
+      <label class="field">
+        <span class="field-label">Password</span>
+        <input type="password" name="gateway_pass" autocomplete="new-password" placeholder="{% if link and link.provider == 'gateway' %}leave blank to keep the saved one{% endif %}">
+        <span class="field-hint">Both are generated by the app and shown in the same place. Stored encrypted; never shown again here.</span>
+      </label>
+      <label class="field">
+        <span class="field-label">The phone's own number <span class="field-hint">(optional)</span></span>
+        <input type="tel" name="sender_number" value="{{ form.sender_number or '' }}" placeholder="+1 555 123 4567" inputmode="tel">
+        <span class="field-hint">The number guests will see. It helps match a STOP reply that arrives without a country code.</span>
+      </label>
+      <details class="faq">
+        <summary>Using the project's relay server instead of the phone directly?</summary>
+        <div class="faq-body">
+          <label class="chk"><input type="checkbox" name="gateway_path_relay" value="1" {% if form.gateway_path_relay %}checked{% endif %}> The address above is a relay (cloud or self-hosted), not the phone itself</label>
+          <label class="field">
+            <span class="field-label">Device ID <span class="field-hint">(only if the relay fronts several phones)</span></span>
+            <input type="text" name="gateway_device_id" value="{{ form.gateway_device_id or '' }}" autocomplete="off">
+          </label>
+        </div>
+      </details>
+    </div>
+
+    <div id="twilioFields" {% if form.provider != "twilio" %}hidden{% endif %}>
+      <label class="field">
+        <span class="field-label">Account SID</span>
+        <input type="text" name="twilio_account_sid" value="{{ form.twilio_account_sid or '' }}" placeholder="AC…" autocomplete="off" autocapitalize="off">
+      </label>
+      <label class="field">
+        <span class="field-label">Auth Token</span>
+        <input type="password" name="twilio_auth_token" autocomplete="new-password" placeholder="{% if link and link.provider == 'twilio' %}leave blank to keep the saved one{% endif %}">
+        <span class="field-hint">Both are on the Twilio console's home page. The token is a password: stored encrypted, never shown again here.</span>
+      </label>
+      <label class="field">
+        <span class="field-label">Send from this number</span>
+        <input type="tel" name="twilio_from" value="{{ form.twilio_from or '' }}" placeholder="+1 555 123 4567" inputmode="tel">
+        <span class="field-hint">A number you bought in Twilio, with its country code.</span>
+      </label>
+      <label class="field">
+        <span class="field-label">…or a Messaging Service SID <span class="field-hint">(optional)</span></span>
+        <input type="text" name="twilio_messaging_service_sid" value="{{ form.twilio_messaging_service_sid or '' }}" placeholder="MG…" autocomplete="off" autocapitalize="off">
+        <span class="field-hint">What carrier registration attaches to. If set, it picks the number itself.</span>
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Your own mobile</span>
+      <input type="tel" name="self_number" value="{{ form.self_number or '' }}" placeholder="+1 555 123 4567" inputmode="tel" autocomplete="tel">
+      <span class="field-hint">Where test texts go — and, while this site is in test mode, where every text goes instead of to guests.</span>
+    </label>
+
+    <div class="wa-actions">
+      <button class="btn btn-primary" type="submit">{% if link %}Save changes{% else %}Save{% endif %}</button>
+      <a class="btn btn-quiet" href="/account">Back</a>
+    </div>
+  </form>
+
+  {% if link %}
+  <div class="account-actions">
+    <form method="post" action="/account/sms/remove"
+          onsubmit="return confirm('Remove your texting setup? Cards already sent keep working — you just won\'t be able to send new texts until you set it up again.');">
+      <button class="btn btn-danger" type="submit">Remove my texting setup</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <details class="faq">
+    <summary>What guests see, and what we can't do</summary>
+    <dl class="faq-body">
+      <dt>What arrives</dt>
+      <dd>A short plain text from your number — no picture, since a text can't carry one — with the guest's personal invitation link. The card, the details and the RSVP live on that page, the same one email guests open.</dd>
+      <dt>Reminders</dt>
+      <dd>The same schedule as email, by text, and they stop the moment someone replies to the invitation.</dd>
+      <dt>Replies</dt>
+      <dd>Land on the sending phone or in Twilio, as ordinary texts — this site never reads them. The one exception is a reply that is only the word STOP (or START), which is honoured and nothing more.</dd>
+      <dt>If it stops working</dt>
+      <dd>The card page says why, and this page shows the last error. For the phone route it is almost always the phone asleep or moved to a new address.</dd>
+    </dl>
+  </details>
+</section>
+
+<script>
+// Show only the fields for the chosen route. An enhancement: with no JS both
+// sets are visible and the server ignores the ones that don't apply.
+(function () {
+  var radios = document.querySelectorAll('#smsForm input[name="provider"]');
+  var g = document.getElementById("gatewayFields"), t = document.getElementById("twilioFields");
+  function sync() {
+    var v = document.querySelector('#smsForm input[name="provider"]:checked');
+    v = v ? v.value : "gateway";
+    g.hidden = v !== "gateway"; t.hidden = v !== "twilio";
+  }
+  for (var i = 0; i < radios.length; i++) radios[i].addEventListener("change", sync);
+  sync();
+})();
+</script>
+{% endblock %}

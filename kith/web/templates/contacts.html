@@ -5,7 +5,7 @@
   <p class="detail-eyebrow"><a class="link" href="/">← your cards</a></p>
   {# A stored number is just a number: which phone channel to use is chosen per
      card at compose time, so the field appears when either channel is on. #}
-  {% set phone_on = settings.whatsapp_configured or settings.sms_configured %}
+  {% set phone_on = settings.whatsapp_configured or sms_on %}
   <p class="eyebrow">your people</p>
   <p class="field-hint">People here can be imported into any card, then edited per invite without changing this list. Use groups (e.g. family, local, work) to add whole circles at once.</p>
 

@@ -316,17 +316,39 @@ rather than surfacing WAHA's developer-facing 422.
 
 ---
 
-## 6b. SMS Channel (opt-in, instance-level)
+## 6b. SMS Channel (opt-in, two layers: per-host over site default)
 
 A third delivery channel. Same invitation, same `/i/{token}` link, same tracking
 — but a different shape of setup from §6a, and the difference is the point.
 
-**WhatsApp is per-host; SMS is per-instance.** A host links their own WhatsApp
-account, so guests see a message from someone they know. Nobody links an SMS
-account: the operator configures one provider for the whole box, and the channel
-is either available to every host or to none. So there is no linking page, no
-`/account/sms` route, and no per-host state — `sms_configured` is the whole of
-it. The compose form grows an "Anyone by text?" box when it's true.
+**Two layers, not one.** WhatsApp is purely per-host: a host links their own
+account or the channel doesn't exist for them. SMS started purely per-instance
+— the operator configures one provider for the whole box — because a Twilio
+account or a gateway phone reads, on paper, as something the operator owns
+rather than any one host. On a single-host box that's true by coincidence: the
+operator is the only host, so their line and the site's line are the same
+thing. The moment a second host wants to text from their own number or their
+own phone, the coincidence breaks, and there was no way at all to say "my
+number, not the site's." So a host can now set up their own texting at
+`/account/sms`, the same shape as the WhatsApp link page, layered *on top of*
+the site's `.env` config rather than replacing it:
+
+- a complete host row wins outright — that host's texts go from their own
+  number, through their own provider account;
+- an incomplete host row (a provider chosen, a field still blank) does **not**
+  fall through to the site default — a host partway through setting up their
+  own number would be surprised to find invitations leaving from the
+  operator's in the meantime, so those texts are held instead, with the card
+  saying why;
+- no host row at all falls through to the site's `KITH_SMS_*` settings,
+  unchanged from before this existed.
+
+`KITH_SMS_HOST_LINKS_ENABLED` (default true) is the operator's switch for the
+page itself: false removes `/account/sms` (it redirects to `/account`), and
+every host sends through the site's provider only, exactly as before this
+layer existed. The compose form's "Anyone by text?" box still reduces to one
+boolean — whether *this host's* resolved configuration is complete — so
+nothing downstream of that box knows or cares which layer answered.
 
 ```
 kith ──HTTPS──► Twilio REST API ──► carrier          (paid, terms-clean, registered)
@@ -340,6 +362,17 @@ being agreed to — but not in anything the send path cares about, so the send
 path never names one. `NullProvider` raises rather than no-ops, because a
 misconfigured live send that reported success would flip recipients to `sent`
 having posted nothing.
+
+**Where the secrets live.** WhatsApp's per-host state (§6a) holds no secret at
+all — the credentials stay in WAHA's own volume, and kith stores only a session
+name. SMS has no comparable vault to defer to: a Twilio auth token or a gateway
+app's password has to live somewhere, and here that's our own database
+(`sms_links`, one row per host) — the first per-host *secrets*, as opposed to
+session pointers, this app holds. That's acceptable rather than alarming
+because there's no new lock to build for it: the same Fernet key and the same
+`EncryptedString` column type that already protect the Gmail refresh token
+(§5, §13) cover these too. A host's row is deleted with their account (FK
+cascade), same as everything else that's theirs.
 
 **Text only, and that is a design constraint, not an omission.** No card image:
 MMS is a different product at a different price. What the message can spend is
@@ -356,20 +389,41 @@ NULL rows that predate the column. This had to land before SMS did: both phone
 channels carry a number, so "has a phone" stops meaning "is WhatsApp" the moment
 there are two of them.
 
-**Receipts and STOP.** Two providers, two signature schemes, two endpoints —
-Twilio signs a base64 HMAC-SHA1 over the callback URL plus sorted parameters
-(and the callback is public, since it arrives from Twilio's servers), while the
-gateway signs a hex HMAC-SHA256 over the body plus a timestamp, with a
-five-minute replay window. Both are secret-gated and 404 until receipts are
-turned on, and each exists only for the provider that is configured — on a
-Twilio box the secret is a switch, not a key, and an endpoint it alone unlocked
-could forge a STOP for any number on the site. Twilio's inbound and status
-POSTs share one URL and are told apart by the status *value* (`received`), never
-by whether a status field is present. `sms_delivered_at` shows as "Delivered by
-text" and `sms_failed_at` as a carrier failure; there is no read receipt for
-SMS, and a delivery is never an "Opened" — the §7 rule holds unchanged.
+**Receipts and STOP find the host two different ways.** Two providers, two
+signature schemes — Twilio signs a base64 HMAC-SHA1 over the callback URL plus
+sorted parameters, the gateway a hex HMAC-SHA256 over the body plus a
+timestamp, five-minute replay window either way — but they also differ in how
+a POST gets matched to a host, because only one of them carries an identifier
+of its own:
 
-**STOP is compliance-critical, and it outlives everything the host owns.** An
+- **Twilio** posts the same `AccountSid` on every callback, site-wide or
+  per-host alike, so one endpoint (`…/sms/webhook/twilio`) serves everyone: the
+  SID picks the row, that row's own auth token verifies the signature, and a
+  SID nobody recognises falls through to the site config. Twilio's inbound and
+  status POSTs share that one URL and are told apart by the status *value*
+  (`received`), never by whether a status field is present.
+- **The gateway** carries no such field — a phone just POSTs — so each host
+  instead gets a random URL token baked into their own endpoint,
+  `…/sms/webhook/gateway/<token>`, verified with a per-host signing secret the
+  host types into the app. The site's own un-tokened `…/sms/webhook/gateway`
+  still exists, for the operator's own phone.
+
+Both are secret-gated and 404 until receipts are turned on for that layer — on
+a Twilio box the secret is a switch, not a key, and an endpoint it alone
+unlocked could forge a STOP for any number on the site. The URL is
+deliberately the *public* one even for the gateway: an earlier draft of this
+doc called the container's LAN address "better," which held only while the
+phone and the container shared a network. On a tunnelled deployment they don't
+— the phone sits on the host's own LAN, the app answers behind Cloudflare's
+tunnel — so the address the phone can actually reach is the public
+`KITH_BASE_URL` one, same as Twilio always required. `sms_delivered_at` shows
+as "Delivered by text" and `sms_failed_at` as a carrier failure; there is no
+read receipt for SMS, and a delivery is never an "Opened" — the §7 rule holds
+unchanged. Receipts are scoped to whichever row (or absence of one) resolved
+the send: a host's own phone or Twilio account can stamp receipts only onto
+that host's own recipients, never another host's cards on the same box.
+
+**STOP is compliance-critical, and it outlives everything any host owns.** An
 opt-out keyword appends a row to `sms_opt_out_events` — the number's blind
 index, the keyword's intent, the provider, and the provider's message id (unique,
 so a replayed POST records nothing twice). The suppression set is "every number
@@ -377,12 +431,15 @@ whose latest event is a stop", read by the send paths, the dashboard and the
 export; nothing is stored on the contact or the recipient. That is deliberate:
 those rows are the host's to delete, and an opt-out has to survive the card, the
 address-book entry and the account itself, or the same number is textable again
-the moment someone re-adds it. The log has no user_id — the site texts from one
-number, so a STOP binds every host on it — and holds nothing readable, which is
-what lets it be the one record an account delete keeps (§5). Enforced on first
-sends, on reminders, and in dry-run. STOP handling depends on the webhook being
-configured, so the app warns at startup when the channel is on and the webhook
-secret is not.
+the moment someone re-adds it. The log has no user_id and is keyed by the
+*guest's* number, not by who was texting them — a STOP is a promise to the
+guest, not a setting on a sender, so it opts that number out of texts from
+every host on the site, whichever one they replied to, and holds nothing
+readable, which is what lets it be the one record an account delete keeps
+(§5). Enforced on first sends, on reminders, and in dry-run. STOP handling
+depends on the webhook being configured — the site's, or a host's own — so the
+app warns at startup when the site channel is on and its webhook secret is
+not.
 
 ---
 

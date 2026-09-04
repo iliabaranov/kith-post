@@ -17,13 +17,17 @@
   </p>
   {% endif %}
 
-  {% if settings.sms_configured %}
-  {# No manage link: SMS is configured once for the whole site, so there is
-     nothing here for a host to set up or change. #}
-  <p class="reassure">Text messages: on</p>
+  {% if sms_on %}
+  <p class="reassure">
+    Text messages: on{% if sms_source == "host" %}, through your
+    {{ "phone" if sms_provider == "gateway" else "Twilio account" }}{% else %}, provided by this site{% endif %}
+    {%- if sms_offer %} · <a class="link" href="/account/sms">manage</a>{% endif %}
+  </p>
+  {% elif sms_offer %}
+  <p class="reassure">Text messages: not set up · <a class="link" href="/account/sms">set it up</a></p>
   {% elif settings.sms_enabled %}
-  {# Switched on but a credential is missing — the failure an operator is most
-     likely to hit, and the one place saying so costs nothing. #}
+  {# Switched on by the operator but a credential is missing — the failure they
+     are most likely to hit, and the one place saying so costs nothing. #}
   <p class="reassure">Text messages: switched on, but not finished setting up — ask whoever runs this site.</p>
   {% endif %}
 

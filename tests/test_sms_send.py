@@ -81,6 +81,16 @@ def _sms_outbox(event_id):
     return sorted((get_settings().outbox_dir / event_id / "sms").glob("*.txt"))
 
 
+def _host_id():
+    """The signed-in host's id.
+
+    The stuck note is kept per host now — one host's bad password is not
+    another's problem — so every assertion about it has to say whose.
+    """
+    _db, user = _db_and_user()
+    return user.id
+
+
 # --- parsing ------------------------------------------------------------------
 
 def test_parse_sms_tags_the_sms_channel_and_parse_phones_still_says_whatsapp():
@@ -330,7 +340,7 @@ def test_self_only_without_a_test_number_holds_every_text(sms_client, monkeypatc
     assert res.sms_blocked == "no-self-number"
     assert all(r.status == "queued" for r in _recipients(db, ev))
     assert not (get_settings().outbox_dir / ev / "sms").exists()
-    assert sender.sms_last_block() == "no-self-number"
+    assert sender.sms_last_block(_host_id()) == "no-self-number"
 
 
 def test_self_only_texts_the_operator_and_never_the_guest(sms_client, monkeypatch):
@@ -340,12 +350,15 @@ def test_self_only_texts_the_operator_and_never_the_guest(sms_client, monkeypatc
     monkeypatch.setenv("KITH_SMS_SELF_NUMBER", "+1 (555) 000-9999")   # not yet E.164
     get_settings.cache_clear()
     fake = _FakeProvider()
-    monkeypatch.setattr(sms, "get_provider", lambda s: fake)
+    # The send path resolves the host's configuration first and asks for a
+    # provider for *that*, so the seam to fake is provider_from, not the
+    # settings-only get_provider wrapper.
+    monkeypatch.setattr(sms, "provider_from", lambda config: fake)
     db, res = _send(ev)
     assert (res.sms_sent, res.sms_failed) == (2, 0)
     assert [to for to, _ in fake.sent] == ["+15550009999", "+15550009999"]
     assert all(r.status == "sent" for r in _recipients(db, ev))
-    assert sender.sms_last_block() is None
+    assert sender.sms_last_block(_host_id()) is None
 
 
 def test_a_garbage_test_number_counts_as_no_test_number(sms_client, monkeypatch):
@@ -357,7 +370,7 @@ def test_a_garbage_test_number_counts_as_no_test_number(sms_client, monkeypatch)
     assert res.sms_blocked == "no-self-number"
 
 
-# --- errors that stop the batch, and the site-wide note they leave ------------
+# --- errors that stop the batch, and the per-host note they leave -------------
 
 class _RefusingProvider:
     def __init__(self, exc):
@@ -376,18 +389,22 @@ class _RefusingProvider:
     (sms.SmsMisconfigured("From is not a number"), "misconfigured"),
     (sms.SmsRateLimited("429"), "rate-limited"),
 ])
-def test_an_instance_wide_refusal_stops_after_one_call(sms_client, monkeypatch, exc, reason):
-    """Every remaining recipient would fail identically, so one call is enough."""
+def test_a_provider_wide_refusal_stops_after_one_call(sms_client, monkeypatch, exc, reason):
+    """Every remaining recipient would fail identically, so one call is enough.
+
+    Provider-wide rather than instance-wide: the refusal belongs to whichever
+    provider this host texts through, which may be their own and not the site's.
+    """
     ev = _make_event(sms_client, sms_to="+15551110000\n+15552220000\n+15553330000")
     monkeypatch.setenv("KITH_SEND_MODE", "live")
     get_settings.cache_clear()
     fake = _RefusingProvider(exc)
-    monkeypatch.setattr(sms, "get_provider", lambda s: fake)
+    monkeypatch.setattr(sms, "provider_from", lambda config: fake)
     db, res = _send(ev)
     assert fake.calls == 1
     assert (res.sms_sent, res.sms_failed, res.sms_blocked) == (0, 0, reason)
     assert all(r.status == "queued" for r in _recipients(db, ev))
-    assert sender.sms_last_block() == reason
+    assert sender.sms_last_block(_host_id()) == reason
 
 
 def test_a_per_recipient_error_costs_one_recipient_and_leaves_no_note(
@@ -405,11 +422,12 @@ def test_a_per_recipient_error_costs_one_recipient_and_leaves_no_note(
             return super().send(to_e164, text)
 
     fake = _Flaky()
-    monkeypatch.setattr(sms, "get_provider", lambda s: fake)
-    sender._remember_sms_block("auth")           # a stale note from an earlier batch
+    monkeypatch.setattr(sms, "provider_from", lambda config: fake)
+    host = _host_id()
+    sender._remember_sms_block(host, "auth")     # a stale note from an earlier batch
     db, res = _send(ev)
     assert (res.sms_sent, res.sms_failed, res.sms_blocked) == (1, 1, None)
-    assert sender.sms_last_block() is None       # a text went out, so the note clears
+    assert sender.sms_last_block(host) is None   # a text went out, so the note clears
 
 
 # --- pacing -------------------------------------------------------------------

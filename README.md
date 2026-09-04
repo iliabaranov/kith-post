@@ -62,8 +62,9 @@ and set `KITH_GOOGLE_CLIENT_ID`, `KITH_GOOGLE_CLIENT_SECRET`, and `KITH_FERNET_K
   either from a phone you own, via the open-source
   [capcom6 SMS gateway](https://github.com/capcom6/android-sms-gateway) app (free,
   your own SIM), or through Twilio. Text only: no card picture, since a text can't
-  carry one. Off by default, configured once per instance rather than per host,
-  with STOP opt-out honoured automatically —
+  carry one. Off by default, with STOP opt-out honoured automatically. Any host
+  can set this up for themselves at `/account/sms`, the same way as WhatsApp
+  above; `.env` just sets the site-wide default for hosts who haven't —
   see [`docs/sms-setup.md`](./docs/sms-setup.md).
 - Collect RSVPs with an optional headcount (adults + kids), an allergies/dietary
   question, and a free-text note back.

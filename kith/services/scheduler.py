@@ -24,8 +24,8 @@ from kith.core import reminders as rem
 from kith.core.channels import CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, channel_of
 from kith.db.models import Asset, Event, Recipient, Reminder, User
 from kith.services import sms as sms_channel
+from kith.services import sms_link, waha
 from kith.services import wa_session as wa_link
-from kith.services import waha
 from kith.services.gmail import GmailAuthError
 
 log = logging.getLogger("kith")
@@ -44,17 +44,19 @@ def _send_sms_reminder(
     has no thread to quote into.
     """
     dry = settings.send_mode == SendMode.dry_run
-    if not dry and not settings.sms_configured:
-        # The channel was switched off after the card went out. Skip rather than
-        # hold: a pending reminder is retried every tick, and nothing bounds
-        # that while the channel stays off.
+    config = sms_link.config_for(db, user, settings)
+    if not dry and (config is None or not config.configured):
+        # The channel was switched off after the card went out — by the host
+        # removing their setup, or the operator theirs. Skip rather than hold:
+        # a pending reminder is retried every tick, and nothing bounds that
+        # while the channel stays off.
         reminder.status, reminder.skip_reason = "skipped", "channel_off"
         db.commit()
         return False
     to = r.phone
     if settings.send_mode == SendMode.self_only:
-        # The first send's rule, again: the operator's own number or nowhere.
-        to = phones.normalize(settings.sms_self_number or "")
+        # The first send's rule, again: the host's own test number or nowhere.
+        to = phones.normalize((config.self_number if config else "") or "")
         if not to:
             reminder.status, reminder.skip_reason = "skipped", "no_self_number"
             db.commit()
@@ -80,7 +82,7 @@ def _send_sms_reminder(
         else:
             if not to:
                 raise sms_channel.SmsError(f"no destination number for recipient {r.id}")
-            sms_channel.get_provider(settings).send(to, text)
+            sms_channel.provider_from(config).send(to, text)
     except sms_channel.SmsTimeout:
         # We do not know whether the provider took it. Leaving it 'sent' risks
         # one nudge nobody received; reverting it risks a second text five

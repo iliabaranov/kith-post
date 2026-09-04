@@ -5,8 +5,10 @@ Send will do. A button that says "from your Gmail" over a card addressed
 entirely by text, or an SMS box on an instance with no provider, is worse than
 no SMS support at all.
 
-SMS is instance-level, so there is deliberately no linking page and no
-/account/sms route — those absences are asserted here too.
+A host can now set up their own provider at /account/sms, so the account page
+has to say which of the two is doing the sending — the site's or theirs — and
+offer the way in. Those are asserted here; the linking page's own behaviour
+lives in tests/test_sms_link.py.
 """
 
 import html
@@ -142,16 +144,21 @@ def test_the_sms_box_is_absent_when_the_channel_is_off(off_client):
     assert "Anyone by text?" not in body
 
 
-def test_there_is_no_sms_linking_page(sms_client):
-    """SMS is configured once for the site; a host has nothing to link."""
-    assert sms_client.get("/account/sms", follow_redirects=False).status_code == 404
-    assert "/account/sms" not in sms_client.get("/account").text
+def test_the_sms_linking_page_exists_and_needs_a_session(sms_client):
+    """A host can set up their own texting now, so the page is real — and, like
+    every other account page, it is nobody's business until you have signed in."""
+    assert sms_client.get("/account/sms", follow_redirects=False).status_code == 200
+    sms_client.post("/auth/logout")
+    r = sms_client.get("/account/sms", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
 
 
-def test_the_account_page_states_the_channel_without_offering_a_manage_link(sms_client):
+def test_the_account_page_names_who_provides_the_texting_and_links_to_the_page(sms_client):
+    """The site provides it here, so say so rather than implying it is the
+    host's — and still offer the way in, because they may want their own number."""
     body = sms_client.get("/account").text
-    assert "Text messages: on" in body
-    assert "/account/sms" not in body
+    assert "Text messages: on, provided by this site" in body
+    assert "/account/sms" in body
 
 
 def test_the_account_page_says_nothing_when_the_channel_is_off(off_client):
@@ -442,18 +449,27 @@ def _sms_event(client):
 
 def test_a_stopped_sms_batch_explains_itself_on_later_loads(sms_client):
     """The batch runs after the response, so the redirect can't carry the reason;
-    the dashboard reads it from the site-wide note the batch leaves instead."""
+    the dashboard reads it from the note the batch leaves for that host instead.
+
+    Keyed by host: another host's stuck provider must not put a warning on this
+    host's card, so the note is looked up by user id on both sides.
+    """
     from kith.services import send as sender
 
     ev = _sms_event(sms_client)
-    sender._remember_sms_block("misconfigured")
+    _db, user = _db_and_user()
+    sender._remember_sms_block(user.id, "misconfigured")
     try:
         body = html.unescape(sms_client.get(f"/events/{ev}").text)
-        assert "rejected this site's setup" in body
+        assert "rejected the setup" in body
+        sender._remember_sms_block("someone-else", "auth")
+        body = html.unescape(sms_client.get(f"/events/{ev}").text)
+        assert "rejected the credentials" not in body
     finally:
-        sender._remember_sms_block(None)
+        sender._remember_sms_block(user.id, None)
+        sender._remember_sms_block("someone-else", None)
     body = html.unescape(sms_client.get(f"/events/{ev}").text)
-    assert "rejected this site's setup" not in body
+    assert "rejected the setup" not in body
 
 
 def test_self_only_without_a_test_number_says_texts_are_held(sms_client, monkeypatch):

@@ -142,6 +142,9 @@
         live on the same page as always. Numbers are encrypted. Include the country code, so
         nobody gets texted in the wrong one.</span>
     </label>
+    {% elif sms_offer %}
+    <p class="field-hint">Rather text some of these?
+      <a class="link" href="/account/sms">Set up texting</a> — from your own phone, or a Twilio account.</p>
     {% endif %}
 
     {% if contacts %}

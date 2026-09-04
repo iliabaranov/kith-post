@@ -281,3 +281,67 @@ class SmsOptOutEvent(Base):
     # Twilio's signature carries no timestamp — records nothing a second time.
     message_sid: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SmsLink(Base):
+    """A host's own SMS provider — their phone as the sender, or their Twilio.
+
+    The per-host counterpart of the WhatsApp link, with one structural
+    difference: WhatsApp's credentials live in WAHA's volume and we keep only a
+    session name, whereas here there is no external vault, so the credentials
+    themselves are ours to hold. Every secret and every phone number is an
+    ``EncryptedString``; what stays readable is what a lookup needs — the
+    Twilio account SID, which a status callback carries and is how the webhook
+    finds the host it belongs to, and the random URL token that does the same
+    job for the gateway. One row per host: a host has one way of texting at a
+    time, and switching provider replaces it.
+    """
+
+    __tablename__ = "sms_links"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    provider: Mapped[str] = mapped_column(String)            # "gateway" | "twilio"
+
+    # --- the phone route (capcom6 SMS Gateway for Android) ---
+    gateway_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    gateway_user: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    gateway_pass: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    gateway_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    gateway_device_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # --- the Twilio route ---
+    # Plain and indexed on purpose: Twilio posts AccountSid with every callback,
+    # and it is how an inbound STOP is matched to the host whose token verifies
+    # it. Not a secret — it is in every Twilio URL.
+    twilio_account_sid: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    twilio_auth_token: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    twilio_from: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    twilio_messaging_service_sid: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # The number guests see the texts come from — the SIM in the gateway phone,
+    # or the Twilio number. Optional for the gateway; it is what lets a STOP
+    # that arrives as a national number ("6505551212") be resolved to E.164.
+    sender_number: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    # Where a self-only test send goes. This host's, not the site's.
+    self_number: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+
+    # Generated here and typed into the gateway app as its webhook signing key.
+    # Twilio does not use it: its callbacks are verified with the auth token.
+    webhook_secret: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    # Routes the gateway's POSTs to this host: /sms/webhook/gateway/<token>.
+    # Random and unique, but not a credential — the signature is the credential.
+    webhook_token: Mapped[str] = mapped_column(String, unique=True, index=True)
+    webhooks_registered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # What the page shows as status. A test send is the only way to learn the
+    # credentials work before a real card depends on them.
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

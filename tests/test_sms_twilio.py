@@ -290,12 +290,18 @@ def live_client(monkeypatch):
 
 
 def _use(monkeypatch, handler):
-    """Point the factory at a real provider wired to this mock transport."""
+    """Point the factory at a real provider wired to this mock transport.
+
+    ``provider_from`` is the seam the send path uses: it resolves the host's
+    configuration first — their own row, or the site's settings — and asks for a
+    provider for that, so patching the settings-only ``get_provider`` wrapper
+    would leave the real Twilio client in place and the test on the network.
+    """
     from kith.services import sms as sms_module
 
     monkeypatch.setattr(
-        sms_module, "get_provider",
-        lambda settings: _provider(handler, from_number="+15550001234"),
+        sms_module, "provider_from",
+        lambda config: _provider(handler, from_number="+15550001234"),
     )
 
 

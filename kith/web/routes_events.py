@@ -30,7 +30,7 @@ from kith.core.channels import (
 from kith.core.tracking import new_token
 from kith.db.models import Asset, Event, Recipient, Reminder
 from kith.services import contacts as book
-from kith.services import scheduler, send, storage, waha
+from kith.services import scheduler, send, sms_link, storage, waha
 from kith.web.deps import get_db, load_user, templates
 
 router = APIRouter()
@@ -113,19 +113,19 @@ def _blocks_from_form(message, date_, time_, location_, rsvp, headcount, allergi
 # the copy says who to ask rather than offering a button that would do nothing.
 _SMS_BLOCKED = {
     "not-configured": (
-        "Text messages aren't set up on this site, so those invitations weren't "
-        "sent. They're still queued — ask whoever runs it to finish setting the "
-        "channel up."
+        "Text messages aren't set up for your account, so those invitations "
+        "weren't sent. They're still queued — set up texting from your account "
+        "page, or ask whoever runs this site to."
     ),
     "auth": (
-        "The text-message service rejected this site's credentials, so those "
-        "invitations weren't sent. They're still queued — ask whoever runs it to "
-        "check the settings."
+        "The text-message service rejected the credentials, so those "
+        "invitations weren't sent. They're still queued — check your texting "
+        "settings on your account page."
     ),
     "misconfigured": (
-        "The text-message service rejected this site's setup — the sending "
-        "number or account details — so those invitations weren't sent. They're "
-        "still queued — ask whoever runs it to check the settings."
+        "The text-message service rejected the setup — the sending number or "
+        "account details — so those invitations weren't sent. They're still "
+        "queued — check your texting settings on your account page."
     ),
     "rate-limited": (
         "The text-message service asked this site to slow down, so the rest of "
@@ -220,7 +220,7 @@ def _sms_send_preview(
     queued_sms = [
         r for r in rows if channel_of(r) == CHANNEL_SMS and r.status == "queued"
     ]
-    if not settings.sms_configured or not queued_sms:
+    if not queued_sms or not sms_link.configured_for(db, user, settings):
         return {"sms_preview": None, "sms_segments": None, "sms_gsm7": True}
     r = queued_sms[0]
     preview = smsmessage.invite_text(
@@ -260,26 +260,27 @@ def _wa_stuck_note(user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN0
     return None
 
 
-def _sms_stuck_note(rows: Sequence[Recipient]) -> str | None:
+def _sms_stuck_note(db: Session, user, rows: Sequence[Recipient]) -> str | None:  # noqa: ANN001
     """The reason this card's texts can't go out, if there is one.
 
-    Worked out from the site's state rather than echoed from the send that just
+    Worked out from the host's state rather than echoed from the send that just
     happened, for the same reason as the WhatsApp note: the batch runs after the
     response, so what stopped it is learned too late for the redirect — and this
-    stays true on every later page load. SMS is instance-level, so the reason
-    the last batch stopped applies to every card with texts still waiting.
+    stays true on every later page load. The reason a host's last batch stopped
+    applies to every card of theirs with texts still waiting.
     """
     settings = get_settings()
     if not any(channel_of(r) == CHANNEL_SMS and r.status == "queued" for r in rows):
         return None          # nothing waiting, so nothing to explain
-    if not settings.sms_configured:
+    config = sms_link.config_for(db, user, settings)
+    if config is None or not config.configured:
         return _SMS_BLOCKED["not-configured"]
     if (
         settings.send_mode == SendMode.self_only
-        and not phones.normalize(settings.sms_self_number or "")
+        and not phones.normalize(config.self_number or "")
     ):
         return _SMS_BLOCKED["no-self-number"]
-    reason = send.sms_last_block()
+    reason = send.sms_last_block(user.id)
     return _SMS_BLOCKED.get(reason) if reason else None
 
 
@@ -356,14 +357,15 @@ def _needs_google(db: Session, event_id: str, statuses: tuple[str, ...]) -> bool
     return any(channel_of(r) == CHANNEL_EMAIL for r in rows)
 
 
-def _sms_flags(settings) -> dict:  # noqa: ANN001 — a Settings
+def _sms_flags(db: Session, user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
     """Whether to show the SMS box on the compose form.
 
-    One flag, and no offer to set anything up: SMS is instance-level, configured
-    once by the operator, so there is nothing a host can do about it being off.
-    An invitation to link something that isn't theirs to link would be a dead end.
+    ``sms_ready`` = this host can text, through their own setup or the site's.
+    ``sms_offer`` = they can't yet, but the site lets hosts set up their own, so
+    point them at it once rather than showing a field that can't send.
     """
-    return {"sms_ready": settings.sms_configured}
+    ready = sms_link.configured_for(db, user, settings)
+    return {"sms_ready": ready, "sms_offer": not ready and sms_link.available(settings)}
 
 
 def _wa_flags(user, settings) -> dict:  # noqa: ANN001 — a DB User + Settings
@@ -672,7 +674,7 @@ def new_event(request: Request, db: Session = Depends(get_db)):
         "settings": get_settings(), "user": user, "event": None,
         "blocks": DEFAULT_BLOCKS, "recipients_text": "", "wa_recipients_text": "",
         "sms_recipients_text": "",
-        **_wa_flags(user, get_settings()), **_sms_flags(get_settings()),
+        **_wa_flags(user, get_settings()), **_sms_flags(db, user, get_settings()),
         "cc_text": "", "error": None,
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(None),
@@ -725,7 +727,7 @@ async def create_event(
             "recipients_text": recipients, "wa_recipients_text": wa_recipients or "",
             "sms_recipients_text": sms_recipients or "",
             "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
-            **_sms_flags(get_settings()),
+            **_sms_flags(db, user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }
@@ -868,7 +870,7 @@ def event_detail(
     noun = _event_noun(ev)
     label, hint, confirm = _send_ui(
         settings.send_mode.value, [r for r in rows if r.status == "queued"], noun,
-        sms_test_number=bool(phones.normalize(settings.sms_self_number or "")),
+        sms_test_number=bool(sms_link.self_number_for(db, user, settings)),
     )
     # right after create/edit, offer to save recipients who aren't in the book yet
     new_contacts = 0
@@ -903,7 +905,7 @@ def event_detail(
         "wa_pending": wa_pending,
         "sms_sending": send.sms_batch_running(ev.id) or bool(sms_pending),
         "sms_pending": sms_pending,
-        "sms_blocked_msg": _sms_stuck_note(rows) or _SMS_BLOCKED.get(sms_blocked),
+        "sms_blocked_msg": _sms_stuck_note(db, user, rows) or _SMS_BLOCKED.get(sms_blocked),
         "new_contacts": new_contacts, "saved": saved,
         "stats": stats, "recipients": recipients,
         "reminders": _reminders_ui(db, ev, settings, rows),
@@ -1130,7 +1132,7 @@ def edit_event(event_id: str, request: Request, db: Session = Depends(get_db)):
         "wa_recipients_text": wa_recipients_text,
         "sms_recipients_text": sms_recipients_text,
         "cc_text": _cc_text(ev), "error": None, **_wa_flags(user, get_settings()),
-        **_sms_flags(get_settings()),
+        **_sms_flags(db, user, get_settings()),
         "contacts": book.list_contacts(db, user.id),
         "card_styles": CARD_STYLES, "selected_style": normalize_card_style(ev.card_style),
     }
@@ -1186,7 +1188,7 @@ async def update_event(
             "recipients_text": recipients, "wa_recipients_text": wa_recipients or "",
             "sms_recipients_text": sms_recipients or "",
             "cc_text": cc, "error": str(e), **_wa_flags(user, get_settings()),
-            **_sms_flags(get_settings()),
+            **_sms_flags(db, user, get_settings()),
             "contacts": book.list_contacts(db, user.id),
             "card_styles": CARD_STYLES, "selected_style": normalize_card_style(card_style),
         }

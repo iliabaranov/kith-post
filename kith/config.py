@@ -107,10 +107,13 @@ class Settings(BaseSettings):
     waha_send_gap_max_seconds: float = 20.0
 
     # --- SMS channel ---
-    # Off by default, and unlike WhatsApp this one is instance-level: the
-    # operator configures a provider once for the box, rather than each host
-    # linking their own. So there is nothing per-host to set up and no linking
-    # page — the channel is simply there or it isn't.
+    # Two ways to switch it on. Each host can set up their own provider from
+    # /account/sms (their phone as the sender, or their Twilio account), the way
+    # they link WhatsApp; and the operator can configure one provider here as
+    # the site-wide default. A host's own settings win over the site's. Every
+    # setting below is the site-wide default; ``sms_host_links_enabled`` is the
+    # one that controls whether the per-host page exists at all.
+    sms_host_links_enabled: bool = True
     sms_enabled: bool = False
     # "none" | "twilio" | "gateway". Concrete providers land in later changes.
     sms_provider: str = "none"

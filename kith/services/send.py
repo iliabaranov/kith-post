@@ -47,8 +47,8 @@ from kith.core.channels import (
 )
 from kith.db.models import Asset, Event, Recipient, SmsOptOutEvent, User
 from kith.services import sms as sms_channel
+from kith.services import sms_link, waha
 from kith.services import wa_session as wa_link
-from kith.services import waha
 from kith.services.contacts import phone_hash
 from kith.services.gmail import GmailAuthError
 
@@ -622,31 +622,34 @@ class _WaOutcome:
     blocked: str | None
 
 
-# Why the last SMS batch on this instance stopped, if it did. SMS is configured
-# for the whole site, so a stop is a site-wide fact — every card with queued
-# texts is stuck for the same reason — and the batch runs after the response,
-# so the redirect cannot carry it. This is how the dashboard learns it on a
-# later load. Cleared by the next text that goes through. In memory only: a
-# restart is a fine moment to try again.
+# Why the last SMS batch for a host stopped, if it did. A stop is a fact about
+# that host's provider — every card of theirs with queued texts is stuck for the
+# same reason — and the batch runs after the response, so the redirect cannot
+# carry it. This is how the dashboard learns it on a later load. Keyed by host,
+# because hosts can text through different providers and one host's bad
+# password is not another's problem. Cleared by the next text that goes
+# through. In memory only: a restart is a fine moment to try again.
 _sms_block_lock = threading.Lock()
-_sms_last_block: str | None = None
+_sms_last_block: dict[str, str] = {}
 
 
-def sms_last_block() -> str | None:
-    """The reason the last SMS batch stopped, or None if texts are going out."""
+def sms_last_block(user_id: str) -> str | None:
+    """The reason this host's last SMS batch stopped, or None if texts go out."""
     with _sms_block_lock:
-        return _sms_last_block
+        return _sms_last_block.get(user_id)
 
 
-def _remember_sms_block(reason: str | None) -> None:
-    global _sms_last_block
+def _remember_sms_block(user_id: str, reason: str | None) -> None:
     with _sms_block_lock:
-        _sms_last_block = reason
+        if reason is None:
+            _sms_last_block.pop(user_id, None)
+        else:
+            _sms_last_block[user_id] = reason
 
 
-def _stopped(sent: int, failed: int, reason: str) -> _SmsOutcome:
-    """A batch that stopped as a whole: record why, for every card to see."""
-    _remember_sms_block(reason)
+def _stopped(user_id: str, sent: int, failed: int, reason: str) -> _SmsOutcome:
+    """A batch that stopped as a whole: record why, for the host's cards to see."""
+    _remember_sms_block(user_id, reason)
     return _SmsOutcome(sent, failed, reason)
 
 
@@ -682,23 +685,25 @@ def _send_sms(
     invitation = eventkind.is_invitation(event.blocks, event.event_date)
     dry = settings.send_mode == SendMode.dry_run
 
-    # self-only sends to the operator's own number, never to the guest. Unlike
-    # WhatsApp's self-only, which uses the host's linked number, this is an
-    # instance-level setting: SMS has no per-host identity to borrow. With no
-    # usable number there is nowhere safe to send, so the batch stops with every
-    # recipient still queued and says why. Falling through to the guest is the
-    # one thing self-only exists to prevent — and marking the rows sent for a
-    # text nobody got would be the same lie in a quieter voice.
+    # Whose texting: the host's own settings when they have them, else the
+    # site's. Resolved once for the batch.
+    config = sms_link.config_for(db, user, settings)
+
+    # self-only sends to the host's own test number, never to the guest. With
+    # no usable number there is nowhere safe to send, so the batch stops with
+    # every recipient still queued and says why. Falling through to the guest
+    # is the one thing self-only exists to prevent — and marking the rows sent
+    # for a text nobody got would be the same lie in a quieter voice.
     use_self = settings.send_mode == SendMode.self_only
-    self_number = phones.normalize(settings.sms_self_number or "")
+    self_number = phones.normalize((config.self_number if config else "") or "")
     if use_self and not self_number:
         log.warning(
-            "sms: self-only has no usable KITH_SMS_SELF_NUMBER, so event %s is "
-            "held with %d recipient(s) still queued", event.id, len(recipients),
+            "sms: self-only has no usable test number for host %s, so event %s is "
+            "held with %d recipient(s) still queued", user.id, event.id, len(recipients),
         )
-        return _stopped(0, 0, "no-self-number")
+        return _stopped(user.id, 0, 0, "no-self-number")
 
-    provider = None if dry else sms_channel.get_provider(settings)
+    provider = None if dry else sms_channel.provider_from(config)
     # Read once for the batch. Enforced even in dry-run: an operator checking
     # the outbox should see the same set of texts a live send would produce, and
     # a dry-run that quietly includes an opted-out number is a dry run that
@@ -766,14 +771,14 @@ def _send_sms(
                 "sms: no provider configured; stopping with %d recipient(s) "
                 "still queued", len(recipients) - i,
             )
-            return _stopped(sent, failed, "not-configured")
+            return _stopped(user.id, sent, failed, "not-configured")
         except sms_channel.SmsAuthError:
             db.rollback()
             log.warning(
                 "sms: the provider rejected our credentials; stopping with %d "
                 "recipient(s) still queued", len(recipients) - i,
             )
-            return _stopped(sent, failed, "auth")
+            return _stopped(user.id, sent, failed, "auth")
         except sms_channel.SmsMisconfigured as e:
             # Ours to fix, not this recipient's fault — and the same for everyone
             # after them, so one paced call is enough to learn it.
@@ -782,7 +787,7 @@ def _send_sms(
                 "sms: the provider rejected our configuration (%s); stopping "
                 "with %d recipient(s) still queued", e, len(recipients) - i,
             )
-            return _stopped(sent, failed, "misconfigured")
+            return _stopped(user.id, sent, failed, "misconfigured")
         except sms_channel.SmsRateLimited as e:
             # Pressing on would only be refused faster. Stop; the host re-sends.
             db.rollback()
@@ -790,7 +795,7 @@ def _send_sms(
                 "sms: the provider asked us to slow down (%s); stopping with %d "
                 "recipient(s) still queued", e, len(recipients) - i,
             )
-            return _stopped(sent, failed, "rate-limited")
+            return _stopped(user.id, sent, failed, "rate-limited")
         except Exception:
             log.exception("sms send failed for recipient %s (event %s)", r.id, event.id)
             failed += 1  # left 'queued' so a retry can pick it up
@@ -798,7 +803,7 @@ def _send_sms(
         _pace(settings, dry, i, len(recipients), CHANNEL_SMS)
 
     if sent:
-        _remember_sms_block(None)  # texts are going out again
+        _remember_sms_block(user.id, None)  # texts are going out again
     return _SmsOutcome(sent, failed, None)
 
 

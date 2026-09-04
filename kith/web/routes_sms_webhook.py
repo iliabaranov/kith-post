@@ -48,9 +48,9 @@ from sqlalchemy.orm import Session
 
 from kith.config import get_settings
 from kith.core import phones
-from kith.db.models import Contact, Recipient, SmsOptOutEvent
+from kith.db.models import Contact, Event, Recipient, SmsOptOutEvent
 from kith.services import contacts as book
-from kith.services import sms
+from kith.services import sms, sms_link
 from kith.services import sms_twilio as twilio
 from kith.web.deps import get_db
 from kith.web.ratelimit import limiter
@@ -128,15 +128,31 @@ async def _read_capped(request: Request) -> bytes | None:
 
 # --- Twilio -------------------------------------------------------------------
 
+def _twilio_candidates(db: Session, settings, account_sid: str) -> list[tuple[str | None, str]]:  # noqa: ANN001
+    """(host user_id, auth token) pairs whose signature this POST might carry.
+
+    Twilio posts the AccountSid with every callback, so the hosts on that
+    account are found without trusting anything else in the body; the site's
+    own Twilio settings are a candidate too, when they exist. Nothing is
+    verified here — the token is what the caller checks the signature with.
+    """
+    out: list[tuple[str | None, str]] = []
+    for link in sms_link.by_twilio_account(db, account_sid):
+        if link.webhook_secret and link.twilio_auth_token:
+            out.append((link.user_id, link.twilio_auth_token))
+    site = sms.SmsConfig.from_settings(settings)
+    if (
+        site is not None and site.provider == "twilio" and site.webhooks_configured
+        and (not account_sid or account_sid == site.twilio_account_sid)
+    ):
+        out.append((None, site.twilio_auth_token))
+    return out
+
+
 @router.post("/sms/webhook/twilio")
 @limiter.limit("240/minute")
 async def twilio_webhook(request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
-    # Gated on the provider as well as the secret: with the gateway configured
-    # there is no auth token for this endpoint to verify against.
-    if not settings.sms_webhooks_configured or settings.sms_provider != "twilio":
-        return _not_here()
-
     raw = await _read_capped(request)
     if raw is None:
         return _too_large()
@@ -151,15 +167,25 @@ async def twilio_webhook(request: Request, db: Session = Depends(get_db)):
     # what it signs; it posts urlencoded forms, never multipart files.
     params = {k: str(v) for k, v in form.items()}
 
+    # Whose callback is this? One URL serves every host's Twilio account, so the
+    # host is found from the AccountSid in the POST, and the signature is then
+    # checked with that host's token. An endpoint with nobody to verify for is
+    # a 404, as before: an endpoint whose signature can never be satisfied is
+    # better off not answering at all.
+    candidates = _twilio_candidates(db, settings, params.get("AccountSid", ""))
+    if not candidates:
+        return _not_here()
     # The configured callback URL, not the URL as this request arrived: a
     # tunnel or proxy rewrites host and scheme, and the signature is over what
     # Twilio was told to call.
-    if not twilio.verify_twilio_signature(
-        settings.sms_twilio_auth_token,
-        settings.sms_status_callback_url,
-        params,
-        request.headers.get(twilio.TWILIO_SIGNATURE_HEADER),
-    ):
+    callback_url = f"{settings.base_url.rstrip('/')}/sms/webhook/twilio"
+    signature = request.headers.get(twilio.TWILIO_SIGNATURE_HEADER)
+    owner: str | None = None
+    for user_id, token in candidates:
+        if twilio.verify_twilio_signature(token, callback_url, params, signature):
+            owner = user_id
+            break
+    else:
         # Debug, not warning: an internet-reachable endpoint attracts unsigned
         # traffic, and a log line per attempt is a flooding vector of its own.
         log.debug("sms webhook: rejected an unsigned or mis-signed Twilio POST")
@@ -188,7 +214,7 @@ async def twilio_webhook(request: Request, db: Session = Depends(get_db)):
             message_id=sid,
             delivered=status in twilio.TWILIO_DELIVERED,
             failed=status in twilio.TWILIO_FAILED,
-        ), provider="twilio")
+        ), provider="twilio", owner=owner)
     return _ok("nothing to record")
 
 
@@ -204,19 +230,39 @@ GATEWAY_RECEIVED = "sms:received"
 @router.post("/sms/webhook/gateway")
 @limiter.limit("240/minute")
 async def gateway_webhook(request: Request, db: Session = Depends(get_db)):
-    settings = get_settings()
+    """The site's own gateway, configured by the operator in KITH_SMS_*."""
+    site = sms.SmsConfig.from_settings(get_settings())
     # Gated on the provider as well as the secret: on a Twilio box this secret
     # is a switch, not a key, and an endpoint it alone unlocked could forge a
     # STOP — or a START — for any number on the site.
-    if not settings.sms_webhooks_configured or settings.sms_provider != "gateway":
+    if site is None or site.provider != "gateway" or not site.webhooks_configured:
         return _not_here()
+    return await _gateway_post(request, db, secret=site.webhook_secret, owner=None, ours="")
 
+
+@router.post("/sms/webhook/gateway/{token}")
+@limiter.limit("240/minute")
+async def host_gateway_webhook(token: str, request: Request, db: Session = Depends(get_db)):
+    """One host's phone. The token in the URL says whose; the signature, keyed
+    with that host's own secret, says it really is theirs."""
+    link = sms_link.by_token(db, token)
+    if link is None or link.provider != "gateway" or not link.webhook_secret:
+        return _not_here()
+    return await _gateway_post(
+        request, db, secret=link.webhook_secret, owner=link.user_id,
+        ours=link.sender_number or "",
+    )
+
+
+async def _gateway_post(
+    request: Request, db: Session, *, secret: str, owner: str | None, ours: str,
+) -> JSONResponse:
     raw = await _read_capped(request)
     if raw is None:
         return _too_large()
 
     if not sms.verify_gateway_webhook(
-        settings.sms_webhook_secret,
+        secret,
         raw,
         request.headers.get(sms.GATEWAY_SIGNATURE_HEADER),
         request.headers.get(sms.GATEWAY_TIMESTAMP_HEADER),
@@ -240,13 +286,15 @@ async def gateway_webhook(request: Request, db: Session = Depends(get_db)):
             message_id=str(payload.get("messageId") or ""),
             delivered=event == GATEWAY_DELIVERED,
             failed=event in GATEWAY_FAILED,
-        ), provider="gateway")
+        ), provider="gateway", owner=owner)
     if event == GATEWAY_RECEIVED:
         return _ok(_record_inbound(db, _Inbound(
             sender=str(payload.get("sender") or ""),
             body=str(payload.get("message") or ""),
             message_id=str(payload.get("messageId") or ""),
-            reference=str(payload.get("recipient") or ""),
+            # The phone's own number, if the host told us it, stands in when
+            # the payload doesn't say which SIM the message came in on.
+            reference=str(payload.get("recipient") or ours or ""),
         ), provider="gateway"))
     # Not reflected verbatim: it is caller-controlled, so it is capped.
     return _ok(f"ignored {event[:40] or 'unknown event'}")
@@ -254,19 +302,21 @@ async def gateway_webhook(request: Request, db: Session = Depends(get_db)):
 
 # --- what the two of them share -----------------------------------------------
 
-def _record_receipt(db: Session, receipt: _Receipt, *, provider: str) -> JSONResponse:
+def _record_receipt(
+    db: Session, receipt: _Receipt, *, provider: str, owner: str | None,
+) -> JSONResponse:
     if not receipt.message_id:
         return _ok("nothing to record")
-    # Matched on the provider's message id alone. The WhatsApp ack scopes its
-    # match to the reporting session to stop one account stamping a receipt onto
-    # another's recipient; SMS has no equivalent, because the channel is
-    # instance-level — one provider account for the whole site, so a callback
-    # carries no per-user identity to scope by. The id is opaque and
-    # provider-generated, and reaching this line already required a valid
-    # signature.
-    r = db.execute(
-        select(Recipient).where(Recipient.sms_message_id == receipt.message_id)
-    ).scalars().first()
+    # Matched on the provider's message id, scoped to the host the callback was
+    # verified for when there is one — the same scoping the WhatsApp ack does by
+    # session, so one host's phone can never stamp a receipt onto another's
+    # recipient. A callback for the site's own provider has no host, and there
+    # the id alone has to do: it is opaque and provider-generated, and reaching
+    # this line already required a valid signature.
+    q = select(Recipient).where(Recipient.sms_message_id == receipt.message_id)
+    if owner is not None:
+        q = q.join(Event, Event.id == Recipient.event_id).where(Event.user_id == owner)
+    r = db.execute(q).scalars().first()
     if r is None:
         # Ordinary enough: receipts arrive for messages sent before a database
         # reset, or for another instance sharing the provider account.

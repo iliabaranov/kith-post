@@ -335,7 +335,10 @@ def _send_event(client, monkeypatch, handler, *, to=TO):
         follow_redirects=False,
     )
     ev_id = r.headers["location"].split("/events/")[1].split("?")[0]
-    monkeypatch.setattr(sms_module, "get_provider", lambda settings: _provider(handler))
+    # provider_from, not get_provider: the send path resolves this host's
+    # configuration (their own row, or the site's settings) and asks for a
+    # provider for that, so the wrapper is no longer on the path.
+    monkeypatch.setattr(sms_module, "provider_from", lambda config: _provider(handler))
     db = make_session_factory(make_engine(get_settings().db_path))()
     user = db.execute(select(User)).scalars().first()
     res = sender.send_event(db, db.get(Event, ev_id), user, get_settings())

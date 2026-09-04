@@ -193,46 +193,124 @@ class NullProvider:
         return SmsCaps()
 
 
-def get_provider(settings) -> SmsProvider:  # noqa: ANN001 — a Settings
-    """The provider this instance is configured for.
+PROVIDER_NAMES = frozenset({"twilio", "gateway"})
 
-    SMS is instance-level: one provider for the box, chosen by the operator,
-    rather than something each host links for themselves the way WhatsApp is.
-    Concrete providers are reached only once ``sms_configured`` says the
-    channel can actually send.
 
-    An unrecognised provider name falls through to NullProvider rather than
-    raising here: a typo in the config should stop the send loudly at the point
-    of sending, not take the whole app down at import.
+@dataclass(frozen=True)
+class SmsConfig:
+    """Everything a provider needs, from wherever it was configured.
+
+    Two sources produce one of these: the operator's ``KITH_SMS_*`` settings
+    (the site-wide default) and a host's own row on ``/account/sms``
+    (``services.sms_link``). The send path, the scheduler and the webhooks work
+    from this and never ask which; ``source`` is kept only so a page can say
+    where the settings came from. ``webhook_secret`` doubles as the switch for
+    receipts, exactly as ``KITH_SMS_WEBHOOK_SECRET`` does for the site.
     """
-    if not settings.sms_configured:
-        # Off, or on with no usable provider: fail loudly at the point of
-        # sending rather than reach a half-configured transport.
+
+    provider: str
+    source: str = "site"                       # "site" | "host"
+    gateway_url: str = ""
+    gateway_user: str = ""
+    gateway_pass: str = ""
+    gateway_path: str = ""
+    gateway_device_id: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from: str = ""
+    twilio_messaging_service_sid: str = ""
+    sender_number: str = ""                    # the number guests see, if known
+    self_number: str = ""                      # where a self-only send goes
+    webhook_secret: str = ""
+    status_callback: str = ""                  # Twilio receipts, "" for none
+    timeout: float = 20.0
+
+    @property
+    def configured(self) -> bool:
+        """Can this actually send: a known provider with its required fields."""
+        if self.provider == "twilio":
+            return bool(
+                self.twilio_account_sid
+                and self.twilio_auth_token
+                and (self.twilio_from or self.twilio_messaging_service_sid)
+            )
+        if self.provider == "gateway":
+            return bool(self.gateway_url and self.gateway_user and self.gateway_pass)
+        return False
+
+    @property
+    def webhooks_configured(self) -> bool:
+        return bool(self.configured and self.webhook_secret)
+
+    @classmethod
+    def from_settings(cls, settings) -> SmsConfig | None:  # noqa: ANN001 — a Settings
+        """The site-wide default, or None when the operator left it off."""
+        if not settings.sms_enabled:
+            return None
+        return cls(
+            provider=settings.sms_provider,
+            source="site",
+            gateway_url=settings.sms_gateway_url,
+            gateway_user=settings.sms_gateway_user,
+            gateway_pass=settings.sms_gateway_pass,
+            gateway_path=settings.sms_gateway_path,
+            gateway_device_id=settings.sms_gateway_device_id,
+            twilio_account_sid=settings.sms_twilio_account_sid,
+            twilio_auth_token=settings.sms_twilio_auth_token,
+            twilio_from=settings.sms_twilio_from,
+            twilio_messaging_service_sid=settings.sms_twilio_messaging_service_sid,
+            sender_number=settings.sms_twilio_from,
+            self_number=settings.sms_self_number,
+            webhook_secret=settings.sms_webhook_secret,
+            status_callback=settings.sms_status_callback_url,
+            timeout=settings.sms_timeout_seconds,
+        )
+
+
+def provider_from(config: SmsConfig | None) -> SmsProvider:
+    """The provider for a resolved configuration.
+
+    Concrete providers are reached only once ``configured`` says the channel
+    can actually send; anything else is a NullProvider, which fails loudly at
+    the point of sending rather than reaching a half-configured transport. An
+    unrecognised provider name falls through the same way: a typo should stop
+    the send with a logged reason, not take the app down at import.
+    """
+    if config is None or not config.configured:
+        if config is not None and config.provider not in PROVIDER_NAMES | {"none", ""}:
+            log.warning("sms: unknown provider %r; nothing will send", config.provider)
         return NullProvider()
-    if settings.sms_provider == "twilio":
+    if config.provider == "twilio":
         # Imported lazily so the interface module stays free of transport code
         # and of httpx.
         from kith.services.sms_twilio import TwilioProvider
 
         return TwilioProvider(
-            settings.sms_twilio_account_sid,
-            settings.sms_twilio_auth_token,
-            from_number=settings.sms_twilio_from,
-            messaging_service_sid=settings.sms_twilio_messaging_service_sid,
-            status_callback=settings.sms_status_callback_url,
-            timeout=settings.sms_timeout_seconds,
+            config.twilio_account_sid,
+            config.twilio_auth_token,
+            from_number=config.twilio_from,
+            messaging_service_sid=config.twilio_messaging_service_sid,
+            status_callback=config.status_callback,
+            timeout=config.timeout,
         )
-    if settings.sms_provider == "gateway":
-        from kith.services.sms_gateway import AndroidGatewayProvider
+    from kith.services.sms_gateway import AndroidGatewayProvider
 
-        return AndroidGatewayProvider(
-            settings.sms_gateway_url,
-            settings.sms_gateway_user,
-            settings.sms_gateway_pass,
-            device_id=settings.sms_gateway_device_id,
-            path=settings.sms_gateway_path,
-            timeout=settings.sms_timeout_seconds,
-        )
-    if settings.sms_provider != "none":
-        log.warning("sms: unknown provider %r; nothing will send", settings.sms_provider)
-    return NullProvider()
+    return AndroidGatewayProvider(
+        config.gateway_url,
+        config.gateway_user,
+        config.gateway_pass,
+        device_id=config.gateway_device_id,
+        path=config.gateway_path,
+        timeout=config.timeout,
+    )
+
+
+def get_provider(settings) -> SmsProvider:  # noqa: ANN001 — a Settings
+    """The provider for the site-wide settings alone.
+
+    Kept for callers (and tests) that reason about the operator's configuration
+    by itself. Anything acting for a host goes through
+    ``services.sms_link.config_for`` and :func:`provider_from`, so a host's own
+    settings are honoured.
+    """
+    return provider_from(SmsConfig.from_settings(settings))
