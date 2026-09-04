@@ -23,6 +23,9 @@ os.environ.setdefault("KITH_REMINDERS__SWEEP_SECONDS", "0")
 # (dev-login) baseline; the configured-OAuth test monkeypatches these back.
 os.environ["KITH_GOOGLE_CLIENT_ID"] = ""
 os.environ["KITH_GOOGLE_CLIENT_SECRET"] = ""
+# And the allow-list: the deploy box's .env restricts sign-in to one address,
+# which would turn the auth tests' fake Google identity into a 403.
+os.environ["KITH_ALLOWED_EMAILS"] = ""
 # Same for the WhatsApp channel: on the deploy box .env has it switched on, and
 # tests that assert the default-off behaviour would read that as the default.
 # Forced off here; the tests that need it monkeypatch it back on.
@@ -31,6 +34,16 @@ os.environ["KITH_WAHA_API_KEY"] = ""
 # ...and the receipt secret, which the deploy box's .env now has: without this a
 # test asserting receipts are off by default reads the box's real configuration.
 os.environ["KITH_WAHA_WEBHOOK_SECRET"] = ""
+# Same treatment for the SMS channel, for the same reason: it is instance-level,
+# so the moment the deploy box configures a provider its .env would become the
+# default every test sees. Forced off here; the tests that need it set it back.
+os.environ["KITH_SMS_ENABLED"] = "false"
+os.environ["KITH_SMS_PROVIDER"] = "none"
+os.environ["KITH_SMS_WEBHOOK_SECRET"] = ""
+# Never pause between sends in tests: the pacing is proved by its own unit test,
+# and a real gap would add minutes to the suite.
+os.environ.setdefault("KITH_SMS_SEND_GAP_MIN_SECONDS", "0")
+os.environ.setdefault("KITH_SMS_SEND_GAP_MAX_SECONDS", "0")
 # Rate limiting is per-client and in-memory, so its counters would bleed across
 # the in-process suite and make unrelated tests flaky. Off by default here; the
 # dedicated test flips the limiter back on to prove it works.

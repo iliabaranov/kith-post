@@ -17,6 +17,20 @@
   </p>
   {% endif %}
 
+  {% if sms_on %}
+  <p class="reassure">
+    Text messages: on{% if sms_source == "host" %}, through your
+    {{ "phone" if sms_provider == "gateway" else "Twilio account" }}{% else %}, provided by this site{% endif %}
+    {%- if sms_offer %} · <a class="link" href="/account/sms">manage</a>{% endif %}
+  </p>
+  {% elif sms_offer %}
+  <p class="reassure">Text messages: not set up · <a class="link" href="/account/sms">set it up</a></p>
+  {% elif settings.sms_enabled %}
+  {# Switched on by the operator but a credential is missing — the failure they
+     are most likely to hit, and the one place saying so costs nothing. #}
+  <p class="reassure">Text messages: switched on, but not finished setting up — ask whoever runs this site.</p>
+  {% endif %}
+
   <div class="account-actions">
     <a class="btn btn-quiet" href="/account/export">Download my data (JSON)</a>
     <form method="post" action="/account/delete"

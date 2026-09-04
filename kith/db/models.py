@@ -167,8 +167,10 @@ class Recipient(Base):
 
     A recipient is reached over exactly one channel. ``channel`` is NULL on every
     row written before the WhatsApp channel existed, which is why NULL means
-    email — see ``CHANNEL_EMAIL``. For a WhatsApp recipient ``email`` is "" and
-    ``phone`` holds the E.164 number; ``email`` stays NOT NULL because the
+    email — see ``CHANNEL_EMAIL``. For a WhatsApp or SMS recipient ``email`` is
+    "" and ``phone`` holds the E.164 number, which is why the channel column
+    rather than the number is what says which of the two it is;
+    ``email`` stays NOT NULL because the
     additive schema sync (and SQLite) can't loosen an existing column, and a
     table rebuild on a live database isn't worth it for a sentinel.
     """
@@ -180,7 +182,7 @@ class Recipient(Base):
         ForeignKey("events.id", ondelete="CASCADE"), index=True
     )
     email: Mapped[str] = mapped_column(EncryptedString)
-    # "email" (or NULL, for rows that predate the channel) | "whatsapp"
+    # "email" (or NULL, for rows that predate the channel) | "whatsapp" | "sms"
     channel: Mapped[str | None] = mapped_column(String, nullable=True)
     phone: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     name: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
@@ -209,6 +211,20 @@ class Recipient(Base):
     )
     # Highest ack seen: -1 error, 0 pending, 1 server, 2 device, 3 read, 4 played.
     wa_ack: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The provider's own id for an SMS send, so a delivery receipt arriving later
+    # can be matched back to the recipient it belongs to.
+    sms_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The carrier said it arrived. There is no read receipt for SMS, so this is
+    # the only delivery fact the channel offers — and, like the wa_* pair above,
+    # it is kept well away from `first_open_at`: a delivery is not an open.
+    sms_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # The carrier refused it. Kept because it is the host's only signal that a
+    # number is bad — without it a text that never arrived reads "sent" for ever.
+    sms_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     msg_id_hdr: Mapped[str | None] = mapped_column(String, nullable=True)  # Gmail resource id
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True)   # Gmail threadId
     # RFC822 Message-ID we stamp on the first send; reminders/re-sends reference it
@@ -238,3 +254,99 @@ class Reminder(Base):
     skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)  # past|engaged|capped
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SmsOptOutEvent(Base):
+    """One STOP or START reply, as it arrived. Append-only; deleted by nobody.
+
+    The suppression list is "every number whose latest event is a stop" — see
+    ``services.send.opted_out_hashes``. It is a table of its own, keyed on the
+    number's blind index, because the two obvious homes for a flag are both the
+    host's to delete: a recipient row goes with its event, a contact with the
+    address book, and an opt-out has to outlive both. No FK, no cascade and no
+    user_id — the site texts from one number, so a STOP binds every host on it.
+    Holding a hash rather than the number is what lets it survive an account
+    delete without keeping anything readable.
+    """
+
+    __tablename__ = "sms_opt_out_events"
+
+    # Integer and ascending, unlike the UUID ids elsewhere: "latest per number"
+    # is the one query this table exists for, and max(id) answers it.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    phone_hash: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String)          # "stop" | "start"
+    source: Mapped[str] = mapped_column(String)        # "twilio" | "gateway"
+    # The provider's id for the inbound message. Unique, so a replayed POST —
+    # Twilio's signature carries no timestamp — records nothing a second time.
+    message_sid: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SmsLink(Base):
+    """A host's own SMS provider — their phone as the sender, or their Twilio.
+
+    The per-host counterpart of the WhatsApp link, with one structural
+    difference: WhatsApp's credentials live in WAHA's volume and we keep only a
+    session name, whereas here there is no external vault, so the credentials
+    themselves are ours to hold. Every secret and every phone number is an
+    ``EncryptedString``; what stays readable is what a lookup needs — the
+    Twilio account SID, which a status callback carries and is how the webhook
+    finds the host it belongs to, and the random URL token that does the same
+    job for the gateway. One row per host: a host has one way of texting at a
+    time, and switching provider replaces it.
+    """
+
+    __tablename__ = "sms_links"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    provider: Mapped[str] = mapped_column(String)            # "gateway" | "twilio"
+
+    # --- the phone route (capcom6 SMS Gateway for Android) ---
+    gateway_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    gateway_user: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    gateway_pass: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    gateway_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    gateway_device_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The app's message-encryption passphrase (Settings -> Encryption on the
+    # phone). Set: text and numbers leave here as ciphertext only the phone can
+    # read. Unset: plaintext, which over a tailnet or LAN is still inside an
+    # encrypted hop. See kith.services.sms_crypto.
+    gateway_passphrase: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+
+    # --- the Twilio route ---
+    # Plain and indexed on purpose: Twilio posts AccountSid with every callback,
+    # and it is how an inbound STOP is matched to the host whose token verifies
+    # it. Not a secret — it is in every Twilio URL.
+    twilio_account_sid: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    twilio_auth_token: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    twilio_from: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    twilio_messaging_service_sid: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # The number guests see the texts come from — the SIM in the gateway phone,
+    # or the Twilio number. Optional for the gateway; it is what lets a STOP
+    # that arrives as a national number ("6505551212") be resolved to E.164.
+    sender_number: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    # Where a self-only test send goes. This host's, not the site's.
+    self_number: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+
+    # Generated here and typed into the gateway app as its webhook signing key.
+    # Twilio does not use it: its callbacks are verified with the auth token.
+    webhook_secret: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    # Routes the gateway's POSTs to this host: /sms/webhook/gateway/<token>.
+    # Random and unique, but not a credential — the signature is the credential.
+    webhook_token: Mapped[str] = mapped_column(String, unique=True, index=True)
+    webhooks_registered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # What the page shows as status. A test send is the only way to learn the
+    # credentials work before a real card depends on them.
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
